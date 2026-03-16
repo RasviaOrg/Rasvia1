@@ -1351,7 +1351,7 @@ export default function ProfileSettingsScreen() {
             </Animated.View>
           )}
 
-          {/* Settings List — always shown */}
+          {/* Settings List — always shown (without legal links) */}
           {(!isAdmin || activeTab === 'preferences') && (
             <Animated.View
               entering={FadeInDown.delay(200).duration(500)}
@@ -1460,26 +1460,6 @@ export default function ProfileSettingsScreen() {
                 onPress={() => {
                   if (Platform.OS !== "web") Haptics.selectionAsync();
                   router.push("/favorites" as any);
-                }}
-              />
-              <Divider />
-              <SettingsRow
-                icon={<Shield size={20} color="#888888" />}
-                label="Privacy Policy"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/privacy" as any);
-                }}
-              />
-              <Divider />
-              <SettingsRow
-                icon={<FileText size={20} color="#888888" />}
-                label="Terms of Service"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/terms" as any);
                 }}
               />
             </Animated.View>
@@ -1969,6 +1949,7 @@ export default function ProfileSettingsScreen() {
 
           {/* ==========================================
                       DANGER ZONE — Delete Account
+                      + Legal Links (bottom of page)
               ========================================== */}
           {(!isAdmin && !isRestaurantOwner) && (
             <Animated.View
@@ -1982,6 +1963,7 @@ export default function ProfileSettingsScreen() {
                   borderWidth: 1,
                   borderColor: "rgba(239,68,68,0.2)",
                   padding: 20,
+                  marginBottom: 16,
                 }}
               >
                 <Text
@@ -2036,6 +2018,37 @@ export default function ProfileSettingsScreen() {
                     {deletingAccount ? "Deleting…" : "Delete My Account"}
                   </Text>
                 </Pressable>
+              </View>
+
+              {/* Legal Links at very bottom */}
+              <View
+                style={{
+                  backgroundColor: "#1a1a1a",
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: "#2a2a2a",
+                  overflow: "hidden",
+                }}
+              >
+                <SettingsRow
+                  icon={<Shield size={20} color="#888888" />}
+                  label="Privacy Policy"
+                  hasChevron
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    router.push("/privacy" as any);
+                  }}
+                />
+                <Divider />
+                <SettingsRow
+                  icon={<FileText size={20} color="#888888" />}
+                  label="Terms of Service"
+                  hasChevron
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    router.push("/terms" as any);
+                  }}
+                />
               </View>
             </Animated.View>
           )}

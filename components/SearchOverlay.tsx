@@ -480,7 +480,7 @@ function SearchResultCard({
   onPress: () => void;
 }) {
   return (
-    <Animated.View entering={FadeInDown.delay(index * 40).duration(250)}>
+    <Animated.View entering={FadeInDown.duration(220)}>
       <Pressable
         onPress={onPress}
         style={{
