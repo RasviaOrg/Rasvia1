@@ -76,6 +76,8 @@ import {
   type GroupMember,
 } from "@/data/mockData";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ExpoClipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const HERO_HEIGHT = SCREEN_HEIGHT * 0.42;
@@ -1320,9 +1322,32 @@ export default function RestaurantDetail() {
             setLockCheckoutOrderType(false);
             setShowCheckout(true);
           }}
-          onShare={() =>
-            Alert.alert("Share Cart", "Group link copied to clipboard!")
-          }
+          onShare={async () => {
+            if (!session?.user?.id) return;
+            const key = `rasvia:active_group_order:${session.user.id}`;
+            const raw = await AsyncStorage.getItem(key);
+            if (!raw) {
+              Alert.alert("Share Cart", "No active group session found.");
+              return;
+            }
+            try {
+              const stored = JSON.parse(raw);
+              const sessionId = stored?.sessionId;
+              if (!sessionId) {
+                Alert.alert("Share Cart", "No active group session found.");
+                return;
+              }
+              const shareUrl = Linking.createURL(`/join/${sessionId}`);
+              if (Platform.OS === "web") {
+                await navigator.clipboard?.writeText(shareUrl);
+              } else {
+                await ExpoClipboard.setStringAsync(shareUrl);
+              }
+              Alert.alert("Share Cart", "Group link copied to clipboard!");
+            } catch {
+              Alert.alert("Share Cart", "Could not copy link.");
+            }
+          }}
         />
       )}
 

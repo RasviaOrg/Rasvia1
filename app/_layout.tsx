@@ -264,35 +264,34 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  const [bricolageLoaded] = useBricolage({
+  const [bricolageLoaded, bricolageError] = useBricolage({
     BricolageGrotesque_800ExtraBold,
     BricolageGrotesque_700Bold,
   });
 
-  const [manropeLoaded] = useManrope({
+  const [manropeLoaded, manropeError] = useManrope({
     Manrope_500Medium,
     Manrope_600SemiBold,
     Manrope_700Bold,
   });
 
-  const [jetbrainsLoaded] = useJetBrains({
+  const [jetbrainsLoaded, jetbrainsError] = useJetBrains({
     JetBrainsMono_600SemiBold,
   });
 
-  const fontsLoaded = bricolageLoaded && manropeLoaded && jetbrainsLoaded;
+  const fontsReady =
+    (bricolageLoaded || bricolageError) &&
+    (manropeLoaded || manropeError) &&
+    (jetbrainsLoaded || jetbrainsError);
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsReady]);
 
-  if (!fontsLoaded) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" color="#FF9933" />
-      </View>
-    );
+  if (!fontsReady) {
+    return null;
   }
 
   return (

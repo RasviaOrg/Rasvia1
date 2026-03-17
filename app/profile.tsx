@@ -305,7 +305,7 @@ export default function ProfileSettingsScreen() {
     const changed =
       city !== origCity ||
       dietaryType !== origDietary ||
-      JSON.stringify(restrictedDays.sort()) !== JSON.stringify(origDays.sort());
+      JSON.stringify([...restrictedDays].sort()) !== JSON.stringify([...origDays].sort());
     setPrefsChanged(changed);
   }, [
     city,

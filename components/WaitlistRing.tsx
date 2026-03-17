@@ -34,7 +34,9 @@ export function WaitlistRing({
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
-  const progressPercent = ((totalInQueue - position + 1) / totalInQueue);
+  const progressPercent = totalInQueue > 0
+    ? Math.min(1, Math.max(0, (totalInQueue - position + 1) / totalInQueue))
+    : 0;
 
   useEffect(() => {
     progress.value = withTiming(progressPercent, {

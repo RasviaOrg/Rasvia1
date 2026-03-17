@@ -15,7 +15,6 @@ export async function testSupabaseConnection() {
         }
 
         console.log('✅ Supabase connected successfully!');
-        console.log('Session data:', data);
         return true;
     } catch (error) {
         console.error('Supabase connection test failed:', error);

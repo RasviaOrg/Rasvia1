@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -73,19 +73,19 @@ export default function DiscoveryFeed() {
   // ==================================================
   // THE "CHALO" REALTIME ENGINE
   // ==================================================
+  const userCoordsRef = useRef(userCoords);
+  userCoordsRef.current = userCoords;
+
   useEffect(() => {
     fetchRestaurants();
 
-    // This listens for changes to 'restaurants' table
     const subscription = supabase
       .channel('public:restaurants')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'restaurants' },
         (payload) => {
-          console.log('Realtime Update:', payload);
-          // Instant UI update without refreshing
-          const updatedRestaurant = mapSupabaseToUI(payload.new as SupabaseRestaurant, userCoords);
+          const updatedRestaurant = mapSupabaseToUI(payload.new as SupabaseRestaurant, userCoordsRef.current);
           setRestaurants((currentData) =>
             currentData.map((item) =>
               item.id === updatedRestaurant.id ? updatedRestaurant : item

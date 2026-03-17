@@ -388,13 +388,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   // Refresh when session changes
   // ==========================================
   useEffect(() => {
-    // Cleanup old channels
     channelsRef.current.forEach((ch) => supabase.removeChannel(ch));
     channelsRef.current = [];
     watchedEntryIds.current.clear();
 
     refreshActive();
-  }, [session?.user?.id]);
+  }, [session?.user?.id, refreshActive]);
 
   // Also refresh every 60s to catch any missed updates
   useEffect(() => {
@@ -461,12 +460,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const clearAll = useCallback(async () => {
-    // Add all currently visible active entries to dismissed so they don't come back
     setActiveEntries((prev) => {
       prev.forEach((e) => dismissedIdsRef.current.add(e.entryId));
-      saveDismissedIds(dismissedIdsRef.current);
       return [];
     });
+    saveDismissedIds(dismissedIdsRef.current);
     setEvents([]);
     await AsyncStorage.removeItem(STORAGE_KEY);
   }, []);

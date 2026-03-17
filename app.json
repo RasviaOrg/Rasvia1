@@ -7,13 +7,18 @@
     "icon": "./assets/images/icon.png",
     "scheme": "rasvia",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rasvia.app"
+      "bundleIdentifier": "com.rasvia.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.rasvia.app",
+      "versionCode": 1,
       "backgroundColor": "#0f0f0f",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -37,7 +42,20 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Rasvia uses your location to show nearby Indian restaurants and calculate distances."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Rasvia needs access to your photos to set your profile picture.",
+          "cameraPermission": "Rasvia needs camera access to take a profile photo."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

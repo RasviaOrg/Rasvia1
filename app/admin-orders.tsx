@@ -371,7 +371,7 @@ function OrderCard({
                         </View>
                     ))}
 
-                    {order.notes !== "" && (
+                    {(order.notes ?? "") !== "" && (
                         <View style={{ backgroundColor: "#0f0f0f", borderRadius: 10, padding: 10, marginTop: 6, marginBottom: 10 }}>
                             <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12 }}>📝 {order.notes}</Text>
                         </View>
@@ -512,7 +512,7 @@ export default function AdminOrdersScreen() {
         if (mealFilter !== "all") { if (o.mealPeriod !== mealFilter) return false; }
 
         // Table number
-        if (tableFilter.trim()) { if (!o.tableNumber.toLowerCase().includes(tableFilter.toLowerCase())) return false; }
+        if (tableFilter.trim()) { if (!(o.tableNumber ?? "").toLowerCase().includes(tableFilter.toLowerCase())) return false; }
 
         return true;
     });

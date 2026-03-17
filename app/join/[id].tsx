@@ -325,7 +325,7 @@ export default function JoinPartyScreen() {
                 addEvent({
                     type: 'group_submitted',
                     restaurantName,
-                    restaurantId: String(sessionId),
+                    restaurantId: String(restaurantId),
                     entryId: String(sessionId),
                     partySize: cartItems.length,
                     timestamp: new Date().toISOString(),
@@ -383,7 +383,7 @@ export default function JoinPartyScreen() {
             addEvent({
                 type: 'group_joined',
                 restaurantName,
-                restaurantId: String(sessionId),
+                restaurantId: String(restaurantId),
                 entryId: String(sessionId),
                 partySize: 1,
                 timestamp: new Date().toISOString(),
@@ -495,7 +495,7 @@ export default function JoinPartyScreen() {
         addEvent({
             type: 'group_submitted',
             restaurantName,
-            restaurantId: String(sessionId),
+            restaurantId: String(restaurantId),
             entryId: String(sessionId),
             partySize: cartItems.length,
             timestamp: new Date().toISOString(),
@@ -615,7 +615,7 @@ export default function JoinPartyScreen() {
                                         addEvent({
                                             type: 'group_submitted',
                                             restaurantName,
-                                            restaurantId: String(sessionId),
+                                            restaurantId: String(restaurantId),
                                             entryId: String(sessionId),
                                             partySize: cartItems.length,
                                             timestamp: new Date().toISOString(),
@@ -653,7 +653,7 @@ export default function JoinPartyScreen() {
                                         addEvent({
                                             type: 'group_submitted',
                                             restaurantName,
-                                            restaurantId: String(sessionId),
+                                            restaurantId: String(restaurantId),
                                             entryId: String(sessionId),
                                             partySize: cartItems.length,
                                             timestamp: new Date().toISOString(),

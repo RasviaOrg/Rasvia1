@@ -183,8 +183,8 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
     } else {
       const matchIds = searchTrie(restaurantTrie, query);
       list = Array.from(matchIds)
-        .map((id) => restaurantMap.get(id)!)
-        .filter(Boolean);
+        .map((id) => restaurantMap.get(id))
+        .filter((r): r is UIRestaurant => r != null);
     }
 
     if (sortBy === "waitTime") {

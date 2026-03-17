@@ -92,7 +92,7 @@ export default function TermsOfServiceScreen() {
                     </Text>
 
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#666", fontSize: 12, marginTop: 40, textAlign: "center" }}>
-                        Last Updated: {new Date().toLocaleDateString()}
+                        Last Updated: March 16, 2026
                     </Text>
                 </ScrollView>
             </SafeAreaView>

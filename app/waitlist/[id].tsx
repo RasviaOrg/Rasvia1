@@ -447,7 +447,7 @@ export default function WaitlistStatus() {
                   await supabase.from('party_sessions').update({ status: 'cancelled' }).eq('id', existing.id);
                   if (activeOrderKey) await AsyncStorage.removeItem(activeOrderKey);
                   if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                  handleStartGroupOrder();
+                  Alert.alert("Cancelled", "Tap 'Share & Start Group Order' again to start your new group order.");
                 } catch {
                   Alert.alert("Error", "Could not cancel the existing order.");
                 }
