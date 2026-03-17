@@ -36,6 +36,7 @@ import {
   UtensilsCrossed,
   Leaf,
   AlertTriangle,
+  ShieldCheck,
 } from "lucide-react-native";
 import Animated, {
   useAnimatedStyle,
@@ -1022,66 +1023,123 @@ export default function RestaurantDetail() {
             </View>
           )}
 
-          {/* Veg / Non-Veg indicator */}
+          {/* Veg / Non-Veg + Halal indicators */}
           {(() => {
-            // Determine if this restaurant is vegetarian
-            const isVegRestaurant = (restaurant?.tags ?? []).some(
-              (t) => t.toLowerCase().includes("vegetarian") || t.toLowerCase().includes("vegan")
+            const tags = (restaurant?.tags ?? []);
+            const lowerTags = tags.map((t) => t.toLowerCase());
+
+            // Vegetarian restaurant detection
+            const isVegRestaurant = lowerTags.some(
+              (t) => t.includes("vegetarian") || t.includes("vegan")
             );
 
             // Determine today's day name (CST/CDT)
             const todayName = new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'short' });
 
-            // Show indicator?
-            const isVegUser = userDietaryType === "Vegetarian" || userDietaryType === "Halal";
+            // Show veg indicator?
+            const isVegUser = userDietaryType === "Vegetarian";
             const isTodayRestrictedDay = userDietaryType === "Non-Veg" && userRestrictedDays.includes(todayName);
-            const shouldShow = isVegUser || isTodayRestrictedDay;
+            const shouldShowVeg = isVegUser || isTodayRestrictedDay;
 
-            if (!shouldShow) return null;
+            // Halal indicator – only for users who selected Halal
+            const isHalalUser = userDietaryType === "Halal";
+            const hasHalalTag = lowerTags.some((t) => t.includes("halal"));
+            const explicitAllHalal = lowerTags.some(
+              (t) =>
+                t.includes("all halal") ||
+                t.includes("100% halal") ||
+                t.includes("fully halal") ||
+                t.includes("only halal")
+            );
+            const nonHalalHints = ["non-halal", "non halal", "pork", "alcohol", "wine", "beer"];
+            const hasNonHalalHint = lowerTags.some((t) =>
+              nonHalalHints.some((hint) => t.includes(hint))
+            );
+            const shouldShowHalal = isHalalUser && hasHalalTag;
 
-            if (isVegRestaurant) {
-              return (
-                <View style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 5,
-                  marginTop: 8,
-                  backgroundColor: "rgba(20,184,166,0.08)",
-                  borderRadius: 10,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  alignSelf: "flex-start",
-                  borderWidth: 1,
-                  borderColor: "rgba(20,184,166,0.25)",
-                }}>
-                  <Leaf size={12} color="#14B8A6" />
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#14B8A6", fontSize: 12 }}>
-                    This is a vegetarian restaurant
-                  </Text>
-                </View>
-              );
-            } else {
-              return (
-                <View style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 5,
-                  marginTop: 8,
-                  backgroundColor: "rgba(245,158,11,0.08)",
-                  borderRadius: 10,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  alignSelf: "flex-start",
-                  borderWidth: 1,
-                  borderColor: "rgba(245,158,11,0.25)",
-                }}>
-                  <AlertTriangle size={12} color="#F59E0B" />
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#F59E0B", fontSize: 12 }}>
-                    This restaurant may contain non-vegetarian items
-                  </Text>
-                </View>
-              );
-            }
+            if (!shouldShowVeg && !shouldShowHalal) return null;
+
+            return (
+              <>
+                {shouldShowVeg && (
+                  isVegRestaurant ? (
+                    <View style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      marginTop: 8,
+                      backgroundColor: "rgba(20,184,166,0.08)",
+                      borderRadius: 10,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      alignSelf: "flex-start",
+                      borderWidth: 1,
+                      borderColor: "rgba(20,184,166,0.25)",
+                    }}>
+                      <Leaf size={12} color="#14B8A6" />
+                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#14B8A6", fontSize: 12 }}>
+                        This is a vegetarian restaurant
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      marginTop: 8,
+                      backgroundColor: "rgba(245,158,11,0.08)",
+                      borderRadius: 10,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      alignSelf: "flex-start",
+                      borderWidth: 1,
+                      borderColor: "rgba(245,158,11,0.25)",
+                    }}>
+                      <AlertTriangle size={12} color="#F59E0B" />
+                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#F59E0B", fontSize: 12 }}>
+                        This restaurant may contain non-vegetarian items
+                      </Text>
+                    </View>
+                  )
+                )}
+
+                {shouldShowHalal && (
+                  <View style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 5,
+                    marginTop: shouldShowVeg ? 6 : 8,
+                    backgroundColor: explicitAllHalal && !hasNonHalalHint
+                      ? "rgba(22,163,74,0.10)"
+                      : "rgba(37,99,235,0.10)",
+                    borderRadius: 10,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    alignSelf: "flex-start",
+                    borderWidth: 1,
+                    borderColor: explicitAllHalal && !hasNonHalalHint
+                      ? "rgba(22,163,74,0.35)"
+                      : "rgba(37,99,235,0.35)",
+                  }}>
+                    <ShieldCheck
+                      size={12}
+                      color={explicitAllHalal && !hasNonHalalHint ? "#22C55E" : "#60A5FA"}
+                    />
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_600SemiBold",
+                        color: explicitAllHalal && !hasNonHalalHint ? "#22C55E" : "#60A5FA",
+                        fontSize: 12,
+                      }}
+                    >
+                      {explicitAllHalal && !hasNonHalalHint
+                        ? "This restaurant is fully halal"
+                        : "This restaurant has halal options and may contain non-halal items"}
+                    </Text>
+                  </View>
+                )}
+              </>
+            );
           })()}
 
           {/* Description */}

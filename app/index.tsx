@@ -237,13 +237,14 @@ export default function DiscoveryFeed() {
 
   // Override waitStatus/waitTime for restaurants closed per their hours
   const restaurantsWithHoursStatus = restaurants.map((r) =>
-    closedRestaurantIds.has(r.id)
+    closedRestaurantIds.has(r.id) || !r.waitlistOpen
       ? { ...r, waitStatus: 'darkgrey' as const, waitTime: -1 }
       : r
   );
 
   const filteredRestaurants = restaurantsWithHoursStatus.filter((r) => {
     if (!isAdmin && !r.isEnabled) return false;
+    if (r.waitStatus === 'darkgrey') return false; // always exclude closed restaurants from Nearby
     if (activeFilter === "all") return true;
     return r.waitStatus === activeFilter;
   });
@@ -263,6 +264,12 @@ export default function DiscoveryFeed() {
   const trendingRestaurants = restaurantsWithHoursStatus
     .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
     .slice(0, 3);
+  
+  const quickBites = restaurantsWithHoursStatus.filter((r) => 
+    (isAdmin || r.isEnabled) && r.waitStatus === "green"
+  );
+
+  const nothingToShow = trendingRestaurants.length === 0 && nearbyRestaurants.length === 0 && quickBites.length === 0;
 
   const handleRestaurantPress = useCallback(
     (id: string) => {
@@ -501,144 +508,172 @@ export default function DiscoveryFeed() {
 
           {/* Trending Section */}
           <View style={{ height: 10 }} />
-          <Animated.View entering={FadeInDown.delay(100).duration(500)}>
-            <View className="px-5 mb-1">
-              <View className="flex-row items-center mb-1">
-                <TrendingUp size={18} color="#FF9933" />
-                <Text
-                  style={{
-                    fontFamily: "BricolageGrotesque_800ExtraBold",
-                    color: "#f5f5f5",
-                    fontSize: 24,
-                    marginLeft: 8,
-                  }}
-                >
-                  Trending Now
-                </Text>
-              </View>
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: "#999999",
-                  fontSize: 14,
-                  marginTop: 2,
-                }}
-              >
-                Popular spots with live wait times
-              </Text>
-            </View>
-          </Animated.View>
-          <View style={{ height: 5 }} />
+          
+          {nothingToShow && (
+             <Animated.View entering={FadeInDown.delay(100).duration(500)}>
+               <View className="px-5 my-8 items-center justify-center">
+                 <Text
+                   style={{
+                     fontFamily: "BricolageGrotesque_600SemiBold",
+                     color: "#999999",
+                     fontSize: 18,
+                     textAlign: "center"
+                   }}
+                 >
+                   it's quiet right now...
+                 </Text>
+               </View>
+             </Animated.View>
+          )}
 
-          {/* Hero Carousel */}
-          <FlatList
-            horizontal
-            data={trendingRestaurants}
-            keyExtractor={(r) => r.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
-            decelerationRate="fast"
-            snapToInterval={SCREEN_WIDTH - 48 + 16}
-            snapToAlignment="start"
-            renderItem={({ item: restaurant, index }) => (
-              <HeroCard
-                restaurant={restaurant}
-                index={index}
-                onPress={() => handleRestaurantPress(restaurant.id)}
+          {trendingRestaurants.length > 0 && (
+            <>
+              <Animated.View entering={FadeInDown.delay(100).duration(500)}>
+                <View className="px-5 mb-1">
+                  <View className="flex-row items-center mb-1">
+                    <TrendingUp size={18} color="#FF9933" />
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_800ExtraBold",
+                        color: "#f5f5f5",
+                        fontSize: 24,
+                        marginLeft: 8,
+                      }}
+                    >
+                      Trending Now
+                    </Text>
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#999999",
+                      fontSize: 14,
+                      marginTop: 2,
+                    }}
+                  >
+                    Popular spots with live wait times
+                  </Text>
+                </View>
+              </Animated.View>
+              <View style={{ height: 5 }} />
+
+              {/* Hero Carousel */}
+              <FlatList
+                horizontal
+                data={trendingRestaurants}
+                keyExtractor={(r) => r.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                decelerationRate="fast"
+                snapToInterval={SCREEN_WIDTH - 48 + 16}
+                snapToAlignment="start"
+                renderItem={({ item: restaurant, index }) => (
+                  <HeroCard
+                    restaurant={restaurant}
+                    index={index}
+                    onPress={() => handleRestaurantPress(restaurant.id)}
+                  />
+                )}
               />
-            )}
-          />
+            </>
+          )}
 
           {/* Filter Section */}
-          <View className="mt-8 mb-4">
-            <View className="px-5 mb-3">
-              <Text
-                style={{
-                  fontFamily: "BricolageGrotesque_800ExtraBold",
-                  color: "#f5f5f5",
-                  fontSize: 24,
-                }}
-              >
-                Nearby
-              </Text>
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: "#999999",
-                  fontSize: 14,
-                  marginTop: 2,
-                }}
-              >
-                Filter by wait time
-              </Text>
-            </View>
-            <FilterBar
-              activeFilter={activeFilter}
-              onFilterChange={handleFilterChange}
-            />
-          </View>
+          {(nearbyRestaurants.length > 0 || activeFilter !== "all") && (
+            <>
+              <View className="mt-8 mb-4">
+                <View className="px-5 mb-3">
+                  <Text
+                    style={{
+                      fontFamily: "BricolageGrotesque_800ExtraBold",
+                      color: "#f5f5f5",
+                      fontSize: 24,
+                    }}
+                  >
+                    Nearby
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#999999",
+                      fontSize: 14,
+                      marginTop: 2,
+                    }}
+                  >
+                    Filter by wait time
+                  </Text>
+                </View>
+                <FilterBar
+                  activeFilter={activeFilter}
+                  onFilterChange={handleFilterChange}
+                />
+              </View>
 
-          {/* Nearby Restaurants List */}
-          <FlatList
-            horizontal
-            data={nearbyRestaurants}
-            keyExtractor={(r) => r.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
-            renderItem={({ item: restaurant, index }) => (
-              <RestaurantListCard
-                restaurant={restaurant}
-                index={index}
-                onPress={() => handleRestaurantPress(restaurant.id)}
+              {/* Nearby Restaurants List */}
+              <FlatList
+                horizontal
+                data={nearbyRestaurants}
+                keyExtractor={(r) => r.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                renderItem={({ item: restaurant, index }) => (
+                  <RestaurantListCard
+                    restaurant={restaurant}
+                    index={index}
+                    onPress={() => handleRestaurantPress(restaurant.id)}
+                  />
+                )}
               />
-            )}
-          />
+            </>
+          )}
 
           {/* Quick Bites Section */}
-          <Animated.View entering={FadeInDown.delay(400).duration(500)}>
-            <View className="px-5 mt-8 mb-4">
-              <View className="flex-row items-center mb-1">
-                <Zap size={18} color="#22C55E" />
-                <Text
-                  style={{
-                    fontFamily: "BricolageGrotesque_800ExtraBold",
-                    color: "#f5f5f5",
-                    fontSize: 24,
-                    marginLeft: 8,
-                  }}
-                >
-                  Quick Bites
-                </Text>
-              </View>
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: "#999999",
-                  fontSize: 14,
-                  marginTop: 2,
-                }}
-              >
-                Under 15 min wait
-              </Text>
-            </View>
-          </Animated.View>
+          {quickBites.length > 0 && (
+            <>
+              <Animated.View entering={FadeInDown.delay(400).duration(500)}>
+                <View className="px-5 mt-8 mb-4">
+                  <View className="flex-row items-center mb-1">
+                    <Zap size={18} color="#22C55E" />
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_800ExtraBold",
+                        color: "#f5f5f5",
+                        fontSize: 24,
+                        marginLeft: 8,
+                      }}
+                    >
+                      Quick Bites
+                    </Text>
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#999999",
+                      fontSize: 14,
+                      marginTop: 2,
+                    }}
+                  >
+                    Under 15 min wait
+                  </Text>
+                </View>
+              </Animated.View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
-          >
-            {restaurantsWithHoursStatus
-              .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus === "green" && !closedRestaurantIds.has(r.id))
-              .map((restaurant, index) => (
-                <RestaurantListCard
-                  key={restaurant.id}
-                  restaurant={restaurant}
-                  index={index}
-                  onPress={() => handleRestaurantPress(restaurant.id)}
-                />
-              ))}
-          </ScrollView>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+              >
+                {quickBites.map((restaurant, index) => (
+                    <RestaurantListCard
+                      key={restaurant.id}
+                      restaurant={restaurant}
+                      index={index}
+                      onPress={() => handleRestaurantPress(restaurant.id)}
+                    />
+                  ))}
+              </ScrollView>
+            </>
+          )}
 
           {/* ── ORDER AGAIN ── */}
           {!personalization.loading && personalization.orderedRestaurantIds.length > 0 && (() => {

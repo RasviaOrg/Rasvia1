@@ -13,13 +13,20 @@ export function useClosedRestaurantIds(): Set<string> {
 
     async function fetchAndCompute() {
         try {
-            // Fetch all restaurant IDs and all hours rows in parallel
+            // Fetch all restaurant IDs and all hours rows in parallel.
+            // IMPORTANT: match the same set the main feed shows — is_enabled = true OR null
+            // (null is treated as enabled in mapSupabaseToUI).
+            // NOTE: PostgREST .neq('is_enabled', false) uses SQL != which EXCLUDES nulls.
+            // Must use .or() to explicitly include nulls.
             const [restaurantsRes, hoursRes] = await Promise.all([
-                supabase.from('restaurants').select('id').eq('is_enabled', true),
+                supabase.from('restaurants')
+                    .select('id, waitlist_open')
+                    .or('is_enabled.eq.true,is_enabled.is.null'),
                 supabase.from('restaurant_hours').select('restaurant_id, day_of_week, open_time, close_time'),
             ]);
 
-            const allIds: string[] = (restaurantsRes.data ?? []).map((r: any) => String(r.id));
+            const restaurantsList = restaurantsRes.data ?? [];
+            const allIds: string[] = restaurantsList.map((r: any) => String(r.id));
 
             // Group hours by restaurant_id
             const grouped: Record<number, RestaurantHour[]> = {};
@@ -30,7 +37,14 @@ export function useClosedRestaurantIds(): Set<string> {
 
             const closed = new Set<string>();
 
-            for (const id of allIds) {
+            for (const r of restaurantsList) {
+                const id = String(r.id);
+                // Manually closed via waitlist toggle
+                if (r.waitlist_open === false) {
+                    closed.add(id);
+                    continue;
+                }
+
                 const hours = grouped[Number(id)];
                 // No hours rows → treat as closed (hours unavailable)
                 if (!hours || hours.length === 0) {

@@ -1081,7 +1081,7 @@ function ZoomedInMarker({ restaurant, isClosed }: { restaurant: UIRestaurant; is
             marginLeft: 3,
           }}
         >
-          {restaurant.queueLength}
+          {isClosed ? 0 : restaurant.queueLength}
         </Text>
         <Text
           style={{
@@ -1323,7 +1323,7 @@ function SelectedRestaurantCard({
                   marginLeft: 4,
                 }}
               >
-                {restaurant.queueLength}
+                {isClosed ? 0 : restaurant.queueLength}
               </Text>
               <Text
                 style={{
