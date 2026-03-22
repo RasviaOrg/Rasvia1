@@ -185,7 +185,7 @@ export default function AuthScreen() {
 
                 if (data.user) {
                     const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
-                    const { error: profileError } = await supabase
+                    await supabase
                         .from('profiles')
                         .upsert({
                             id: data.user.id,
@@ -194,10 +194,14 @@ export default function AuthScreen() {
                             phone_number: phone.replace(/\D/g, "").trim(),
                             created_at: new Date().toISOString(),
                         });
-                    if (profileError) {
-                        setNotification({ visible: true, message: "Account created, but couldn't save profile details. Please update in Settings.", type: "error" });
-                    }
                 }
+
+                // Navigate to the dedicated email verification screen
+                router.replace({
+                    pathname: "/email-verify" as any,
+                    params: { email: email.trim() },
+                });
+                return;
             } else if (usePhone) {
                 // Phone sign-in: look up email stored in profiles, then sign in with password
                 const rawPhone = phoneSignIn.replace(/\D/g, "").trim();
@@ -225,11 +229,19 @@ export default function AuthScreen() {
             }
         } catch (error: any) {
             const message = error.message || "Something went wrong.";
+            let friendlyMessage = message;
+            if (message.includes("already registered")) {
+                friendlyMessage = "This account already exists.\nPlease sign in instead.";
+            } else if (
+                message.toLowerCase().includes("email not confirmed") ||
+                message.toLowerCase().includes("email_not_confirmed") ||
+                message.toLowerCase().includes("not confirmed")
+            ) {
+                friendlyMessage = "Please verify your email before signing in.\nCheck your inbox for the link from Rasvia.";
+            }
             setNotification({
                 visible: true,
-                message: message.includes("already registered")
-                    ? "This account already exists.\nPlease sign in instead."
-                    : message,
+                message: friendlyMessage,
                 type: "error",
             });
         } finally {

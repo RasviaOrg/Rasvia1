@@ -115,8 +115,8 @@ function AuthGate() {
 
     const inAuthScreen = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
-    // Allow unauthenticated access to legal pages
-    const inPublicRoute = inAuthScreen || segments[0] === "terms" || segments[0] === "privacy";
+    // Allow unauthenticated access to legal pages and email-verify landing
+    const inPublicRoute = inAuthScreen || (segments[0] as string) === "terms" || (segments[0] as string) === "privacy" || (segments[0] as string) === "email-verify";
 
     if (!session && !inPublicRoute) {
       router.replace("/auth");
@@ -201,6 +201,7 @@ function AuthGate() {
       })}
     >
       <Stack.Screen name="auth" options={{ headerShown: false, animation: "fade" }} />
+      <Stack.Screen name="email-verify" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen
