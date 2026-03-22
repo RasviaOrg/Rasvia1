@@ -94,6 +94,9 @@ export default function CuisinePage() {
         : r
     )
     .sort((a, b) => {
+    const aClosed = a.waitStatus === 'darkgrey';
+    const bClosed = b.waitStatus === 'darkgrey';
+    if (aClosed !== bClosed) return aClosed ? 1 : -1;
     if (sortBy === "distance") {
       const da = parseFloat(a.distance) || 9999;
       const db = parseFloat(b.distance) || 9999;

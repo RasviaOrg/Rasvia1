@@ -552,10 +552,10 @@ function NotificationRow({
   onDismiss: () => void;
   isLast: boolean;
 }) {
+  const swipeableRef = useRef<Swipeable>(null);
   const cfg = EVENT_CONFIG[event.type];
   if (!cfg) return null;
   const Icon = cfg.icon;
-  const swipeableRef = useRef<Swipeable>(null);
 
   const renderRightActions = (
     _progress: RNAnimated.AnimatedInterpolation<number>,

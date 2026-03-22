@@ -51,7 +51,8 @@ export function useClosedRestaurantIds(): Set<string> {
                     closed.add(id);
                     continue;
                 }
-                if (getRestaurantStatus(hours).status === 'closed') {
+                const status = getRestaurantStatus(hours).status;
+                if (status === 'closed' || status === 'opening_soon') {
                     closed.add(id);
                 }
             }

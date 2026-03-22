@@ -194,6 +194,7 @@ function EditableMenuItem({
       localUpdate.description = editValue.trim();
     } else if (editField === "category") {
       updateData.category_id = null;
+      updateData.category = editValue.trim();
       localUpdate.category = editValue.trim();
     }
 

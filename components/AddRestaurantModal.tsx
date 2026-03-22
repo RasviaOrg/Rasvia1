@@ -43,18 +43,20 @@ export function AddRestaurantModal({
 
     setSaving(true);
     try {
-      const generatedId = Math.floor(Date.now() % 2147483647); // Safe PG integer
+      const cuisineTags = cuisine.trim()
+        ? cuisine.split(",").map(t => t.trim()).filter(Boolean)
+        : ["Various"];
+      const parsedWait = parseInt(waitTime, 10);
       const { error } = await supabase.from("restaurants").insert([
         {
-          id: generatedId,
           name: name.trim(),
           description: description.trim() || null,
           address: address.trim(),
           image_url: imageUrl.trim() || null,
-          cuisine_tags: [cuisine.trim() || "Various"],
+          cuisine_tags: cuisineTags,
           lat: coords.lat,
           long: coords.lng,
-          current_wait_time: waitTime.trim() !== "" ? parseInt(waitTime) : -1,
+          current_wait_time: waitTime.trim() !== "" && !isNaN(parsedWait) ? parsedWait : -1,
           is_waitlist_open: true,
           is_enabled: true,
           rating: 0,

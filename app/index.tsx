@@ -8,6 +8,7 @@ import {
   Dimensions,
   Alert,
   Platform,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -41,7 +42,8 @@ import { useNotifications } from "@/lib/notifications-context";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { usePersonalization } from "@/hooks/usePersonalization";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+let SCREEN_WIDTH = Dimensions.get("window").width;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 
 interface ActiveGroupOrder {
   sessionId: string;
@@ -63,6 +65,7 @@ export default function DiscoveryFeed() {
   const [showSearch, setShowSearch] = useState(false);
   const [activeGroupOrder, setActiveGroupOrder] = useState<ActiveGroupOrder | null>(null);
   const personalization = usePersonalization();
+  const [refreshing, setRefreshing] = useState(false);
 
   // ==================================================
   // STATE MANAGEMENT - Replace Mock Data
@@ -118,7 +121,7 @@ export default function DiscoveryFeed() {
         throw error;
       }
       if (data) {
-        const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userCoords));
+        const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userCoordsRef.current));
         setRestaurants(uiRestaurants);
       }
     } catch (error) {
@@ -445,6 +448,18 @@ export default function DiscoveryFeed() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setRefreshing(true);
+                fetchRestaurants().finally(() => setRefreshing(false));
+              }}
+              tintColor="#FF9933"
+              colors={["#FF9933"]}
+            />
+          }
         >
           {/* Active Group Order Banner */}
           {activeGroupOrder && (

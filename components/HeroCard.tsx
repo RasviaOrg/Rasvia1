@@ -10,7 +10,8 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+let SCREEN_WIDTH = Dimensions.get("window").width;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 const CARD_WIDTH = SCREEN_WIDTH - 48;
 
 interface HeroCardProps {

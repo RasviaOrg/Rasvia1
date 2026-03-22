@@ -80,7 +80,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ExpoClipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+let SCREEN_WIDTH = Dimensions.get("window").width;
+let SCREEN_HEIGHT = Dimensions.get("window").height;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; SCREEN_HEIGHT = window.height; });
 const HERO_HEIGHT = SCREEN_HEIGHT * 0.42;
 const COLLAPSED_HEADER_HEIGHT = 100;
 const SCROLL_THRESHOLD = HERO_HEIGHT;

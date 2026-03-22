@@ -33,7 +33,8 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+let SCREEN_WIDTH = Dimensions.get("window").width;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 
 // ==========================================
 // CONSTANTS (outside component — stable refs)
@@ -147,8 +148,9 @@ export default function OnboardingScreen() {
 
             setNeedsOnboarding(false);
         } catch (err: any) {
-            console.error("❌ Profile save error:", err);
+            console.error("Profile save error:", err);
             Alert.alert("Error", err.message || "Something went wrong.");
+        } finally {
             setSaving(false);
         }
     }, [saving, session, city, dietaryType, restrictedDays, setNeedsOnboarding]);
@@ -156,6 +158,11 @@ export default function OnboardingScreen() {
     // ==========================================
     // NAVIGATION
     // ==========================================
+    const goBack = useCallback(() => {
+        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setStep((prev) => Math.max(0, prev - 1));
+    }, []);
+
     const goNext = useCallback(() => {
         if (Platform.OS !== "web") {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -412,6 +419,13 @@ export default function OnboardingScreen() {
                         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40, paddingTop: 16 }}
                         showsVerticalScrollIndicator={false}
                     >
+                        {/* Back Link */}
+                        <Pressable onPress={goBack} style={{ marginBottom: 12 }}>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999999", fontSize: 14 }}>
+                                ← Back
+                            </Text>
+                        </Pressable>
+
                         {/* Step Dots */}
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 24 }}>
                             {Array.from({ length: totalSteps }).map((_, i) => (
@@ -590,6 +604,13 @@ export default function OnboardingScreen() {
             {step === 2 && (
                 <SafeAreaView className="flex-1 justify-between" edges={["top", "bottom"]}>
                     <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
+                        {/* Back Link */}
+                        <Pressable onPress={goBack} style={{ marginBottom: 12 }}>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999999", fontSize: 14 }}>
+                                ← Back
+                            </Text>
+                        </Pressable>
+
                         {/* Step Dots */}
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 24 }}>
                             {[0, 1, 2].map((i) => (

@@ -59,7 +59,7 @@ export function useAdminMode() {
     }
 
     checkAdminStatus();
-  }, [session]);
+  }, [session?.user?.id]);
 
   return { isAdmin, isRestaurantOwner, ownedRestaurantId, loading };
 }

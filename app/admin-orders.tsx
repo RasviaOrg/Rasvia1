@@ -120,7 +120,7 @@ function CloseTableModal({
         if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         setClosing(true);
         try {
-            await supabase
+            const { error } = await supabase
                 .from("orders")
                 .update({
                     status: "completed",
@@ -129,6 +129,7 @@ function CloseTableModal({
                     closed_at: new Date().toISOString(),
                 })
                 .eq("id", Number(order.id));
+            if (error) throw error;
             if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             onClosed();
         } catch (err: any) {

@@ -758,7 +758,7 @@ export default function MyOrdersScreen() {
       .channel("my-orders-live")
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "orders" },
+        { event: "UPDATE", schema: "public", table: "orders", filter: `created_by=eq.${session.user.id}` },
         (payload) => {
           // When an order is updated, refresh the list
           // We could do optimistic updates here, but a full refresh

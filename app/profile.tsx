@@ -70,7 +70,8 @@ import {
   getPushPermissionStatus,
 } from "@/lib/push-notifications";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+let SCREEN_WIDTH = Dimensions.get("window").width;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 
 const DFW_CITIES = [
   "Frisco, TX",
@@ -103,12 +104,12 @@ const DIETARY_OPTIONS = [
 
 const DAYS = [
   { short: "M", full: "Mon" },
-  { short: "T", full: "Tue" },
+  { short: "Tu", full: "Tue" },
   { short: "W", full: "Wed" },
-  { short: "T", full: "Thu" },
+  { short: "Th", full: "Thu" },
   { short: "F", full: "Fri" },
-  { short: "S", full: "Sat" },
-  { short: "S", full: "Sun" },
+  { short: "Sa", full: "Sat" },
+  { short: "Su", full: "Sun" },
 ];
 
 // ── CST day names used by debug picker ──
@@ -229,7 +230,7 @@ export default function ProfileSettingsScreen() {
           setOrigDays(r);
 
           setFullName(data.full_name || "");
-          setPhoneNumber((data as any).phone_number || "");
+          setPhoneNumber(formatPhoneNumber((data as any).phone_number || ""));
           setCreatedAt(data.created_at);
           if ((data as any).avatar_url) {
             setAvatarUrl((data as any).avatar_url);
@@ -249,7 +250,7 @@ export default function ProfileSettingsScreen() {
       setLoadingPrefs(false);
     }
     loadPrefs();
-  }, [session]);
+  }, [session?.user?.id]);
 
   // Track Location Changes
   useEffect(() => {
@@ -627,7 +628,7 @@ export default function ProfileSettingsScreen() {
       Alert.alert("Error", err.message || "Could not save location settings.");
     }
     setIsSavingLocation(false);
-  }, [session, savedAddress, liveLocationEnabled, isSavingLocation]);
+  }, [session, savedAddress, liveLocationEnabled, isSavingLocation, selectedCoords, setUserCoordsOverride, reloadLocationPrefs]);
 
   const saveLocScale = useSharedValue(1);
   const saveLocStyle = useAnimatedStyle(() => ({

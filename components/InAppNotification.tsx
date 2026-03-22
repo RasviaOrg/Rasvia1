@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, Dimensions } from "react-native";
 import Animated, {
     useAnimatedStyle,
@@ -11,7 +11,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AlertCircle, CheckCircle, Info, X, BellRing, Utensils } from "lucide-react-native";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+let SCREEN_WIDTH = Dimensions.get("window").width;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 
 type NotificationType = "error" | "success" | "info" | "table_ready" | "seated";
 
@@ -36,8 +37,11 @@ export function InAppNotification({
     const translateY = useSharedValue(-200);
     const opacity = useSharedValue(0);
 
+    const [renderVisible, setRenderVisible] = useState(visible);
+
     useEffect(() => {
         if (visible) {
+            setRenderVisible(true);
             translateY.value = withSpring(0, {
                 damping: 25,
                 stiffness: 150,
@@ -50,8 +54,10 @@ export function InAppNotification({
                 }, duration);
                 return () => clearTimeout(timer);
             }
-        } else {
-            translateY.value = withTiming(-200, { duration: 250 });
+        } else if (renderVisible) {
+            translateY.value = withTiming(-200, { duration: 250 }, () => {
+                runOnJS(setRenderVisible)(false);
+            });
             opacity.value = withTiming(0, { duration: 250 });
         }
     }, [visible, autoDismiss, duration]);
@@ -117,7 +123,7 @@ export function InAppNotification({
     const config = getNotificationConfig();
     const Icon = config.icon;
 
-    if (!visible) return null;
+    if (!renderVisible) return null;
 
     return (
         <GestureDetector gesture={panGesture}>

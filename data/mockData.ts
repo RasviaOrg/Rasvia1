@@ -33,7 +33,7 @@ export interface MenuItem {
 
 export interface CartItem extends MenuItem {
   quantity: number;
-  addedBy: GroupMember;
+  addedBy?: GroupMember;
 }
 
 export interface GroupMember {

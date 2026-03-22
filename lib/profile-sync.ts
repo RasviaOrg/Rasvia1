@@ -32,19 +32,37 @@ export async function upsertProfileFromAuthUser(user: User): Promise<void> {
 
   const phoneNumber = normalizedPhone(meta.phone_number ?? user.phone);
 
-  const { error } = await supabase.from("profiles").upsert(
-    {
+  // Check if profile already exists to avoid overwriting user-customised fields
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("id, full_name, avatar_url, phone_number")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (existing) {
+    // Only fill in empty fields; never overwrite user edits
+    const updates: Record<string, any> = {
+      email: user.email ?? null,
+      updated_at: new Date().toISOString(),
+    };
+    if (!existing.full_name && fullName) updates.full_name = fullName;
+    if (!existing.avatar_url && avatarUrl) updates.avatar_url = avatarUrl;
+    if (!existing.phone_number && phoneNumber) updates.phone_number = phoneNumber;
+
+    const { error } = await supabase
+      .from("profiles")
+      .update(updates)
+      .eq("id", user.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("profiles").insert({
       id: user.id,
       email: user.email ?? null,
       full_name: fullName,
       avatar_url: avatarUrl,
       phone_number: phoneNumber,
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" }
-  );
-
-  if (error) {
-    throw error;
+    });
+    if (error) throw error;
   }
 }

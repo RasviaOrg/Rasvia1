@@ -318,7 +318,7 @@ export default function OwnerDashboardScreen() {
                                                 {order.customer_name || `Order #${order.id}`}
                                             </Text>
                                             <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginTop: 2 }}>
-                                                {order.order_type.replace(/_/g, " ")} · ${order.subtotal?.toFixed(2)}
+                                                {order.order_type.replace(/_/g, " ")} · ${(order.subtotal ?? 0).toFixed(2)}
                                             </Text>
                                         </View>
                                         <View style={{ backgroundColor: `${statusColor(order.status)}20`, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${statusColor(order.status)}40` }}>

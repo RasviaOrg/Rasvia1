@@ -54,6 +54,7 @@ export function AdminRestaurantPanel({
 
       if (error) throw error;
       setIsEnabled(!isEnabled);
+      onUpdated();
     } catch (err: any) {
       Alert.alert("Error", err.message || "Failed to update visibility.");
     } finally {

@@ -51,7 +51,8 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { AddRestaurantModal } from "@/components/AddRestaurantModal";
 import { AdminRestaurantPanel } from "@/components/AdminRestaurantPanel";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+let SCREEN_WIDTH = Dimensions.get("window").width;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 
 // Zoom threshold: below this latDelta = "zoomed in" (show cards), above = "zoomed out" (show dots)
 const ZOOM_THRESHOLD = 0.08;
@@ -213,6 +214,8 @@ export default function MapScreen() {
   };
 
   const { userCoords: userLocation, isLiveLocationEnabled } = useLocation();
+  const userLocationRef = useRef(userLocation);
+  userLocationRef.current = userLocation;
   const { targetLat, targetLng, restaurantId } = useLocalSearchParams<{ targetLat?: string; targetLng?: string; restaurantId?: string }>();
   const hasCenteredRef = useRef(false);
 
@@ -247,7 +250,7 @@ export default function MapScreen() {
 
         if (error) throw error;
         if (data) {
-          setRestaurants(data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userLocation)));
+          setRestaurants(data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userLocationRef.current)));
         }
       } catch (err) {
         console.error("Map: error fetching restaurants:", err);
@@ -264,12 +267,12 @@ export default function MapScreen() {
         { event: "*", schema: "public", table: "restaurants" },
         (payload) => {
           if (payload.eventType === "UPDATE") {
-            const updated = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocation);
+            const updated = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocationRef.current);
             setRestaurants((prev) =>
               prev.map((r) => (r.id === updated.id ? updated : r)),
             );
           } else if (payload.eventType === "INSERT") {
-            const added = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocation);
+            const added = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocationRef.current);
             setRestaurants((prev) => [...prev, added]);
           }
         },
@@ -961,7 +964,7 @@ export default function MapScreen() {
                     lng = mapCenter.longitude;
                   }
 
-                  if (!lat || !lng) {
+                  if (lat == null || lng == null) {
                     Alert.alert("Error", "Could not determine map center coordinates. Please try again.");
                     return;
                   }

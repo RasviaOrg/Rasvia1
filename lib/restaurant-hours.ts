@@ -145,8 +145,17 @@ export function getRestaurantStatus(
     const openMin = parseTimeToMinutes(shift.open_time);
     const closeMin = parseTimeToMinutes(shift.close_time);
 
-    if (minutesSinceMidnight >= openMin && minutesSinceMidnight < closeMin) {
-      const minutesLeft = closeMin - minutesSinceMidnight;
+    const isOvernight = closeMin <= openMin;
+    const isInShift = isOvernight
+      ? (minutesSinceMidnight >= openMin || minutesSinceMidnight < closeMin)
+      : (minutesSinceMidnight >= openMin && minutesSinceMidnight < closeMin);
+
+    if (isInShift) {
+      const minutesLeft = isOvernight
+        ? (minutesSinceMidnight >= openMin
+            ? (1440 - minutesSinceMidnight) + closeMin
+            : closeMin - minutesSinceMidnight)
+        : closeMin - minutesSinceMidnight;
       const isClosingSoon = minutesLeft <= 30;
       return {
         status: isClosingSoon ? "closing_soon" : "open",

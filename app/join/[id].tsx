@@ -309,25 +309,30 @@ export default function JoinPartyScreen() {
         };
     }, [sessionId]);
 
+    // Refs for deep-link handler to avoid re-subscribing on cart changes
+    const cartItemsRef = useRef(cartItems);
+    cartItemsRef.current = cartItems;
+    const restaurantNameRef = useRef(restaurantName);
+    restaurantNameRef.current = restaurantName;
+    const restaurantIdRef = useRef(restaurantId);
+    restaurantIdRef.current = restaurantId;
+
     // Deep-link handler: rasvia://checkout/success|cancel|error
     useEffect(() => {
         const handleUrl = async (event: { url: string }) => {
             const { path, queryParams } = Linking.parse(event.url);
 
             if (path === 'checkout/success' || path === 'order-confirmation') {
-                // Order was already saved server-side by the payment-redirect function.
-                // Just update the local UI state.
                 setSubmitted(true);
                 setShowCartModal(false);
                 if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-                // Also mark party_session as submitted locally (server already did it)
                 addEvent({
                     type: 'group_submitted',
-                    restaurantName,
-                    restaurantId: String(restaurantId),
+                    restaurantName: restaurantNameRef.current,
+                    restaurantId: String(restaurantIdRef.current),
                     entryId: String(sessionId),
-                    partySize: cartItems.length,
+                    partySize: cartItemsRef.current.length,
                     timestamp: new Date().toISOString(),
                 });
                 AsyncStorage.removeItem(activeOrderKey);
@@ -353,13 +358,12 @@ export default function JoinPartyScreen() {
 
         const subscription = Linking.addEventListener('url', handleUrl);
 
-        // Also check if the app was opened cold via a deep link
         Linking.getInitialURL().then(url => {
             if (url) handleUrl({ url });
         });
 
         return () => subscription.remove();
-    }, [sessionId, cartItems, totalPrice, restaurantName, restaurantId]);
+    }, [sessionId]);
 
     // Persist session ID so home page can find it (user-scoped)
     useEffect(() => {

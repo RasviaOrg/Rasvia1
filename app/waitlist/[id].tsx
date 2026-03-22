@@ -254,6 +254,14 @@ export default function WaitlistStatus() {
     }
   }
 
+  const seatedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (seatedTimeoutRef.current) clearTimeout(seatedTimeoutRef.current);
+    };
+  }, []);
+
   function triggerSeated() {
     setShowTableReady(false);
     setShowSeated(true);
@@ -261,8 +269,7 @@ export default function WaitlistStatus() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setTimeout(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success), 500);
     }
-    // Auto-navigate back after 4 seconds
-    setTimeout(() => router.replace("/"), 4000);
+    seatedTimeoutRef.current = setTimeout(() => router.replace("/"), 4000);
   }
 
   async function fetchPosition(entryId: string) {

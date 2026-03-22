@@ -126,18 +126,24 @@ export function CheckoutModal({
 
     const [orderType, setOrderType] = useState<OrderType>(defaultType);
 
-    // Sync orderType when the modal opens or initialOrderType changes
+    // Sync orderType and customerName when the modal opens
     useEffect(() => {
         if (visible) {
             const newType: OrderType = waitlistEntryId
                 ? "pre_order"
                 : (initialOrderType ?? "dine_in");
             setOrderType(newType);
+            if (!customerName.trim()) {
+                const fallback =
+                    session?.user?.user_metadata?.full_name ||
+                    session?.user?.user_metadata?.name ||
+                    initialCustomerName ||
+                    "";
+                if (fallback) setCustomerName(fallback);
+            }
         }
     }, [visible, initialOrderType, waitlistEntryId]);
-    const [customerName, setCustomerName] = useState(
-        session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || initialCustomerName || ""
-    );
+    const [customerName, setCustomerName] = useState(initialCustomerName || "");
     const [mealPeriod, setMealPeriod] = useState<MealPeriod>("dinner");
     const [tableNumber, setTableNumber] = useState("");
     const [notes, setNotes] = useState("");
@@ -175,6 +181,7 @@ export function CheckoutModal({
     // Fetch the restaurant's Stripe account when the modal opens
     useEffect(() => {
         if (!visible || !restaurantId) return;
+        let cancelled = false;
         (async () => {
             try {
                 const { data } = await supabase
@@ -182,6 +189,7 @@ export function CheckoutModal({
                     .select('stripe_account_id')
                     .eq('id', Number(restaurantId))
                     .single();
+                if (cancelled) return;
                 if (data?.stripe_account_id) {
                     setHasStripe(true);
                     setStripeAccountId(data.stripe_account_id);
@@ -191,11 +199,13 @@ export function CheckoutModal({
                     setPaymentMethod('cash');
                 }
             } catch {
+                if (cancelled) return;
                 setHasStripe(false);
                 setStripeAccountId(null);
                 setPaymentMethod('cash');
             }
         })();
+        return () => { cancelled = true; };
     }, [visible, restaurantId]);
 
     // Deep link handler for card payment redirect
@@ -229,6 +239,7 @@ export function CheckoutModal({
     }, [visible, paymentMethod, orderType, onOrderPlaced]);
 
     const handlePlaceOrder = async () => {
+        if (placing) return;
         if (cartItems.length === 0) {
             Alert.alert("Empty Cart", "Add some items before placing an order.");
             return;

@@ -194,7 +194,9 @@ export default function FavoritesScreen() {
                   ? "Closed"
                   : noWait
                     ? "No wait"
-                    : `${wt || 0} min wait`;
+                    : wt != null && wt >= 0
+                      ? `${wt} min wait`
+                      : "-- min wait";
                 const waitColor = isClosed
                   ? "#888888"
                   : noWait
@@ -211,7 +213,7 @@ export default function FavoritesScreen() {
                     entering={FadeInDown.delay(100 + index * 50).duration(500)}
                   >
                     <Pressable
-                      onPress={() => handleRestaurantPress(restaurant.id)}
+                      onPress={() => !isClosed && handleRestaurantPress(restaurant.id)}
                       style={{
                         flexDirection: "row",
                         backgroundColor: "#1a1a1a",
@@ -221,6 +223,7 @@ export default function FavoritesScreen() {
                         padding: 12,
                         marginBottom: 16,
                         alignItems: "center",
+                        opacity: isClosed ? 0.6 : 1,
                       }}
                     >
                       <Image

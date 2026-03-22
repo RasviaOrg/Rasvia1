@@ -3,6 +3,7 @@ import { View, Text, Dimensions } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedProps,
   withTiming,
   Easing,
   withRepeat,
@@ -10,8 +11,6 @@ import Animated, {
   FadeIn,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
-
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface WaitlistRingProps {
   position: number;
@@ -58,7 +57,11 @@ export function WaitlistRing({
     transform: [{ scale: pulseScale.value }],
   }));
 
-  const strokeDashoffset = circumference * (1 - progressPercent);
+  const ringStyle = useAnimatedProps(() => ({
+    strokeDashoffset: circumference * (1 - progress.value),
+  }));
+
+  const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
   return (
     <Animated.View
@@ -97,7 +100,7 @@ export function WaitlistRing({
             fill="none"
           />
           {/* Progress ring */}
-          <Circle
+          <AnimatedCircle
             cx={size / 2}
             cy={size / 2}
             r={radius}
@@ -105,7 +108,7 @@ export function WaitlistRing({
             strokeWidth={strokeWidth}
             fill="none"
             strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
+            animatedProps={ringStyle}
             strokeLinecap="round"
             transform={`rotate(-90 ${size / 2} ${size / 2})`}
           />

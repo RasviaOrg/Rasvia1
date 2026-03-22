@@ -20,7 +20,8 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+let SCREEN_HEIGHT = Dimensions.get("window").height;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
 
 interface GroupCartDrawerProps {
   items: CartItem[];
@@ -201,7 +202,7 @@ export function GroupCartDrawer({
                   {item.name}
                 </Text>
                 {/* Only show member avatar in group mode */}
-                {isGroupMode && (
+                {isGroupMode && item.addedBy && (
                   <Image
                     source={{ uri: item.addedBy.avatar }}
                     style={{

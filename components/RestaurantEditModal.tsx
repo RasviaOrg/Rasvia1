@@ -68,7 +68,7 @@ export function RestaurantEditModal({
 
       if (error) throw error;
 
-      onSaved({ name: name.trim(), address: address.trim(), description: description.trim(), cuisine });
+      onSaved({ name: name.trim(), address: address.trim(), description: description.trim(), cuisine: cuisineTags.join(", ") });
     } catch (err: any) {
       Alert.alert("Error", err.message || "Failed to save changes.");
     } finally {
@@ -197,7 +197,7 @@ export function RestaurantEditModal({
                 />
                 <Text
                   style={{
-                    fontFamily: "Manrope_400Regular",
+                    fontFamily: "Manrope_500Medium",
                     color: "#555",
                     fontSize: 11,
                     marginTop: 6,

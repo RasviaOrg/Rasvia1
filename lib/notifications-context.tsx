@@ -167,6 +167,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const watchedEntryIds = useRef<Set<string>>(new Set());
   const channelsRef = useRef<any[]>([]);
   const dismissedIdsRef = useRef<Set<string>>(new Set());
+  // Track last-known state per entry to avoid relying on oldRow (REPLICA IDENTITY may not be FULL)
+  const entryStateRef = useRef<Record<string, { status: string; notified_at: string | null }>>({});
 
   // ==========================================
   // Load persisted events + dismissed IDs on mount
@@ -209,58 +211,58 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
       if (error || !data) return;
 
-      const entries: ActiveWaitlistEntry[] = await Promise.all(
-        data.map(async (row: any) => {
-          const rest = row.restaurants;
-
-          // Calculate position
-          let position: number | null = null;
-          let total = 0;
-          try {
-            const { data: myEntry } = await supabase
-              .from("waitlist_entries")
-              .select("created_at")
-              .eq("id", row.id)
-              .single();
-
-            const { count: ahead } = await supabase
-              .from("waitlist_entries")
-              .select("*", { count: "exact", head: true })
-              .eq("restaurant_id", row.restaurant_id)
-              .eq("status", "waiting")
-              .lt("created_at", myEntry?.created_at ?? "");
-
-            const { count: totalCount } = await supabase
-              .from("waitlist_entries")
-              .select("*", { count: "exact", head: true })
-              .eq("restaurant_id", row.restaurant_id)
-              .eq("status", "waiting");
-
-            position = (ahead ?? 0) + 1;
-            total = totalCount ?? 0;
-          } catch {
-            // silently ignore
+      // Batch-fetch position data: get all "waiting" entries for the
+      // restaurants the user has active entries in (avoids N+1 queries).
+      const restaurantIds = [...new Set(data.map((r: any) => r.restaurant_id))];
+      let waitingByRestaurant: Record<number, { id: string; created_at: string }[]> = {};
+      if (restaurantIds.length > 0) {
+        try {
+          const { data: waitingRows } = await supabase
+            .from("waitlist_entries")
+            .select("id, restaurant_id, created_at")
+            .in("restaurant_id", restaurantIds)
+            .eq("status", "waiting")
+            .order("created_at", { ascending: true });
+          for (const w of waitingRows ?? []) {
+            if (!waitingByRestaurant[w.restaurant_id]) waitingByRestaurant[w.restaurant_id] = [];
+            waitingByRestaurant[w.restaurant_id].push({ id: w.id, created_at: w.created_at });
           }
+        } catch { /* ignore */ }
+      }
 
-          return {
-            entryId: row.id,
-            restaurantId: String(row.restaurant_id),
-            restaurantName: rest?.name ?? "Restaurant",
-            restaurantImage:
-              rest?.image_url ??
-              "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&q=80",
-            address: rest?.address ?? "",
-            position,
-            totalInQueue: total,
-            waitTime: rest?.current_wait_time ?? 0,
-            partySize: row.party_size ?? 1,
-            status: row.status,
-            joinedAt: row.created_at,
-            notifiedAt: row.notified_at ?? null,
-            seatedAt: row.status === "seated" ? (row.notified_at ?? row.created_at) : null,
-          };
-        })
-      );
+      const entries: ActiveWaitlistEntry[] = data.map((row: any) => {
+        const rest = row.restaurants;
+        const waitingList = waitingByRestaurant[row.restaurant_id] ?? [];
+        const total = waitingList.length;
+        const idx = waitingList.findIndex((w) => w.id === row.id);
+        const position = idx >= 0 ? idx + 1 : null;
+
+        return {
+          entryId: row.id,
+          restaurantId: String(row.restaurant_id),
+          restaurantName: rest?.name ?? "Restaurant",
+          restaurantImage:
+            rest?.image_url ??
+            "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&q=80",
+          address: rest?.address ?? "",
+          position,
+          totalInQueue: total,
+          waitTime: rest?.current_wait_time ?? 0,
+          partySize: row.party_size ?? 1,
+          status: row.status,
+          joinedAt: row.created_at,
+          notifiedAt: row.notified_at ?? null,
+          seatedAt: row.status === "seated" ? (row.notified_at ?? row.created_at) : null,
+        };
+      });
+
+      // Seed tracked state for reliable change detection in realtime handler
+      for (const row of data) {
+        entryStateRef.current[row.id] = {
+          status: row.status,
+          notified_at: row.notified_at ?? null,
+        };
+      }
 
       // Filter out manually dismissed entries
       const visible = entries.filter((e) => !dismissedIdsRef.current.has(e.entryId));
@@ -295,10 +297,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
           },
           (payload) => {
             const newRow = payload.new as any;
-            const oldRow = payload.old as any;
+            const prev = entryStateRef.current[entryId] ?? { status: "waiting", notified_at: null };
 
-            if (newRow.notified_at && !oldRow.notified_at) {
-              // Table ready event
+            if (newRow.notified_at && !prev.notified_at) {
               addEvent({
                 type: "table_ready",
                 restaurantName,
@@ -307,17 +308,14 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 partySize,
                 timestamp: new Date().toISOString(),
               });
-              // Fire global in-app banner
               setTableReadyAlert({ restaurantName, entryId });
-              // Fire push notification
               schedulePushNotification(
                 "🎉 Your Table is Ready!",
                 `${restaurantName} — your table is ready! Head over now.`,
                 { type: "table_ready", entryId, restaurantId },
               );
-              // Update active entry status
-              setActiveEntries((prev) =>
-                prev.map((e) =>
+              setActiveEntries((prevEntries) =>
+                prevEntries.map((e) =>
                   e.entryId === entryId
                     ? { ...e, status: "notified", notifiedAt: newRow.notified_at }
                     : e
@@ -325,7 +323,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
               );
             }
 
-            if (newRow.status === "seated" && oldRow.status !== "seated") {
+            if (newRow.status === "seated" && prev.status !== "seated") {
               addEvent({
                 type: "seated",
                 restaurantName,
@@ -334,17 +332,14 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 partySize,
                 timestamp: new Date().toISOString(),
               });
-              // Fire global in-app blue banner
               setSeatedAlert({ restaurantName, entryId });
-              // Fire push notification
               schedulePushNotification(
                 "🍽️ You're Seated!",
                 `Enjoy your meal at ${restaurantName}!`,
                 { type: "seated", entryId, restaurantId },
               );
-              // Keep entry visible with seated status — user must dismiss it manually
-              setActiveEntries((prev) =>
-                prev.map((e) =>
+              setActiveEntries((prevEntries) =>
+                prevEntries.map((e) =>
                   e.entryId === entryId
                     ? { ...e, status: "seated", seatedAt: new Date().toISOString() }
                     : e
@@ -352,11 +347,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
               );
             }
 
-            if (
-              newRow.status === "removed" &&
-              oldRow.status !== "removed"
-            ) {
-              // Admin-removed: show notification and remove widget
+            if (newRow.status === "removed" && prev.status !== "removed") {
               addEvent({
                 type: "removed",
                 restaurantName,
@@ -365,16 +356,18 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 partySize,
                 timestamp: new Date().toISOString(),
               });
-              setActiveEntries((prev) => prev.filter((e) => e.entryId !== entryId));
+              setActiveEntries((prevEntries) => prevEntries.filter((e) => e.entryId !== entryId));
             }
 
-            if (
-              newRow.status === "cancelled" &&
-              oldRow.status !== "cancelled"
-            ) {
-              // User-cancelled (left themselves) — widget handled via dismissEntry
-              setActiveEntries((prev) => prev.filter((e) => e.entryId !== entryId));
+            if (newRow.status === "cancelled" && prev.status !== "cancelled") {
+              setActiveEntries((prevEntries) => prevEntries.filter((e) => e.entryId !== entryId));
             }
+
+            // Update tracked state
+            entryStateRef.current[entryId] = {
+              status: newRow.status,
+              notified_at: newRow.notified_at ?? null,
+            };
           }
         )
         .subscribe();

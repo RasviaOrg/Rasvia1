@@ -30,7 +30,8 @@ import { supabase } from "@/lib/supabase";
 import { upsertProfileFromAuthUser } from "@/lib/profile-sync";
 import { InAppNotification } from "@/components/InAppNotification";
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+let SCREEN_HEIGHT = Dimensions.get("window").height;
+Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
 WebBrowser.maybeCompleteAuthSession();
 
 function formatPhoneNumber(raw: string): string {
@@ -163,6 +164,10 @@ export default function AuthScreen() {
                 setNotification({ visible: true, message: "Please enter both email and password.", type: "error" });
                 return;
             }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+                setNotification({ visible: true, message: "Please enter a valid email address.", type: "error" });
+                return;
+            }
             if (!firstName || !lastInitial) {
                 setNotification({ visible: true, message: "Please enter your first name and last initial.", type: "error" });
                 return;
@@ -179,17 +184,19 @@ export default function AuthScreen() {
                 if (error) throw error;
 
                 if (data.user) {
-                    await upsertProfileFromAuthUser(data.user);
                     const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
                     const { error: profileError } = await supabase
                         .from('profiles')
                         .upsert({
                             id: data.user.id,
+                            email: email.trim(),
                             full_name: fullName,
                             phone_number: phone.replace(/\D/g, "").trim(),
                             created_at: new Date().toISOString(),
                         });
-                    if (profileError) console.error('Profile creation error:', profileError);
+                    if (profileError) {
+                        setNotification({ visible: true, message: "Account created, but couldn't save profile details. Please update in Settings.", type: "error" });
+                    }
                 }
             } else if (usePhone) {
                 // Phone sign-in: look up email stored in profiles, then sign in with password
@@ -790,6 +797,8 @@ export default function AuthScreen() {
                                     Haptics.selectionAsync();
                                 }
                                 setIsSignUp(!isSignUp);
+                                setEmail("");
+                                setPassword("");
                                 setPhone("");
                                 setPhoneSignIn("");
                                 setFirstName("");
