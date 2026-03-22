@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from './supabase';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
+import { upsertProfileFromAuthUser } from './profile-sync';
 
 interface AuthContextType {
     session: Session | null;
@@ -67,11 +68,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setSession(newSession);
 
             if (newSession?.user?.id) {
+                try {
+                    await upsertProfileFromAuthUser(newSession.user);
+                } catch (error: any) {
+                    console.log('Profile sync skipped:', error?.message ?? 'unknown');
+                }
+
                 if (event === 'SIGNED_IN' && initialised.current) {
-                    // Fresh sign-up/sign-in: wait briefly for the profile
-                    // upsert to land before checking onboarding_completed.
+                    // Give Postgres trigger updates a brief window to settle.
                     setLoading(true);
-                    await new Promise(r => setTimeout(r, 800));
+                    await new Promise(r => setTimeout(r, 250));
                 }
                 if (!cancelled) await checkOnboardingStatus(newSession.user.id);
             } else {

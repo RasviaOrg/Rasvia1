@@ -16,6 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Mail, Lock, Eye, EyeOff, Phone } from "lucide-react-native";
 import { useRouter } from "expo-router";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import Animated, {
     FadeIn,
     FadeInUp,
@@ -25,9 +27,11 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
+import { upsertProfileFromAuthUser } from "@/lib/profile-sync";
 import { InAppNotification } from "@/components/InAppNotification";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+WebBrowser.maybeCompleteAuthSession();
 
 function formatPhoneNumber(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 10);
@@ -48,6 +52,7 @@ export default function AuthScreen() {
     const [phone, setPhone] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [googleLoading, setGoogleLoading] = useState(false);
     const [notification, setNotification] = useState<{
         visible: boolean;
         message: string;
@@ -58,6 +63,85 @@ export default function AuthScreen() {
     const btnStyle = useAnimatedStyle(() => ({
         transform: [{ scale: btnScale.value }],
     }));
+
+    function parseOAuthCallback(url: string): {
+        accessToken?: string;
+        refreshToken?: string;
+        code?: string;
+    } {
+        const parsed = Linking.parse(url);
+        const query = (parsed.queryParams ?? {}) as Record<string, string | undefined>;
+        const hashPart = url.includes("#") ? url.split("#")[1] : "";
+        const hashParams = new URLSearchParams(hashPart);
+
+        return {
+            accessToken: query.access_token ?? hashParams.get("access_token") ?? undefined,
+            refreshToken: query.refresh_token ?? hashParams.get("refresh_token") ?? undefined,
+            code: query.code ?? hashParams.get("code") ?? undefined,
+        };
+    }
+
+    async function handleGoogleAuth() {
+        setGoogleLoading(true);
+        try {
+            if (Platform.OS !== "web") {
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+
+            const redirectTo =
+                Platform.OS === "web"
+                    ? Linking.createURL("auth/callback")
+                    : Linking.createURL("auth/callback", { scheme: "rasvia" });
+
+            const { data, error } = await supabase.auth.signInWithOAuth({
+                provider: "google",
+                options: {
+                    redirectTo,
+                    skipBrowserRedirect: true,
+                    queryParams: {
+                        access_type: "offline",
+                        prompt: "consent",
+                    },
+                },
+            });
+
+            if (error) throw error;
+            if (!data?.url) throw new Error("Could not start Google OAuth.");
+
+            const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+            if (result.type !== "success" || !("url" in result) || !result.url) {
+                return;
+            }
+
+            const { accessToken, refreshToken, code } = parseOAuthCallback(result.url);
+
+            if (accessToken && refreshToken) {
+                const { error: sessionError } = await supabase.auth.setSession({
+                    access_token: accessToken,
+                    refresh_token: refreshToken,
+                });
+                if (sessionError) throw sessionError;
+            } else if (code) {
+                const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+                if (exchangeError) throw exchangeError;
+            } else {
+                throw new Error("Google sign-in returned an invalid callback.");
+            }
+
+            const { data: userData } = await supabase.auth.getUser();
+            if (userData?.user) {
+                await upsertProfileFromAuthUser(userData.user);
+            }
+        } catch (error: any) {
+            setNotification({
+                visible: true,
+                message: error?.message || "Google sign-in failed. Please try again.",
+                type: "error",
+            });
+        } finally {
+            setGoogleLoading(false);
+        }
+    }
 
     async function handleAuth() {
         // Sign-in validation
@@ -95,6 +179,7 @@ export default function AuthScreen() {
                 if (error) throw error;
 
                 if (data.user) {
+                    await upsertProfileFromAuthUser(data.user);
                     const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
                     const { error: profileError } = await supabase
                         .from('profiles')
@@ -589,6 +674,69 @@ export default function AuthScreen() {
                             </Text>
                         )}
 
+                        {/* Google OAuth */}
+                        <Pressable
+                            onPress={handleGoogleAuth}
+                            disabled={loading || googleLoading}
+                            style={{
+                                borderRadius: 16,
+                                height: 54,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexDirection: "row",
+                                backgroundColor: "#202020",
+                                borderWidth: 1,
+                                borderColor: "#333333",
+                                opacity: loading || googleLoading ? 0.7 : 1,
+                                marginBottom: 14,
+                            }}
+                        >
+                            {googleLoading ? (
+                                <ActivityIndicator color="#f5f5f5" />
+                            ) : (
+                                <>
+                                    <View
+                                        style={{
+                                            width: 24,
+                                            height: 24,
+                                            borderRadius: 12,
+                                            backgroundColor: "#ffffff",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            marginRight: 10,
+                                        }}
+                                    >
+                                        <Text
+                                            style={{
+                                                fontFamily: "BricolageGrotesque_700Bold",
+                                                color: "#4285F4",
+                                                fontSize: 14,
+                                            }}
+                                        >
+                                            G
+                                        </Text>
+                                    </View>
+                                    <Text
+                                        style={{
+                                            fontFamily: "Manrope_700Bold",
+                                            color: "#f5f5f5",
+                                            fontSize: 15,
+                                        }}
+                                    >
+                                        Continue with Google
+                                    </Text>
+                                </>
+                            )}
+                        </Pressable>
+
+                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 18 }}>
+                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
+                            <Text style={{ marginHorizontal: 10, color: "#666666", fontFamily: "Manrope_500Medium", fontSize: 12 }}>
+                                or
+                            </Text>
+                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
+                        </View>
+
                         {/* Action Button */}
                         <Animated.View style={btnStyle}>
                             <Pressable
@@ -604,7 +752,7 @@ export default function AuthScreen() {
                                 onPressOut={() => {
                                     btnScale.value = withSpring(1);
                                 }}
-                                disabled={loading}
+                                disabled={loading || googleLoading}
                                 style={{
                                     backgroundColor: "#FF9933",
                                     borderRadius: 16,
@@ -616,7 +764,7 @@ export default function AuthScreen() {
                                     shadowOpacity: 0.35,
                                     shadowRadius: 16,
                                     elevation: 10,
-                                    opacity: loading ? 0.7 : 1,
+                                    opacity: loading || googleLoading ? 0.7 : 1,
                                 }}
                             >
                                 {loading ? (
