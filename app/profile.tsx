@@ -340,6 +340,9 @@ export default function ProfileSettingsScreen() {
       setOrigDietary(dietaryType);
       setOrigDays(dietaryType === "Non-Veg" ? restrictedDays : []);
 
+      // Instantly update the location context so map + label refresh without app restart
+      await reloadLocationPrefs();
+
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -348,7 +351,7 @@ export default function ProfileSettingsScreen() {
       Alert.alert("Error", err.message || "Could not save preferences.");
     }
     setSavingPrefs(false);
-  }, [session, city, dietaryType, restrictedDays, savingPrefs]);
+  }, [session, city, dietaryType, restrictedDays, savingPrefs, reloadLocationPrefs]);
 
   const handleSaveProfile = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -608,8 +611,8 @@ export default function ProfileSettingsScreen() {
 
       if (error) throw error;
 
-      // Optimistic location update for immediate Map sync
-      if (lat && lng) {
+      // Optimistic location update for immediate Map sync (only if not using live GPS)
+      if (lat && lng && !liveLocationEnabled) {
         setUserCoordsOverride({ latitude: lat, longitude: lng });
       }
 
@@ -970,10 +973,125 @@ export default function ProfileSettingsScreen() {
             </Text>
           </Animated.View>
 
+          {/* Settings List — Favorites, My Orders, Notifications */}
+          {(!isAdmin || activeTab === 'preferences') && (
+            <Animated.View
+              entering={FadeInDown.delay(150).duration(500)}
+              className="mx-5 mb-8"
+              style={{
+                backgroundColor: "#1a1a1a",
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+                overflow: "hidden",
+              }}
+            >
+              <SettingsRow
+                icon={<Heart size={20} color="#EF4444" />}
+                label="Favorites"
+                hasChevron
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.selectionAsync();
+                  router.push("/favorites" as any);
+                }}
+              />
+              <Divider />
+              <SettingsRow
+                icon={<ShoppingBag size={20} color="#FF9933" />}
+                label="My Orders"
+                hasChevron
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.selectionAsync();
+                  router.push("/my-orders" as any);
+                }}
+              />
+              {isRestaurantOwner && (
+                <>
+                  <Divider />
+                  <SettingsRow
+                    icon={<Store size={20} color="#4ADE80" />}
+                    label="Owner Dashboard"
+                    hasChevron
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      router.push("/owner-dashboard" as any);
+                    }}
+                  />
+                </>
+              )}
+              <Divider />
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingHorizontal: 20,
+                  paddingVertical: 16,
+                }}
+              >
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    backgroundColor: "rgba(255, 153, 51, 0.12)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 14,
+                  }}
+                >
+                  <Bell size={20} color="#FF9933" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_600SemiBold",
+                      color: "#f5f5f5",
+                      fontSize: 15,
+                    }}
+                  >
+                    Notifications
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: notificationsEnabled ? "#22C55E" : "#EF4444",
+                      fontSize: 11,
+                      marginTop: 2,
+                    }}
+                  >
+                    {notificationsEnabled ? "Active" : "Inactive"}
+                  </Text>
+                </View>
+                <Switch
+                  value={notificationsEnabled}
+                  onValueChange={async (val) => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    if (val) {
+                      const granted = await enablePushNotifications();
+                      setNotificationsEnabled(granted);
+                      if (!granted) {
+                        Alert.alert(
+                          "Notifications Blocked",
+                          "Please enable notifications in your device Settings.",
+                        );
+                      }
+                    } else {
+                      await disablePushNotifications();
+                      setNotificationsEnabled(false);
+                    }
+                  }}
+                  trackColor={{ false: "#333333", true: "rgba(255,153,51,0.4)" }}
+                  thumbColor={notificationsEnabled ? "#FF9933" : "#666666"}
+                />
+              </View>
+            </Animated.View>
+          )}
+
           {/* ==========================================
                         DINING PREFERENCES SECTION
                     ========================================== */}
           {(!isAdmin || activeTab === 'preferences') && (
+
             <Animated.View
               entering={FadeInDown.delay(150).duration(500)}
               className="mx-5 mb-8"
@@ -1352,123 +1470,8 @@ export default function ProfileSettingsScreen() {
             </Animated.View>
           )}
 
-          {/* Settings List — always shown (without legal links) */}
-          {(!isAdmin || activeTab === 'preferences') && (
-            <Animated.View
-              entering={FadeInDown.delay(200).duration(500)}
-              className="mx-5 mb-8"
-              style={{
-                backgroundColor: "#1a1a1a",
-                borderRadius: 20,
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-                overflow: "hidden",
-              }}
-            >
-              <SettingsRow
-                icon={<ShoppingBag size={20} color="#FF9933" />}
-                label="My Orders"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/my-orders" as any);
-                }}
-              />
-              {isRestaurantOwner && (
-                <>
-                  <Divider />
-                  <SettingsRow
-                    icon={<Store size={20} color="#4ADE80" />}
-                    label="Owner Dashboard"
-                    hasChevron
-                    onPress={() => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/owner-dashboard" as any);
-                    }}
-                  />
-                </>
-              )}
-              <Divider />
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingHorizontal: 20,
-                  paddingVertical: 16,
-                }}
-              >
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    backgroundColor: "rgba(255, 153, 51, 0.12)",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginRight: 14,
-                  }}
-                >
-                  <Bell size={20} color="#FF9933" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_600SemiBold",
-                      color: "#f5f5f5",
-                      fontSize: 15,
-                    }}
-                  >
-                    Notifications
-                  </Text>
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_500Medium",
-                      color: notificationsEnabled ? "#22C55E" : "#EF4444",
-                      fontSize: 11,
-                      marginTop: 2,
-                    }}
-                  >
-                    {notificationsEnabled ? "Active" : "Inactive"}
-                  </Text>
-                </View>
-                <Switch
-                  value={notificationsEnabled}
-                  onValueChange={async (val) => {
-                    if (Platform.OS !== "web") Haptics.selectionAsync();
-                    if (val) {
-                      const granted = await enablePushNotifications();
-                      setNotificationsEnabled(granted);
-                      if (!granted) {
-                        Alert.alert(
-                          "Notifications Blocked",
-                          "Please enable notifications in your device Settings.",
-                        );
-                      }
-                    } else {
-                      await disablePushNotifications();
-                      setNotificationsEnabled(false);
-                    }
-                  }}
-                  trackColor={{ false: "#333333", true: "rgba(255,153,51,0.4)" }}
-                  thumbColor={notificationsEnabled ? "#FF9933" : "#666666"}
-                />
-              </View>
-              <Divider />
-              <SettingsRow
-                icon={<Heart size={20} color="#EF4444" />}
-                label="Favorites"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/favorites" as any);
-                }}
-              />
-            </Animated.View>
-          )}
 
-          {/* ==========================================
-                      LOCATION SETTINGS SECTION
-                  ========================================== */}
+
           {(!isAdmin || activeTab === 'location') && (
             <Animated.View
               entering={FadeInDown.delay(200).duration(500)}

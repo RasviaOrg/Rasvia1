@@ -778,7 +778,7 @@ export default function DiscoveryFeed() {
                             </View>
                           )}
                           {restaurant.waitStatus === 'darkgrey' ? (
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#444", fontSize: 11 }}>— closed</Text>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#444", fontSize: 11 }}>—</Text>
                           ) : restaurant.waitTime >= 0 && restaurant.waitTime < 999 ? (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                               <Clock

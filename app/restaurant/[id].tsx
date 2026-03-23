@@ -348,24 +348,15 @@ export default function RestaurantDetail() {
     },
   });
 
-  // Hero: fixed height container, image parallaxes up inside
+  // Hero: fixed height container, image fades out on scroll (no parallax shift)
   const heroInnerStyle = useAnimatedStyle(() => {
-    const translateY = interpolate(
-      scrollY.value,
-      [0, SCROLL_THRESHOLD],
-      [0, -SCROLL_THRESHOLD * 0.3],
-      Extrapolation.CLAMP,
-    );
     const opacity = interpolate(
       scrollY.value,
       [0, SCROLL_THRESHOLD * 0.6],
       [1, 0],
       Extrapolation.CLAMP,
     );
-    return {
-      transform: [{ translateY }],
-      opacity,
-    };
+    return { opacity };
   });
 
   // Collapsed header fades in

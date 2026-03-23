@@ -8,6 +8,7 @@ interface LocationContextType {
     userCoords: { latitude: number; longitude: number } | null;
     isLiveLocationEnabled: boolean;
     locationLabel: string | null;
+    hasSavedAddress: boolean;
     reloadLocationPrefs: () => Promise<void>;
     setUserCoordsOverride: (coords: {latitude: number; longitude: number} | null) => void;
 }
@@ -16,6 +17,7 @@ const LocationContext = createContext<LocationContextType>({
     userCoords: null,
     isLiveLocationEnabled: true,
     locationLabel: null,
+    hasSavedAddress: false,
     reloadLocationPrefs: async () => {},
     setUserCoordsOverride: () => {},
 });
@@ -46,6 +48,30 @@ function extractCity(address: string): string {
     return parts[1] ?? parts[0];
 }
 
+// City center coordinates for DFW cities (used as fallback when GPS is unavailable)
+const CITY_CENTERS: Record<string, { latitude: number; longitude: number }> = {
+    "Frisco, TX":        { latitude: 33.1507, longitude: -96.8236 },
+    "Plano, TX":         { latitude: 33.0198, longitude: -96.6989 },
+    "Irving, TX":        { latitude: 32.8140, longitude: -96.9489 },
+    "Dallas, TX":        { latitude: 32.7767, longitude: -96.7970 },
+    "Fort Worth, TX":    { latitude: 32.7555, longitude: -97.3308 },
+    "Richardson, TX":    { latitude: 32.9483, longitude: -96.7298 },
+    "Allen, TX":         { latitude: 33.1032, longitude: -96.6706 },
+    "McKinney, TX":      { latitude: 33.1972, longitude: -96.6397 },
+    "Carrollton, TX":    { latitude: 32.9537, longitude: -96.8903 },
+    "Denton, TX":        { latitude: 33.2148, longitude: -97.1331 },
+    "Arlington, TX":     { latitude: 32.7357, longitude: -97.1081 },
+    "Garland, TX":       { latitude: 32.9126, longitude: -96.6389 },
+    "Grapevine, TX":     { latitude: 32.9343, longitude: -97.0781 },
+    "Southlake, TX":     { latitude: 32.9412, longitude: -97.1339 },
+    "Coppell, TX":       { latitude: 32.9546, longitude: -97.0150 },
+    "Prosper, TX":       { latitude: 33.2362, longitude: -96.8008 },
+    "Lewisville, TX":    { latitude: 33.0462, longitude: -97.0072 },
+    "Flower Mound, TX": { latitude: 33.0145, longitude: -97.0961 },
+    "The Colony, TX":    { latitude: 33.0862, longitude: -96.8897 },
+    "Little Elm, TX":    { latitude: 33.1626, longitude: -96.9375 },
+};
+
 export function LocationProvider({ children }: { children: React.ReactNode }) {
     const { session } = useAuth();
     const [userCoords, setUserCoords] = useState<{
@@ -56,6 +82,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const [isLoaded, setIsLoaded] = useState(false);
     const [locationLabel, setLocationLabel] = useState<string | null>(null);
     const [savedAddress, setSavedAddress] = useState<string | null>(null);
+    const [hasSavedAddress, setHasSavedAddress] = useState(false);
     const liveRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const reloadLocationPrefs = useCallback(async () => {
@@ -80,22 +107,41 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                     const addr = data.saved_address || null;
                     setSavedAddress(addr);
 
+                    // Prefer stored GPS coords (saved address)
                     if (data.home_lat && data.home_long) {
-                        // Always set Supabase profile coordinates as the initial baseline/fallback
                         const coords = {
                             latitude: data.home_lat,
                             longitude: data.home_long,
                         };
-                        setUserCoords(coords);
+                        setHasSavedAddress(true);
 
-                        // If live location is off, use the city from saved address or reverse geocode
                         if (!liveEnabled) {
+                            setUserCoords(coords);
                             const label = addr ? extractCity(addr) : await reverseGeocodeLabel(coords);
                             setLocationLabel(label);
                         }
-                    } else if (addr && !liveEnabled) {
-                        // No coords but have a saved address string
-                        setLocationLabel(extractCity(addr));
+                    } else {
+                        // No GPS stored — fall back to onboarding city
+                        setHasSavedAddress(false);
+                        const { data: profileData } = await supabase
+                            .from("profiles")
+                            .select("location_city")
+                            .eq("id", session!.user!.id)
+                            .maybeSingle();
+
+                        const locationCity = profileData?.location_city as string | undefined;
+                        if (locationCity) {
+                            const cityLabel = locationCity.split(",")[0].trim();
+                            if (!liveEnabled) {
+                                setLocationLabel(cityLabel);
+                                const cityCenter = CITY_CENTERS[locationCity];
+                                if (cityCenter) {
+                                    setUserCoords(cityCenter);
+                                }
+                            }
+                        } else if (addr && !liveEnabled) {
+                            setLocationLabel(extractCity(addr));
+                        }
                     }
                 }
             }
@@ -216,10 +262,11 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     }, [isLiveLocationEnabled, isLoaded]);
 
     return (
-        <LocationContext.Provider value={{ 
-            userCoords, 
-            isLiveLocationEnabled, 
+        <LocationContext.Provider value={{
+            userCoords,
+            isLiveLocationEnabled,
             locationLabel,
+            hasSavedAddress,
             reloadLocationPrefs,
             setUserCoordsOverride: setUserCoords
         }}>

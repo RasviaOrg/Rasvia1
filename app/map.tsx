@@ -106,12 +106,12 @@ const GOOGLE_MAPS_DARK_STYLE = [
   { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d3d3d" }] },
 ];
 
-// Default region (fallback if location unavailable)
+// Default region (fallback if location unavailable) — Frisco city center, whole-city zoom
 const DEFAULT_REGION: Region = {
-  latitude: 32.7767,
-  longitude: -96.7970,
-  latitudeDelta: 0.08,
-  longitudeDelta: 0.08,
+  latitude: 33.1507,
+  longitude: -96.8236,
+  latitudeDelta: 0.15,
+  longitudeDelta: 0.15,
 };
 
 // ==============================
@@ -213,7 +213,7 @@ export default function MapScreen() {
     setShowNearbyList(false);
   };
 
-  const { userCoords: userLocation, isLiveLocationEnabled } = useLocation();
+  const { userCoords: userLocation, isLiveLocationEnabled, hasSavedAddress } = useLocation();
   const userLocationRef = useRef(userLocation);
   userLocationRef.current = userLocation;
   const { targetLat, targetLng, restaurantId } = useLocalSearchParams<{ targetLat?: string; targetLng?: string; restaurantId?: string }>();
@@ -290,6 +290,12 @@ export default function MapScreen() {
   // ==============================
   // Center Map & Focus logic
   // ==============================
+
+  // Reset centering when user explicitly toggles their location mode
+  useEffect(() => {
+    hasCenteredRef.current = false;
+  }, [isLiveLocationEnabled]);
+
   useEffect(() => {
     if (hasCenteredRef.current) return;
 
@@ -304,10 +310,12 @@ export default function MapScreen() {
       setTimeout(() => mapRef.current?.animateToRegion(target, 600), 500);
       hasCenteredRef.current = true;
     } else if (userLocation) {
+      // If live location is off, we're using city center coords → zoom out to show whole city
+      const delta = isLiveLocationEnabled ? 0.015 : 0.15;
       const initialRegion: Region = {
         ...userLocation,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
+        latitudeDelta: delta,
+        longitudeDelta: delta,
       };
       setRegion(initialRegion);
       setTimeout(() => mapRef.current?.animateToRegion(initialRegion, 600), 500);
@@ -600,7 +608,11 @@ export default function MapScreen() {
                 shadowRadius: 4,
                 elevation: 5,
               }}>
-                <Home size={16} color="#0f0f0f" strokeWidth={2.5} />
+                {hasSavedAddress && !isLiveLocationEnabled ? (
+                  <Home size={16} color="#0f0f0f" strokeWidth={2.5} />
+                ) : (
+                  <MapPin size={16} color="#0f0f0f" strokeWidth={2.5} />
+                )}
               </View>
             )}
           </Marker>
