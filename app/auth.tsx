@@ -33,6 +33,7 @@ import { InAppNotification } from "@/components/InAppNotification";
 let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
 WebBrowser.maybeCompleteAuthSession();
+const VERIFY_EMAIL_WEB_URL = "http://192.168.1.96:5173/verify-email";
 
 function formatPhoneNumber(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 10);
@@ -177,23 +178,38 @@ export default function AuthScreen() {
         setLoading(true);
         try {
             if (isSignUp) {
+                const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
+                const normalizedPhone = phone.replace(/\D/g, "").trim();
                 const { data, error } = await supabase.auth.signUp({
                     email: email.trim(),
                     password,
+                    options: {
+                        emailRedirectTo: VERIFY_EMAIL_WEB_URL,
+                        // Persist identity fields at auth level so first login can always sync profile.
+                        data: {
+                            full_name: fullName,
+                            first_name: firstName.trim(),
+                            last_name: `${lastInitial.trim().toUpperCase()}.`,
+                            phone_number: normalizedPhone,
+                        },
+                    },
                 });
                 if (error) throw error;
 
                 if (data.user) {
-                    const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
-                    await supabase
+                    const { error: profileError } = await supabase
                         .from('profiles')
                         .upsert({
                             id: data.user.id,
                             email: email.trim(),
                             full_name: fullName,
-                            phone_number: phone.replace(/\D/g, "").trim(),
+                            phone_number: normalizedPhone,
                             created_at: new Date().toISOString(),
                         });
+                    // Non-blocking: metadata fallback still allows profile-sync to populate name on sign-in.
+                    if (profileError) {
+                        console.warn("Profile upsert during sign-up failed:", profileError.message);
+                    }
                 }
 
                 // Navigate to the dedicated email verification screen

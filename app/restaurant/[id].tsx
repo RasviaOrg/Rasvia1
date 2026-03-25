@@ -85,6 +85,7 @@ const HERO_HEIGHT = SCREEN_HEIGHT * 0.42;
 const COLLAPSED_HEADER_HEIGHT = 100;
 const SCROLL_THRESHOLD = HERO_HEIGHT;
 const GROUP_ORDER_WEB_BASE_URL = "http://192.168.1.96:5173";
+const RESTAURANT_SHARE_WEB_BASE_URL = "http://192.168.1.96:5173";
 
 export default function RestaurantDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -382,13 +383,13 @@ export default function RestaurantDetail() {
   const collapsedHeaderStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       scrollY.value,
-      [SCROLL_THRESHOLD * 0.7, SCROLL_THRESHOLD],
+      [SCROLL_THRESHOLD * 0.45, SCROLL_THRESHOLD * 0.78],
       [0, 1],
       Extrapolation.CLAMP,
     );
     const translateY = interpolate(
       scrollY.value,
-      [SCROLL_THRESHOLD * 0.7, SCROLL_THRESHOLD],
+      [SCROLL_THRESHOLD * 0.45, SCROLL_THRESHOLD * 0.78],
       [-10, 0],
       Extrapolation.CLAMP,
     );
@@ -578,18 +579,23 @@ export default function RestaurantDetail() {
     if (!restaurant) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
+      const shareUrl = `${RESTAURANT_SHARE_WEB_BASE_URL}/share?restaurantId=${restaurant.id}`;
       await Share.share({
         title: restaurant.name,
-        message: `Check out ${restaurant.name} on Rasvia! ${restaurant.address ? `📍 ${restaurant.address}` : ""}`.trim(),
+        message: `Order from ${restaurant.name} on Rasvia!\n${shareUrl}`,
+        url: shareUrl,
       });
     } catch {
       // user dismissed or share failed — silently ignore
     }
   }, [restaurant]);
 
+  const isClosedByHours =
+    hoursStatus?.status === "closed" ||
+    hoursStatus?.status === "opening_soon";
   const isClosed =
     restaurant?.waitStatus === "darkgrey" ||
-    hoursStatus?.status === "closed";
+    isClosedByHours;
   const noWait = restaurant?.waitTime != null && restaurant.waitTime < 0;
   const waitlistClosed = restaurant?.waitlistOpen === false;
 
