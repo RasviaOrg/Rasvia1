@@ -836,7 +836,7 @@ export default function HostPartyScreen() {
                           fontSize: 14,
                         }}
                       >
-                        No restaurants match "{search}"
+                        No restaurants match &quot;{search}&quot;
                       </Text>
                     </View>
                   )}

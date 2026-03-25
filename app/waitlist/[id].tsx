@@ -1149,7 +1149,7 @@ export default function WaitlistStatus() {
                   fontSize: 18,
                 }}
               >
-                I'm on my way! 🙌
+                I&apos;m on my way! 🙌
               </Text>
             </Pressable>
           </Animated.View>

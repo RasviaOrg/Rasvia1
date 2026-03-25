@@ -651,9 +651,7 @@ export default function MapScreen() {
           restaurant={selectedRestaurant}
           isClosed={closedRestaurantIds.has(selectedRestaurant.id)}
           onDismiss={() => setSelectedRestaurant(null)}
-          onPress={() =>
-            router.navigate(`/restaurant/${selectedRestaurant.id}` as any)
-          }
+          onPress={() => handleRestaurantPress(selectedRestaurant)}
           isAdmin={isAdmin}
           onAdminPress={() => setAdminPanelRestaurant(selectedRestaurant)}
         />

@@ -1382,7 +1382,7 @@ export default function JoinPartyScreen() {
                                         style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'host_pays' ? 'rgba(34,197,94,0.12)' : '#1a1a1a', borderColor: paymentMode === 'host_pays' ? '#22C55E' : '#2a2a2a' }}
                                     >
                                         <Wallet size={16} color={paymentMode === 'host_pays' ? '#22C55E' : '#666'} style={{ marginBottom: 4 }} />
-                                        <Text style={{ fontFamily: paymentMode === 'host_pays' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'host_pays' ? '#22C55E' : '#777', fontSize: 12, textAlign: 'center' }}>I'll Pay</Text>
+                                        <Text style={{ fontFamily: paymentMode === 'host_pays' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'host_pays' ? '#22C55E' : '#777', fontSize: 12, textAlign: 'center' }}>I&apos;ll Pay</Text>
                                     </Pressable>
                                     {/* Split Equally */}
                                     <Pressable

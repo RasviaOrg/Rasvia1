@@ -440,7 +440,7 @@ export function CheckoutModal({
                         {orderType === "takeout" && (
                             <View style={{ backgroundColor: "rgba(255,153,51,0.1)", borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(255,153,51,0.2)", width: "100%" }}>
                                 <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 13, textAlign: "center" }}>
-                                    You'll be notified when your order is ready for pickup 🛍️
+                                    You&apos;ll be notified when your order is ready for pickup 🛍️
                                 </Text>
                             </View>
                         )}

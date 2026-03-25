@@ -241,7 +241,7 @@ export default function OrderConfirmationScreen() {
                                         </Text>
                                     </View>
                                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#ccc", fontSize: 13, lineHeight: 20 }}>
-                                        Your order is being prepared. You'll be notified when it's ready for pickup. Head to the counter to collect your order. 🛍️
+                                        Your order is being prepared. You&apos;ll be notified when it&apos;s ready for pickup. Head to the counter to collect your order. 🛍️
                                     </Text>
                                 </View>
                             ) : (
@@ -261,7 +261,7 @@ export default function OrderConfirmationScreen() {
                                         </Text>
                                     </View>
                                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#ccc", fontSize: 13, lineHeight: 20 }}>
-                                        Your order has been sent to the kitchen. You'll be seated shortly — your food will arrive at your table. Enjoy your meal! 🍽️
+                                        Your order has been sent to the kitchen. You&apos;ll be seated shortly — your food will arrive at your table. Enjoy your meal! 🍽️
                                     </Text>
                                 </View>
                             )}

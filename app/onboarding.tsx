@@ -648,7 +648,7 @@ export default function OnboardingScreen() {
                                     lineHeight: 24,
                                 }}
                             >
-                                We won't show you meat dishes on these days.{"\n"}
+                                We won&apos;t show you meat dishes on these days.{"\n"}
                                 Tap the days you eat vegetarian only.
                             </Text>
                         </Animated.View>

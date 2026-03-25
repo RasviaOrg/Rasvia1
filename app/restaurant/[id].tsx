@@ -31,7 +31,6 @@ import {
   Sun,
   Moon,
   Sparkles as SparklesIcon,
-  Tag,
   Truck,
   UtensilsCrossed,
   Leaf,
@@ -137,12 +136,32 @@ export default function RestaurantDetail() {
   const [liveQueueCount, setLiveQueueCount] = useState<number | null>(null);
   // Active group session for this restaurant (if any)
   const [hasActiveGroupSession, setHasActiveGroupSession] = useState(false);
-  // Menu category filter
-  type MenuFilter = 'all' | 'breakfast' | 'lunch' | 'dinner' | 'specials' | 'other';
-  const [activeMenuFilter, setActiveMenuFilter] = useState<MenuFilter>('all');
+  // Menu category multi-filter
+  type MenuFilter = "all" | "breakfast" | "lunch" | "dinner" | "specials";
+  const [selectedMenuFilters, setSelectedMenuFilters] = useState<MenuFilter[]>([]);
   // User dietary preferences for veg indicator
   const [userDietaryType, setUserDietaryType] = useState("");
   const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
+
+  const itemMatchesFilter = useCallback((item: UIMenuItem, filter: MenuFilter) => {
+    const mealTimes = item.mealTimes ?? [];
+    if (filter === "all") {
+      return mealTimes.includes("all") || mealTimes.includes("all_day");
+    }
+    if (filter === "specials") {
+      return mealTimes.includes("specials") || mealTimes.includes("special");
+    }
+    return mealTimes.includes(filter);
+  }, []);
+
+  const hasItemsForFilter = useCallback(
+    (filter: MenuFilter) => menu.some((item) => itemMatchesFilter(item, filter)),
+    [menu, itemMatchesFilter]
+  );
+
+  useEffect(() => {
+    setSelectedMenuFilters((prev) => prev.filter((f) => hasItemsForFilter(f)));
+  }, [hasItemsForFilter]);
 
 
   // Fetch party leader name + check for existing active entry
@@ -613,7 +632,12 @@ export default function RestaurantDetail() {
             }}
           >
             <Pressable
-              onPress={() => router.back()}
+              onPress={() => {
+                if (Platform.OS !== "web") {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+                router.back();
+              }}
               style={{
                 width: 38,
                 height: 38,
@@ -758,7 +782,12 @@ export default function RestaurantDetail() {
             <SafeAreaView edges={["top"]} className="absolute top-0 left-0 right-0">
               <View className="flex-row items-center justify-between px-5 pt-2">
                 <Pressable
-                  onPress={() => router.back()}
+                  onPress={() => {
+                    if (Platform.OS !== "web") {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                    router.back();
+                  }}
                   style={{
                     backgroundColor: "rgba(15, 15, 15, 0.6)",
                     width: 44,
@@ -1175,65 +1204,124 @@ export default function RestaurantDetail() {
 
           {/* ─ Meal-period filter bar ─ */}
           {(() => {
-            // Compute which filters are relevant for this menu
-            const hasMealTime = (mt: string) => menu.some(m => m.mealTimes?.includes(mt));
-            const hasOther = menu.some(m => !m.mealTimes || m.mealTimes.length === 0);
             type FilterDef = { key: MenuFilter; label: string; color: string; bg: string; border: string; icon: any };
             const FILTER_DEFS: FilterDef[] = [
-              { key: 'all', label: 'All', color: '#FF9933', bg: 'rgba(255,153,51,0.15)', border: 'rgba(255,153,51,0.4)', icon: null },
+              { key: 'all', label: 'All Day', color: '#3B82F6', bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.45)', icon: null },
               { key: 'breakfast', label: 'Breakfast', color: '#F97316', bg: 'rgba(249,115,22,0.15)', border: 'rgba(249,115,22,0.4)', icon: Coffee },
               { key: 'lunch', label: 'Lunch', color: '#22C55E', bg: 'rgba(34,197,94,0.15)', border: 'rgba(34,197,94,0.4)', icon: Sun },
               { key: 'dinner', label: 'Dinner', color: '#818CF8', bg: 'rgba(129,140,248,0.15)', border: 'rgba(129,140,248,0.4)', icon: Moon },
               { key: 'specials', label: 'Specials', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.4)', icon: SparklesIcon },
-              { key: 'other', label: 'Other', color: '#94A3B8', bg: 'rgba(148,163,184,0.15)', border: 'rgba(148,163,184,0.4)', icon: Tag },
             ];
-            const available = FILTER_DEFS.filter(f =>
-              f.key === 'all' ||
-              (f.key === 'other' ? hasOther : hasMealTime(f.key))
-            );
-            if (available.length <= 1) return null; // nothing to filter
+            const toggleFilter = (key: MenuFilter, disabled: boolean) => {
+              if (disabled) return;
+              setSelectedMenuFilters((prev) => {
+                // All Day is a distinct mode; toggling it clears meal-period filters.
+                if (key === "all") {
+                  return prev.includes("all") ? prev.filter((f) => f !== "all") : ["all"];
+                }
+
+                let next = prev.filter((f) => f !== "all");
+                if (next.includes(key)) {
+                  next = next.filter((f) => f !== key);
+                } else {
+                  next = [...next, key];
+                }
+
+                // If breakfast + lunch + dinner are all selected, collapse to All Day.
+                if (
+                  next.includes("breakfast") &&
+                  next.includes("lunch") &&
+                  next.includes("dinner")
+                ) {
+                  return ["all"];
+                }
+
+                return next;
+              });
+            };
+            const topRow = FILTER_DEFS.slice(0, 3);
+            const bottomRow = FILTER_DEFS.slice(3);
 
             return (
               <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8 }}
-                >
-                  {available.map(f => {
-                    const isActive = activeMenuFilter === f.key;
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+                  {topRow.map(f => {
+                    const isActive = selectedMenuFilters.includes(f.key);
                     const Icon = f.icon;
+                    const isDisabled = !hasItemsForFilter(f.key);
                     return (
                       <Pressable
                         key={f.key}
+                        disabled={isDisabled}
                         onPress={() => {
                           if (Platform.OS !== 'web') Haptics.selectionAsync();
-                          setActiveMenuFilter(f.key as MenuFilter);
+                          toggleFilter(f.key, isDisabled);
                         }}
                         style={{
                           flexDirection: 'row',
                           alignItems: 'center',
+                          justifyContent: "center",
                           gap: 5,
-                          paddingHorizontal: 14,
+                          width: "31.5%",
                           paddingVertical: 8,
                           borderRadius: 20,
-                          backgroundColor: isActive ? f.bg : '#1a1a1a',
+                          backgroundColor: isDisabled ? "#141414" : (isActive ? f.bg : '#1a1a1a'),
                           borderWidth: 1,
-                          borderColor: isActive ? f.border : '#2a2a2a',
+                          borderColor: isDisabled ? "#1f1f1f" : (isActive ? f.border : '#2a2a2a'),
+                          opacity: isDisabled ? 0.55 : 1,
                         }}
                       >
-                        {Icon && <Icon size={12} color={isActive ? f.color : '#666'} />}
+                        {Icon && <Icon size={12} color={isDisabled ? "#4d4d4d" : (isActive ? f.color : '#666')} />}
                         <Text style={{
                           fontFamily: isActive ? 'Manrope_700Bold' : 'Manrope_500Medium',
                           fontSize: 13,
-                          color: isActive ? f.color : '#888',
+                          color: isDisabled ? "#575757" : (isActive ? f.color : '#888'),
                         }}>
                           {f.label}
                         </Text>
                       </Pressable>
                     );
                   })}
-                </ScrollView>
+                </View>
+                <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
+                  {bottomRow.map(f => {
+                    const isActive = selectedMenuFilters.includes(f.key);
+                    const Icon = f.icon;
+                    const isDisabled = !hasItemsForFilter(f.key);
+                    return (
+                      <Pressable
+                        key={f.key}
+                        disabled={isDisabled}
+                        onPress={() => {
+                          if (Platform.OS !== 'web') Haptics.selectionAsync();
+                          toggleFilter(f.key, isDisabled);
+                        }}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: "center",
+                          gap: 5,
+                          width: "31.5%",
+                          paddingVertical: 8,
+                          borderRadius: 20,
+                          backgroundColor: isDisabled ? "#141414" : (isActive ? f.bg : '#1a1a1a'),
+                          borderWidth: 1,
+                          borderColor: isDisabled ? "#1f1f1f" : (isActive ? f.border : '#2a2a2a'),
+                          opacity: isDisabled ? 0.55 : 1,
+                        }}
+                      >
+                        {Icon && <Icon size={12} color={isDisabled ? "#4d4d4d" : (isActive ? f.color : '#666')} />}
+                        <Text style={{
+                          fontFamily: isActive ? 'Manrope_700Bold' : 'Manrope_500Medium',
+                          fontSize: 13,
+                          color: isDisabled ? "#575757" : (isActive ? f.color : '#888'),
+                        }}>
+                          {f.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
             );
           })()}
@@ -1241,9 +1329,8 @@ export default function RestaurantDetail() {
           <View className="px-4">
             <MenuEditor
               menu={menu.filter(m => {
-                if (activeMenuFilter === 'all') return true;
-                if (activeMenuFilter === 'other') return !m.mealTimes || m.mealTimes.length === 0;
-                return m.mealTimes?.includes(activeMenuFilter) ?? false;
+                if (selectedMenuFilters.length === 0) return true; // no selection = show everything
+                return selectedMenuFilters.some((filter) => itemMatchesFilter(m, filter));
               })}
               setMenu={setMenu}
               onItemPress={(item) => setSelectedItem(item)}

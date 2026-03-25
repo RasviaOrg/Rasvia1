@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Pressable, ScrollView } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import type { FilterType } from "@/data/mockData";
 
@@ -18,12 +18,8 @@ const filters: { label: string; value: FilterType; color?: string }[] = [
 export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
   return (
     <Animated.View entering={FadeIn.delay(200).duration(400)}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20 }}
-      >
-        {filters.map((filter) => {
+      <View style={{ paddingHorizontal: 20, flexDirection: "row", justifyContent: "space-between" }}>
+        {filters.map((filter, index) => {
           const isActive = activeFilter === filter.value;
           return (
             <Pressable
@@ -31,10 +27,12 @@ export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
               onPress={() => onFilterChange(filter.value)}
               style={[
                 {
-                  paddingHorizontal: 16,
+                  flex: 1,
+                  minHeight: 38,
+                  paddingHorizontal: 8,
                   paddingVertical: 8,
                   borderRadius: 20,
-                  marginRight: 8,
+                  marginRight: index < filters.length - 1 ? 8 : 0,
                   borderWidth: 1,
                   borderColor: isActive
                     ? filter.color || "#FF9933"
@@ -45,7 +43,7 @@ export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
                 },
               ]}
             >
-              <View className="flex-row items-center">
+              <View className="flex-row items-center justify-center">
                 {filter.color && (
                   <View
                     style={{
@@ -61,7 +59,7 @@ export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
                   style={{
                     fontFamily: "Manrope_600SemiBold",
                     color: isActive ? filter.color || "#FF9933" : "#999999",
-                    fontSize: 13,
+                    fontSize: 12,
                   }}
                 >
                   {filter.label}
@@ -70,7 +68,7 @@ export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
     </Animated.View>
   );
 }

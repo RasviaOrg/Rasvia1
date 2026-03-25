@@ -1,3 +1,5 @@
+// @ts-nocheck
+/* eslint-disable import/no-unresolved */
 // supabase/functions/payment-redirect/index.ts
 // Bridge page between Stripe Checkout and the Rasvia app.
 // Stripe redirects here → we verify payment, save the order, then redirect into the app.

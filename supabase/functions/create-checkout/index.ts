@@ -1,3 +1,5 @@
+// @ts-nocheck
+/* eslint-disable import/no-unresolved */
 // supabase/functions/create-checkout/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "https://esm.sh/stripe@13.10.0?target=deno"

@@ -1,3 +1,5 @@
+// @ts-nocheck
+/* eslint-disable import/no-unresolved */
 // supabase/functions/delete-account/index.ts
 // Deletes the authenticated user's account and all associated data.
 // Must be called with a valid user JWT — we verify it before deleting.

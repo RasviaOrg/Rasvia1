@@ -58,7 +58,7 @@ export default function PrivacyPolicyScreen() {
                 <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 60 }}>
 
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 13, lineHeight: 20, marginBottom: 28 }}>
-                        Rasvia ("we," "us," or "our") operates the Rasvia mobile application. This policy explains how we collect, use, and protect your information. By using Rasvia, you agree to this policy.
+                        Rasvia (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the Rasvia mobile application. This policy explains how we collect, use, and protect your information. By using Rasvia, you agree to this policy.
                     </Text>
 
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 17, marginBottom: 10 }}>
@@ -94,7 +94,7 @@ export default function PrivacyPolicyScreen() {
                         • <Text style={{ fontFamily: "Manrope_700Bold" }}>Partner Restaurants:</Text> Your name and order details are shared with the restaurant to fulfill your order.
                     </Text>
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#ccc", fontSize: 14, lineHeight: 22, marginBottom: 8 }}>
-                        • <Text style={{ fontFamily: "Manrope_700Bold" }}>Stripe:</Text> Our payment processor. Stripe's privacy policy applies to payment data: stripe.com/privacy.
+                        • <Text style={{ fontFamily: "Manrope_700Bold" }}>Stripe:</Text> Our payment processor. Stripe&apos;s privacy policy applies to payment data: stripe.com/privacy.
                     </Text>
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#ccc", fontSize: 14, lineHeight: 22, marginBottom: 24 }}>
                         • <Text style={{ fontFamily: "Manrope_700Bold" }}>Supabase:</Text> Our database and authentication provider. Data is stored securely on Supabase infrastructure.{"\n"}
@@ -105,7 +105,7 @@ export default function PrivacyPolicyScreen() {
                         4. Push Notifications
                     </Text>
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#ccc", fontSize: 14, lineHeight: 22, marginBottom: 24 }}>
-                        With your permission, we send push notifications for events such as table readiness, order status updates, and group order activity. You can opt out at any time in your device's notification settings or within the Rasvia app under Profile → Notifications.
+                        With your permission, we send push notifications for events such as table readiness, order status updates, and group order activity. You can opt out at any time in your device&apos;s notification settings or within the Rasvia app under Profile → Notifications.
                     </Text>
 
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 17, marginBottom: 10 }}>
@@ -122,7 +122,7 @@ export default function PrivacyPolicyScreen() {
                     </Text>
 
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 17, marginBottom: 10 }}>
-                        6. Children's Privacy
+                        6. Children&apos;s Privacy
                     </Text>
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#ccc", fontSize: 14, lineHeight: 22, marginBottom: 24 }}>
                         Rasvia is not directed at children under the age of 13. We do not knowingly collect personal information from children under 13. If you believe a child has provided us with personal information, please contact us and we will delete it.

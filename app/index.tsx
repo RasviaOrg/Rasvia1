@@ -573,7 +573,7 @@ export default function DiscoveryFeed() {
                      textAlign: "center"
                    }}
                  >
-                   it's quiet right now...
+                  it&apos;s quiet right now...
                  </Text>
                </View>
              </Animated.View>

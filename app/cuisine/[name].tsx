@@ -257,7 +257,7 @@ export default function CuisinePage() {
                   textAlign: "center",
                 }}
               >
-                We're adding more {decodedName} spots soon!
+                We&apos;re adding more {decodedName} spots soon!
               </Text>
             </Animated.View>
           ) : (
