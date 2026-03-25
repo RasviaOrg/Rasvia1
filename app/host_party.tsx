@@ -39,7 +39,6 @@ import { useLocation } from "../lib/location-context";
 import { haversineDistance } from "../lib/restaurant-types";
 import { useClosedRestaurantIds } from "../hooks/useClosedRestaurantIds";
 import { useAdminMode } from "../hooks/useAdminMode";
-import * as Linking from "expo-linking";
 
 interface Restaurant {
   id: number;
@@ -54,6 +53,7 @@ interface Restaurant {
 type SortOption = "none" | "waitTime" | "distance";
 
 type Step = "select" | "starting" | "created";
+const GROUP_ORDER_WEB_BASE_URL = "http://192.168.1.96:5173";
 
 export default function HostPartyScreen() {
   const router = useRouter();
@@ -158,7 +158,7 @@ export default function HostPartyScreen() {
 
         if (sessErr) throw sessErr;
 
-        const url = Linking.createURL(`/join/${sess.id}`);
+        const url = `${GROUP_ORDER_WEB_BASE_URL}/join?id=${sess.id}`;
         setSessionId(sess.id);
         setShareUrl(url);
         setStep("created");
@@ -381,7 +381,7 @@ export default function HostPartyScreen() {
 
       if (error) throw error;
 
-      const url = Linking.createURL(`/join/${data.id}`);
+      const url = `${GROUP_ORDER_WEB_BASE_URL}/join?id=${data.id}`;
       setSessionId(data.id);
       setShareUrl(url);
       setStep("created");

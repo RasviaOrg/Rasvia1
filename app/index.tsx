@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -34,6 +34,7 @@ import {
   type UIRestaurant,
   mapSupabaseToUI,
   haversineDistance,
+  parseFavorites,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -66,6 +67,7 @@ export default function DiscoveryFeed() {
   const [activeGroupOrder, setActiveGroupOrder] = useState<ActiveGroupOrder | null>(null);
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
+  const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
 
   // ==================================================
   // STATE MANAGEMENT - Replace Mock Data
@@ -102,6 +104,29 @@ export default function DiscoveryFeed() {
       supabase.removeChannel(subscription);
     };
   }, []);
+
+  // Load favorites for the signed-in user so we can render a dedicated Favorites rail.
+  const fetchFavoriteRestaurantIds = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setFavoriteRestaurantIds([]);
+      return;
+    }
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("favorite_restaurants")
+        .eq("id", userId)
+        .single();
+      setFavoriteRestaurantIds(parseFavorites((data as any)?.favorite_restaurants));
+    } catch {
+      setFavoriteRestaurantIds([]);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    fetchFavoriteRestaurantIds();
+  }, [fetchFavoriteRestaurantIds]);
 
 
   async function fetchRestaurants() {
@@ -221,7 +246,8 @@ export default function DiscoveryFeed() {
   useFocusEffect(
     useCallback(() => {
       checkActiveGroupOrder();
-    }, [checkActiveGroupOrder])
+      fetchFavoriteRestaurantIds();
+    }, [checkActiveGroupOrder, fetchFavoriteRestaurantIds])
   );
 
   // Recalculate distances when userCoords arrives after initial fetch
@@ -271,6 +297,18 @@ export default function DiscoveryFeed() {
   const quickBites = restaurantsWithHoursStatus.filter((r) => 
     (isAdmin || r.isEnabled) && r.waitStatus === "green"
   );
+
+  const favoritesRestaurants = restaurantsWithHoursStatus
+    .filter((r) => (isAdmin || r.isEnabled) && favoriteRestaurantIds.includes(Number(r.id)))
+    .sort((a, b) => {
+      const aClosed = a.waitStatus === "darkgrey" ? 1 : 0;
+      const bClosed = b.waitStatus === "darkgrey" ? 1 : 0;
+      if (aClosed !== bClosed) return aClosed - bClosed;
+      const aw = a.waitTime >= 0 ? a.waitTime : Number.POSITIVE_INFINITY;
+      const bw = b.waitTime >= 0 ? b.waitTime : Number.POSITIVE_INFINITY;
+      if (aw !== bw) return aw - bw;
+      return parseDist(a.distance) - parseDist(b.distance);
+    });
 
   const nothingToShow = trendingRestaurants.length === 0 && nearbyRestaurants.length === 0 && quickBites.length === 0;
 
@@ -454,7 +492,7 @@ export default function DiscoveryFeed() {
               onRefresh={() => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setRefreshing(true);
-                fetchRestaurants().finally(() => setRefreshing(false));
+                Promise.all([fetchRestaurants(), fetchFavoriteRestaurantIds()]).finally(() => setRefreshing(false));
               }}
               tintColor="#FF9933"
               colors={["#FF9933"]}
@@ -584,6 +622,53 @@ export default function DiscoveryFeed() {
                 snapToAlignment="start"
                 renderItem={({ item: restaurant, index }) => (
                   <HeroCard
+                    restaurant={restaurant}
+                    index={index}
+                    onPress={() => handleRestaurantPress(restaurant.id)}
+                  />
+                )}
+              />
+            </>
+          )}
+
+          {/* Favorites Section */}
+          {favoritesRestaurants.length > 0 && (
+            <>
+              <Animated.View entering={FadeInDown.delay(320).duration(500)}>
+                <View className="px-5 mt-8 mb-4">
+                  <View className="flex-row items-center mb-1">
+                    <Heart size={18} color="#EF4444" />
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_800ExtraBold",
+                        color: "#f5f5f5",
+                        fontSize: 24,
+                        marginLeft: 8,
+                      }}
+                    >
+                      Favorites
+                    </Text>
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#999999",
+                      fontSize: 14,
+                      marginTop: 2,
+                    }}
+                  >
+                    Your saved spots, sorted by wait
+                  </Text>
+                </View>
+              </Animated.View>
+              <FlatList
+                horizontal
+                data={favoritesRestaurants}
+                keyExtractor={(r) => `favorite-${r.id}`}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                renderItem={({ item: restaurant, index }) => (
+                  <RestaurantListCard
                     restaurant={restaurant}
                     index={index}
                     onPress={() => handleRestaurantPress(restaurant.id)}

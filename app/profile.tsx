@@ -843,6 +843,9 @@ export default function ProfileSettingsScreen() {
           >
             <Pressable
               onPress={() => {
+                if (Platform.OS !== "web") {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
                 // Parse full_name to get first name and last initial
                 const parts = fullName.split(" ");
                 const first = parts.slice(0, -1).join(" ");
@@ -2211,7 +2214,12 @@ export default function ProfileSettingsScreen() {
                     {/* Buttons */}
                     <View style={{ flexDirection: "row", gap: 12 }}>
                       <Pressable
-                        onPress={() => setEditingProfile(false)}
+                        onPress={() => {
+                          if (Platform.OS !== "web") {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }
+                          setEditingProfile(false);
+                        }}
                         style={{
                           flex: 1,
                           backgroundColor: "#262626",

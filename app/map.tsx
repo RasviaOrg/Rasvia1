@@ -806,15 +806,16 @@ export default function MapScreen() {
             if (Platform.OS !== "web") {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             }
-            const currentDelta = region.latitudeDelta || 0.015;
-            const latOffset = currentDelta * (OVERLAY_HEIGHT / SCREEN_HEIGHT) * 0.5;
+            setShowNearbyList(false);
             const targetRegion: Region = {
-              latitude: r.lat! - latOffset,
+              latitude: r.lat!,
               longitude: r.long!,
               latitudeDelta: 0.008,
               longitudeDelta: 0.008,
             };
             mapRef.current?.animateToRegion(targetRegion, 600);
+            // Keep state aligned with what user picked.
+            setSelectedRestaurant(r);
           }}
         />
       )}
@@ -988,6 +989,19 @@ export default function MapScreen() {
                         .update({ lat, long: lng })
                         .eq("id", Number(restaurantBeingMoved.id));
                       if (error) throw error;
+                      // Optimistic local update so marker moves immediately without leaving/re-entering the map.
+                      setRestaurants((prev) =>
+                        prev.map((rest) =>
+                          rest.id === restaurantBeingMoved.id
+                            ? { ...rest, lat, long: lng }
+                            : rest
+                        )
+                      );
+                      setSelectedRestaurant((prev) =>
+                        prev?.id === restaurantBeingMoved.id
+                          ? { ...prev, lat, long: lng }
+                          : prev
+                      );
                       setIsSettingLocation(false);
                       setRestaurantBeingMoved(null);
                     } catch (err: any) {

@@ -32,6 +32,7 @@ const MEAL_PERIOD_CFG: Record<MealPeriod, { label: string; color: string; bg: st
 };
 
 const MEMBER_COLORS = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'];
+const GROUP_ORDER_WEB_BASE_URL = "http://192.168.1.96:5173";
 
 function MealPeriodTag({ period }: { period: MealPeriod }) {
     const cfg = MEAL_PERIOD_CFG[period];
@@ -909,7 +910,7 @@ export default function JoinPartyScreen() {
                     <Pressable
                         onPress={async () => {
                             if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            const url = Linking.createURL(`/join/${sessionId}`);
+                            const url = `${GROUP_ORDER_WEB_BASE_URL}/join?id=${sessionId}`;
                             try {
                                 await Share.share({
                                     message: `Join my group order at ${restaurantName}! 🍽️\n${url}`,

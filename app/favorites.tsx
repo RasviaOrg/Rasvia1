@@ -213,7 +213,7 @@ export default function FavoritesScreen() {
                     entering={FadeInDown.delay(100 + index * 50).duration(500)}
                   >
                     <Pressable
-                      onPress={() => !isClosed && handleRestaurantPress(restaurant.id)}
+                      onPress={() => handleRestaurantPress(restaurant.id)}
                       style={{
                         flexDirection: "row",
                         backgroundColor: "#1a1a1a",

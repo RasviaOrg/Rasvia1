@@ -78,7 +78,6 @@ import {
 } from "@/data/mockData";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ExpoClipboard from "expo-clipboard";
-import * as Linking from "expo-linking";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 let SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -86,6 +85,7 @@ Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.wi
 const HERO_HEIGHT = SCREEN_HEIGHT * 0.42;
 const COLLAPSED_HEADER_HEIGHT = 100;
 const SCROLL_THRESHOLD = HERO_HEIGHT;
+const GROUP_ORDER_WEB_BASE_URL = "http://192.168.1.96:5173";
 
 export default function RestaurantDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -1388,7 +1388,7 @@ export default function RestaurantDetail() {
                 Alert.alert("Share Cart", "No active group session found.");
                 return;
               }
-              const shareUrl = Linking.createURL(`/join/${sessionId}`);
+              const shareUrl = `${GROUP_ORDER_WEB_BASE_URL}/join?id=${sessionId}`;
               if (Platform.OS === "web") {
                 await navigator.clipboard?.writeText(shareUrl);
               } else {
