@@ -33,7 +33,7 @@ import { InAppNotification } from "@/components/InAppNotification";
 let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
 WebBrowser.maybeCompleteAuthSession();
-const VERIFY_EMAIL_WEB_URL = "http://192.168.1.96:5173/verify-email";
+const VERIFY_EMAIL_WEB_URL = "https://rasvia.com/verify-email";
 
 function formatPhoneNumber(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 10);

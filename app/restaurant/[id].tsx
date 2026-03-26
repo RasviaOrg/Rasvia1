@@ -84,8 +84,8 @@ Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.wi
 const HERO_HEIGHT = SCREEN_HEIGHT * 0.42;
 const COLLAPSED_HEADER_HEIGHT = 100;
 const SCROLL_THRESHOLD = HERO_HEIGHT;
-const GROUP_ORDER_WEB_BASE_URL = "http://192.168.1.96:5173";
-const RESTAURANT_SHARE_WEB_BASE_URL = "http://192.168.1.96:5173";
+const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
+const RESTAURANT_SHARE_WEB_BASE_URL = "https://rasvia.com";
 
 export default function RestaurantDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();

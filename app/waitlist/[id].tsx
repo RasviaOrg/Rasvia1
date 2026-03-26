@@ -50,7 +50,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { MenuItem, CartItem } from "@/data/mockData";
 import { CheckoutModal } from "@/components/CheckoutModal";
 
-const GROUP_ORDER_WEB_BASE_URL = "http://192.168.1.96:5173";
+const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 
 export default function WaitlistStatus() {
   const { id, entry_id, party_size } = useLocalSearchParams<{ id: string; entry_id?: string; party_size?: string }>();

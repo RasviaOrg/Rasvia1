@@ -54,7 +54,7 @@ interface Restaurant {
 type SortOption = "none" | "waitTime" | "distance";
 
 type Step = "select" | "starting" | "created";
-const GROUP_ORDER_WEB_BASE_URL = "http://192.168.1.96:5173";
+const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 
 export default function HostPartyScreen() {
   const router = useRouter();
