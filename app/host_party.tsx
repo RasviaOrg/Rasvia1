@@ -32,6 +32,7 @@ import {
 import Animated, { FadeInDown, FadeIn } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { useNotifications } from "../lib/notifications-context";
@@ -956,10 +957,33 @@ export default function HostPartyScreen() {
                   lineHeight: 20,
                 }}
               >
-                Share the link below with your group. Everyone can add their own
+                Share the link or scan the QR code below with your group. Everyone can add their own
                 items from their phone.
               </Text>
             </View>
+
+            {/* QR code */}
+            {shareUrl ? (
+              <View
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: 14,
+                }}
+              >
+                <View
+                  style={{
+                    backgroundColor: "#ffffff",
+                    borderRadius: 14,
+                    padding: 12,
+                    borderWidth: 1,
+                    borderColor: "#2a2a2a",
+                  }}
+                >
+                  <QRCode value={shareUrl} size={148} />
+                </View>
+              </View>
+            ) : null}
 
             {/* Link card */}
             <Text
