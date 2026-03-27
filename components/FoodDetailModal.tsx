@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { X, Plus, Leaf, Flame } from "lucide-react-native";
+import { X, Plus, Leaf, Flame, Settings } from "lucide-react-native";
 import type { MenuItem } from "@/data/mockData";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
@@ -14,12 +14,14 @@ interface FoodDetailModalProps {
   item: MenuItem;
   onClose: () => void;
   onAddToCart: () => void;
+  onOpenSettings?: () => void;
 }
 
 export function FoodDetailModal({
   item,
   onClose,
   onAddToCart,
+  onOpenSettings,
 }: FoodDetailModalProps) {
   return (
     <Animated.View
@@ -56,21 +58,52 @@ export function FoodDetailModal({
               }}
             />
 
-            {/* Close button */}
-            <Pressable
-              onPress={onClose}
-              className="absolute top-4 right-4"
+            {/* Top-right controls */}
+            <View
               style={{
-                backgroundColor: "rgba(15, 15, 15, 0.6)",
-                width: 40,
-                height: 40,
-                borderRadius: 20,
+                position: "absolute",
+                top: 16,
+                right: 16,
+                flexDirection: "row",
                 alignItems: "center",
-                justifyContent: "center",
+                gap: 8,
               }}
             >
-              <X size={20} color="#f5f5f5" />
-            </Pressable>
+              {onOpenSettings && (
+                <Pressable
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onOpenSettings();
+                  }}
+                  style={{
+                    backgroundColor: "rgba(15, 15, 15, 0.6)",
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Settings size={18} color="#f5f5f5" />
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onClose();
+                }}
+                style={{
+                  backgroundColor: "rgba(15, 15, 15, 0.6)",
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <X size={20} color="#f5f5f5" />
+              </Pressable>
+            </View>
 
             {/* Badges */}
             <View className="absolute bottom-4 left-5 flex-row items-center">

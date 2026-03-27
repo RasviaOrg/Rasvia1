@@ -36,6 +36,7 @@ import {
   Leaf,
   AlertTriangle,
   ShieldCheck,
+  BarChart3,
 } from "lucide-react-native";
 import Animated, {
   useAnimatedStyle,
@@ -50,6 +51,7 @@ import { WaitBadge } from "@/components/WaitBadge";
 import { MenuGridItem } from "@/components/MenuGridItem";
 import { MenuEditor } from "@/components/MenuEditor";
 import { FoodDetailModal } from "@/components/FoodDetailModal";
+import { MenuItemDetailSettingsModal } from "@/components/MenuItemDetailSettingsModal";
 import { GroupCartDrawer } from "@/components/GroupCartDrawer";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { HoursStatusBadge } from "@/components/HoursStatusBadge";
@@ -93,12 +95,18 @@ export default function RestaurantDetail() {
   const { userCoords } = useLocation();
   const userCoordsRef = useRef(userCoords);
   useEffect(() => { userCoordsRef.current = userCoords; }, [userCoords]);
-  const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
+  const { isAdmin, isRestaurantOwner, ownedRestaurantId, loading: roleLoading } = useAdminMode();
   // owners can manage their own restaurant (same controls as admin, but scoped)
   const canManage = isAdmin || (isRestaurantOwner && ownedRestaurantId === id);
   const { session } = useAuth();
+  const [restaurantOwnerId, setRestaurantOwnerId] = useState<string | null>(null);
+  const ownerOwnsCurrentRestaurant =
+    !!session?.user?.id &&
+    isRestaurantOwner &&
+    restaurantOwnerId === session.user.id;
+  const ownerRoleResolved = !roleLoading;
   const { addEvent, refreshActive } = useNotifications();
-  const { statusResult: hoursStatus, hours: restaurantHours } = useRestaurantHours(id);
+  const { statusResult: hoursStatus, hours: restaurantHours, refetch: refetchRestaurantHours } = useRestaurantHours(id);
 
   // Resolved member list: override "You" avatar with real profile pic when available
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
@@ -115,10 +123,12 @@ export default function RestaurantDetail() {
   const [loading, setLoading] = useState(true);
 
   const [selectedItem, setSelectedItem] = useState<UIMenuItem | null>(null);
+  const [showSelectedItemSettings, setShowSelectedItemSettings] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [openHoursEditorOnOpen, setOpenHoursEditorOnOpen] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
@@ -253,8 +263,10 @@ export default function RestaurantDetail() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "restaurants", filter: `id=eq.${id}` },
         (payload) => {
+          const next = payload.new as SupabaseRestaurant;
+          setRestaurantOwnerId((next as any)?.owner_id ?? null);
           setRestaurant((prev) => {
-            const mapped = mapSupabaseToUI(payload.new as SupabaseRestaurant, userCoordsRef.current ?? undefined);
+            const mapped = mapSupabaseToUI(next, userCoordsRef.current ?? undefined);
             // Preserve computed distance if userCoords unavailable
             if (!userCoordsRef.current && prev?.distance) {
               return { ...mapped, distance: prev.distance };
@@ -305,6 +317,7 @@ export default function RestaurantDetail() {
       if (error) throw error;
       if (data) {
         setRestaurant(mapSupabaseToUI(data as SupabaseRestaurant, userCoords));
+        setRestaurantOwnerId((data as any)?.owner_id ?? null);
       }
 
       // Check if this restaurant is favorited by the current user
@@ -421,6 +434,10 @@ export default function RestaurantDetail() {
 
   const handleAddToCart = useCallback(
     (item: UIMenuItem) => {
+      if (isRestaurantOwner) {
+        Alert.alert("Not Available", "Restaurant owners can't place customer orders.");
+        return;
+      }
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -438,7 +455,7 @@ export default function RestaurantDetail() {
       });
       setSelectedItem(null);
     },
-    []
+    [isRestaurantOwner]
   );
 
   const handleUpdateQuantity = useCallback(
@@ -710,6 +727,27 @@ export default function RestaurantDetail() {
             </View>
 
             <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {canManage && (
+                <Pressable
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setShowEditModal(true);
+                  }}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "#1a1a1a",
+                    borderWidth: 1,
+                    borderColor: isAdmin ? "rgba(255,153,51,0.4)" : "rgba(74,222,128,0.4)",
+                    marginRight: 6,
+                  }}
+                >
+                  <Settings size={16} color={isAdmin ? "#FF9933" : "#4ADE80"} />
+                </Pressable>
+              )}
               <Pressable
                 onPress={handleToggleFavorite}
                 style={{
@@ -1047,7 +1085,19 @@ export default function RestaurantDetail() {
           {/* Hours status badge — tap to see full schedule */}
           {hoursStatus && (
             <View style={{ marginTop: 8 }}>
-              <HoursStatusBadge statusResult={hoursStatus} hours={restaurantHours} size="md" />
+              <HoursStatusBadge
+                statusResult={hoursStatus}
+                hours={restaurantHours}
+                size="md"
+                onManageHoursPress={
+                  canManage
+                    ? () => {
+                        setOpenHoursEditorOnOpen(true);
+                        setShowEditModal(true);
+                      }
+                    : undefined
+                }
+              />
             </View>
           )}
 
@@ -1212,7 +1262,7 @@ export default function RestaurantDetail() {
           {(() => {
             type FilterDef = { key: MenuFilter; label: string; color: string; bg: string; border: string; icon: any };
             const FILTER_DEFS: FilterDef[] = [
-              { key: 'all', label: 'All Day', color: '#3B82F6', bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.45)', icon: null },
+              { key: 'all', label: 'All Day', color: '#38BDF8', bg: 'rgba(56,189,248,0.15)', border: 'rgba(56,189,248,0.45)', icon: null },
               { key: 'breakfast', label: 'Breakfast', color: '#F97316', bg: 'rgba(249,115,22,0.15)', border: 'rgba(249,115,22,0.4)', icon: Coffee },
               { key: 'lunch', label: 'Lunch', color: '#22C55E', bg: 'rgba(34,197,94,0.15)', border: 'rgba(34,197,94,0.4)', icon: Sun },
               { key: 'dinner', label: 'Dinner', color: '#818CF8', bg: 'rgba(129,140,248,0.15)', border: 'rgba(129,140,248,0.4)', icon: Moon },
@@ -1410,34 +1460,62 @@ export default function RestaurantDetail() {
 
             <Animated.View style={[joinBtnStyle, { flex: 1 }]}>
               <Pressable
-                onPress={isClosed || noWait || waitlistClosed ? undefined : handleJoinWaitlist}
-                disabled={isClosed || noWait || waitlistClosed}
+                onPress={
+                  !ownerRoleResolved
+                    ? undefined
+                    : ownerOwnsCurrentRestaurant
+                    ? () => router.push("/owner-dashboard" as any)
+                    : isRestaurantOwner
+                      ? handleJoinWaitlist
+                      : isClosed || noWait || waitlistClosed
+                      ? undefined
+                      : handleJoinWaitlist
+                }
+                disabled={
+                  !ownerRoleResolved
+                    ? true
+                    : ownerOwnsCurrentRestaurant
+                      ? false
+                      : (isRestaurantOwner ? false : (isClosed || noWait || waitlistClosed))
+                }
                 onPressIn={() => {
-                  if (!isClosed && !noWait && !waitlistClosed) joinBtnScale.value = withSpring(0.95);
+                  if (!ownerRoleResolved) return;
+                  if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
+                    joinBtnScale.value = withSpring(0.95);
+                  }
                 }}
                 onPressOut={() => {
-                  if (!isClosed && !noWait && !waitlistClosed) joinBtnScale.value = withSpring(1);
+                  if (!ownerRoleResolved) return;
+                  if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
+                    joinBtnScale.value = withSpring(1);
+                  }
                 }}
                 className="rounded-2xl py-4 items-center flex-row justify-center"
                 style={{
-                  backgroundColor: isClosed || noWait || waitlistClosed ? "#333333" : "#FF9933",
-                  shadowColor: isClosed || noWait || waitlistClosed ? "transparent" : "#FF9933",
+                  backgroundColor: !ownerRoleResolved ? "#333333" : (ownerOwnsCurrentRestaurant ? "#22C55E" : (isRestaurantOwner ? "#333333" : (isClosed || noWait || waitlistClosed ? "#333333" : "#FF9933"))),
+                  shadowColor: !ownerRoleResolved ? "transparent" : (ownerOwnsCurrentRestaurant ? "#22C55E" : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? "transparent" : "#FF9933")),
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: isClosed || noWait || waitlistClosed ? 0 : 0.4,
+                  shadowOpacity: !ownerRoleResolved ? 0 : (ownerOwnsCurrentRestaurant ? 0.35 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 0.4)),
                   shadowRadius: 16,
-                  elevation: isClosed || noWait || waitlistClosed ? 0 : 10,
+                  elevation: !ownerRoleResolved ? 0 : (ownerOwnsCurrentRestaurant ? 8 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 10)),
                 }}
               >
-                <Clock size={18} color={isClosed || waitlistClosed ? "#999999" : "#0f0f0f"} strokeWidth={2.5} />
+                {!ownerRoleResolved ? (
+                  <Clock size={18} color="#999999" strokeWidth={2.5} />
+                ) : ownerOwnsCurrentRestaurant ? (
+                  <BarChart3 size={18} color="#0f0f0f" strokeWidth={2.5} />
+                ) : (
+                  <Clock size={18} color={isClosed || waitlistClosed ? "#999999" : "#0f0f0f"} strokeWidth={2.5} />
+                )}
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: isClosed || waitlistClosed ? "#999999" : "#0f0f0f",
+                    color: !ownerRoleResolved ? "#999999" : (ownerOwnsCurrentRestaurant ? "#0f0f0f" : (isRestaurantOwner ? "#999999" : (isClosed || waitlistClosed ? "#999999" : "#0f0f0f"))),
                     fontSize: 17,
                     marginLeft: 8,
                   }}
                 >
-                  {waitlistClosed ? "Waitlist Closed" : isClosed ? "Currently Closed" : "Order"}
+                  {!ownerRoleResolved ? "Loading..." : (ownerOwnsCurrentRestaurant ? "Dashboard" : (waitlistClosed ? "Waitlist Closed" : isClosed ? "Currently Closed" : "Order"))}
                 </Text>
               </Pressable>
             </Animated.View>
@@ -1450,8 +1528,32 @@ export default function RestaurantDetail() {
           item={selectedItem}
           onClose={() => setSelectedItem(null)}
           onAddToCart={() => handleAddToCart(selectedItem)}
+          onOpenSettings={
+            canManage
+              ? () => {
+                  setShowSelectedItemSettings(true);
+                }
+              : undefined
+          }
         />
       )}
+
+      <MenuItemDetailSettingsModal
+        visible={showSelectedItemSettings}
+        item={selectedItem}
+        onClose={() => setShowSelectedItemSettings(false)}
+        onSaved={(updated) => {
+          setMenu((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+          setSelectedItem(updated);
+        }}
+        onDeleted={(deletedId) => {
+          setMenu((prev) => prev.filter((m) => m.id !== deletedId));
+          if (selectedItem?.id === deletedId) {
+            setSelectedItem(null);
+          }
+          setShowSelectedItemSettings(false);
+        }}
+      />
 
       {showCart && (
         <GroupCartDrawer
@@ -1763,7 +1865,21 @@ export default function RestaurantDetail() {
             description: restaurant.description,
             cuisine: restaurant.tags.join(", "),
           }}
-          onClose={() => setShowEditModal(false)}
+          onClose={() => {
+            setShowEditModal(false);
+            setOpenHoursEditorOnOpen(false);
+          }}
+          openHoursOnMount={openHoursEditorOnOpen}
+          onChangeLocation={() => {
+            setShowEditModal(false);
+            setOpenHoursEditorOnOpen(false);
+            router.push(
+              `/map?restaurantId=${restaurant.id}&targetLat=${restaurant.lat ?? ""}&targetLng=${restaurant.long ?? ""}&adjust=1` as any
+            );
+          }}
+          onHoursSaved={() => {
+            refetchRestaurantHours();
+          }}
           onSaved={(updated) => {
             setRestaurant((prev) =>
               prev
@@ -1778,6 +1894,8 @@ export default function RestaurantDetail() {
                 : prev
             );
             setShowEditModal(false);
+            setOpenHoursEditorOnOpen(false);
+            fetchRestaurantData();
           }}
         />
       )}

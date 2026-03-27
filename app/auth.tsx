@@ -196,19 +196,37 @@ export default function AuthScreen() {
                 });
                 if (error) throw error;
 
+                // Supabase can return "success" with an empty identities array when the email
+                // already exists (anti-enumeration behavior). Treat that as existing-account.
+                const identities = (data.user as any)?.identities;
+                const emailAlreadyExists =
+                    Array.isArray(identities) && identities.length === 0;
+                if (emailAlreadyExists) {
+                    setNotification({
+                        visible: true,
+                        message: "Email already exists. Please Log In.",
+                        type: "error",
+                    });
+                    return;
+                }
+
                 if (data.user) {
-                    const { error: profileError } = await supabase
-                        .from('profiles')
-                        .upsert({
-                            id: data.user.id,
-                            email: email.trim(),
-                            full_name: fullName,
-                            phone_number: normalizedPhone,
-                            created_at: new Date().toISOString(),
-                        });
-                    // Non-blocking: metadata fallback still allows profile-sync to populate name on sign-in.
-                    if (profileError) {
-                        console.warn("Profile upsert during sign-up failed:", profileError.message);
+                    // Only attempt direct profile write when signup returns an authenticated session.
+                    // If email confirmation is required, session is usually null and RLS will block writes.
+                    if (data.session?.access_token) {
+                        const { error: profileError } = await supabase
+                            .from('profiles')
+                            .upsert({
+                                id: data.user.id,
+                                email: email.trim(),
+                                full_name: fullName,
+                                phone_number: normalizedPhone,
+                                created_at: new Date().toISOString(),
+                            });
+                        // Non-blocking: metadata fallback still allows profile-sync to populate name on sign-in.
+                        if (profileError) {
+                            console.warn("Profile upsert during sign-up failed:", profileError.message);
+                        }
                     }
                 }
 
@@ -246,12 +264,13 @@ export default function AuthScreen() {
         } catch (error: any) {
             const message = error.message || "Something went wrong.";
             let friendlyMessage = message;
-            if (message.includes("already registered")) {
-                friendlyMessage = "This account already exists.\nPlease sign in instead.";
+            const lower = message.toLowerCase();
+            if (lower.includes("already registered") || lower.includes("already exists")) {
+                friendlyMessage = "Email already exists. Please Log In.";
             } else if (
-                message.toLowerCase().includes("email not confirmed") ||
-                message.toLowerCase().includes("email_not_confirmed") ||
-                message.toLowerCase().includes("not confirmed")
+                lower.includes("email not confirmed") ||
+                lower.includes("email_not_confirmed") ||
+                lower.includes("not confirmed")
             ) {
                 friendlyMessage = "Please verify your email before signing in.\nCheck your inbox for the link from Rasvia.";
             }

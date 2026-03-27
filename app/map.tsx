@@ -184,7 +184,7 @@ function haversineDistance(
 export default function MapScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
-  const { isAdmin } = useAdminMode();
+  const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
 
   // State
   const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
@@ -216,8 +216,9 @@ export default function MapScreen() {
   const { userCoords: userLocation, isLiveLocationEnabled, hasSavedAddress } = useLocation();
   const userLocationRef = useRef(userLocation);
   userLocationRef.current = userLocation;
-  const { targetLat, targetLng, restaurantId } = useLocalSearchParams<{ targetLat?: string; targetLng?: string; restaurantId?: string }>();
+  const { targetLat, targetLng, restaurantId, adjust } = useLocalSearchParams<{ targetLat?: string; targetLng?: string; restaurantId?: string; adjust?: string }>();
   const hasCenteredRef = useRef(false);
+  const consumedAdjustRouteRef = useRef(false);
 
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [isZoomedIn, setIsZoomedIn] = useState(false);
@@ -331,6 +332,29 @@ export default function MapScreen() {
       }
     }
   }, [restaurantId, restaurants]);
+
+  // Route-driven location adjustment entry point for admin/owner.
+  useEffect(() => {
+    if (consumedAdjustRouteRef.current) return;
+    if (adjust !== "1" || !restaurantId || restaurants.length === 0) return;
+    const targetRest = restaurants.find((r) => r.id === restaurantId);
+    if (!targetRest) return;
+    const canAdjustThisRestaurant =
+      isAdmin || (isRestaurantOwner && ownedRestaurantId === restaurantId);
+    if (!canAdjustThisRestaurant) return;
+    if (isSettingLocation && restaurantBeingMoved?.id === targetRest.id) return;
+    consumedAdjustRouteRef.current = true;
+    handleAdjustLocationStart(targetRest);
+  }, [
+    adjust,
+    restaurantId,
+    restaurants,
+    isAdmin,
+    isRestaurantOwner,
+    ownedRestaurantId,
+    isSettingLocation,
+    restaurantBeingMoved?.id,
+  ]);
 
   // Recalculate distances when user location arrives/changes
   const restaurantsWithDistance = useMemo(() => {
@@ -939,6 +963,7 @@ export default function MapScreen() {
                   }
                   setIsSettingLocation(false);
                   setRestaurantBeingMoved(null);
+                  consumedAdjustRouteRef.current = true;
                 }}
                 style={{
                   backgroundColor: "#1a1a1a",
@@ -1002,6 +1027,7 @@ export default function MapScreen() {
                       );
                       setIsSettingLocation(false);
                       setRestaurantBeingMoved(null);
+                      consumedAdjustRouteRef.current = true;
                     } catch (err: any) {
                       Alert.alert("Error", err.message || "Failed to update location.");
                     }
@@ -2003,7 +2029,9 @@ function MapSearchOverlay({
                   fontFamily: "Manrope_600SemiBold",
                   color: sortBy === "waitTime" ? "#FF9933" : "#999999",
                   fontSize: 12,
+                  lineHeight: 14,
                   marginLeft: 5,
+                  marginTop: 2,
                 }}
               >
                 Wait Time
@@ -2031,7 +2059,9 @@ function MapSearchOverlay({
                   fontFamily: "Manrope_600SemiBold",
                   color: sortBy === "distance" ? "#FF9933" : "#999999",
                   fontSize: 12,
+                  lineHeight: 14,
                   marginLeft: 5,
+                  marginTop: 2,
                 }}
               >
                 Distance

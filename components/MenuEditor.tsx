@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -12,15 +12,219 @@ import {
   Image,
   KeyboardAvoidingView,
 } from "react-native";
-import { Pencil, Camera, Plus, X, Trash2, FolderPlus } from "lucide-react-native";
+import {
+  Camera,
+  Plus,
+  X,
+  Trash2,
+  Settings,
+  Image as ImageIcon,
+  Flame,
+  Leaf,
+} from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { supabase } from "@/lib/supabase";
 import { MenuGridItem } from "./MenuGridItem";
-import type { UIMenuItem } from "@/lib/restaurant-types";
+import { mapMenuItemToUI, type SupabaseMenuItem, type UIMenuItem } from "@/lib/restaurant-types";
 
-type EditableField = "name" | "price" | "description" | "category" | "image";
+type MealTag = "breakfast" | "lunch" | "dinner" | "specials" | "all_day";
+const BASE_MEAL_TAGS: MealTag[] = ["breakfast", "lunch", "dinner"];
+const ALL_MEAL_TAGS: MealTag[] = ["breakfast", "lunch", "dinner", "specials", "all_day"];
+
+function normalizeMealTimes(input: string[] | undefined | null): MealTag[] {
+  const normalized = (input ?? [])
+    .map((m) => m?.toLowerCase?.().trim())
+    .map((m) => (m === "special" ? "specials" : m))
+    .map((m) => (m === "all" ? "all_day" : m))
+    .filter((m): m is MealTag => ALL_MEAL_TAGS.includes(m as MealTag));
+
+  if (
+    normalized.includes("breakfast") &&
+    normalized.includes("lunch") &&
+    normalized.includes("dinner") &&
+    !normalized.includes("all_day")
+  ) {
+    const rest = normalized.filter((m) => !BASE_MEAL_TAGS.includes(m));
+    return ["all_day", ...rest];
+  }
+  return Array.from(new Set(normalized));
+}
+
+function toggleMealTag(current: MealTag[], tag: MealTag): MealTag[] {
+  const set = new Set(current);
+
+  if (tag === "all_day") {
+    if (set.has("all_day")) {
+      set.delete("all_day");
+    } else {
+      set.delete("breakfast");
+      set.delete("lunch");
+      set.delete("dinner");
+      set.add("all_day");
+    }
+    return Array.from(set);
+  }
+
+  if (set.has(tag)) set.delete(tag);
+  else set.add(tag);
+
+  set.delete("all_day");
+  if (set.has("breakfast") && set.has("lunch") && set.has("dinner")) {
+    set.delete("breakfast");
+    set.delete("lunch");
+    set.delete("dinner");
+    set.add("all_day");
+  }
+  return Array.from(set);
+}
+
+function formatMealTimesForDb(values: MealTag[]): string[] {
+  return values.map((m) => (m === "specials" ? "specials" : m));
+}
+
+async function pickImageFromLibrary(): Promise<string | null> {
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (status !== "granted") {
+    Alert.alert("Permission needed", "Camera roll access is required to upload photos.");
+    return null;
+  }
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["images"],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.8,
+  });
+  if (result.canceled || !result.assets?.[0]) return null;
+  return result.assets[0].uri;
+}
+
+async function pickImageFromCamera(): Promise<string | null> {
+  const { status } = await ImagePicker.requestCameraPermissionsAsync();
+  if (status !== "granted") {
+    Alert.alert("Permission needed", "Camera access is required.");
+    return null;
+  }
+  const result = await ImagePicker.launchCameraAsync({
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.8,
+  });
+  if (result.canceled || !result.assets?.[0]) return null;
+  return result.assets[0].uri;
+}
+
+async function uploadMenuImage(itemId: string, assetUri: string): Promise<string> {
+  const ext = assetUri.split(".").pop() || "jpg";
+  const fileName = `menu_${itemId}_${Date.now()}.${ext}`;
+  const response = await fetch(assetUri);
+  const blob = await response.blob();
+  const { data: uploadData, error: uploadError } = await supabase.storage
+    .from("menu-images")
+    .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
+  if (uploadError) throw uploadError;
+  const { data: urlData } = supabase.storage.from("menu-images").getPublicUrl(uploadData.path);
+  return urlData.publicUrl;
+}
+
+function MealTimesSelector({
+  value,
+  onChange,
+}: {
+  value: MealTag[];
+  onChange: (next: MealTag[]) => void;
+}) {
+  const defs: Array<{ key: MealTag; label: string; color: string; bg: string; border: string }> = [
+    { key: "breakfast", label: "Breakfast", color: "#F97316", bg: "rgba(249,115,22,0.14)", border: "rgba(249,115,22,0.45)" },
+    { key: "lunch", label: "Lunch", color: "#22C55E", bg: "rgba(34,197,94,0.14)", border: "rgba(34,197,94,0.45)" },
+    { key: "dinner", label: "Dinner", color: "#818CF8", bg: "rgba(129,140,248,0.14)", border: "rgba(129,140,248,0.45)" },
+    { key: "specials", label: "Specials", color: "#F59E0B", bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.45)" },
+    { key: "all_day", label: "All Day", color: "#38BDF8", bg: "rgba(56,189,248,0.14)", border: "rgba(56,189,248,0.45)" },
+  ];
+
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {defs.map((def) => {
+        const active = value.includes(def.key);
+        return (
+          <Pressable
+            key={def.key}
+            onPress={() => {
+              if (Platform.OS !== "web") Haptics.selectionAsync();
+              onChange(toggleMealTag(value, def.key));
+            }}
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: active ? def.border : "#2f2f2f",
+              backgroundColor: active ? def.bg : "#121212",
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
+                color: active ? def.color : "#888",
+                fontSize: 12,
+              }}
+            >
+              {def.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function SpiceSelector({
+  level,
+  onChange,
+}: {
+  level: number;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      {[0, 1, 2, 3].map((n) => (
+        <Pressable
+          key={n}
+          onPress={() => {
+            if (Platform.OS !== "web") Haptics.selectionAsync();
+            onChange(n);
+          }}
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 19,
+            borderWidth: 1,
+            borderColor: n === level ? "rgba(239,68,68,0.45)" : "#2f2f2f",
+            backgroundColor: n === level ? "rgba(239,68,68,0.12)" : "#121212",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {n === 0 ? (
+            <Text style={{ fontFamily: "Manrope_700Bold", color: n === level ? "#EF4444" : "#777", fontSize: 12 }}>0</Text>
+          ) : (
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+              {Array.from({ length: n }).map((_, idx) => (
+                <Flame
+                  key={idx}
+                  size={12}
+                  color={n === level ? "#EF4444" : "#777"}
+                  fill={n === level ? "#EF4444" : "transparent"}
+                />
+              ))}
+            </View>
+          )}
+        </Pressable>
+      ))}
+    </View>
+  );
+}
 
 function EditableMenuItem({
   item,
@@ -39,182 +243,96 @@ function EditableMenuItem({
   onDelete: (id: string) => void;
   canEdit: boolean;
 }) {
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editField, setEditField] = useState<EditableField | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
-  const handleEditClick = (field: EditableField) => {
+  const [name, setName] = useState(item.name);
+  const [price, setPrice] = useState(item.price.toString());
+  const [description, setDescription] = useState(item.description);
+  const [category, setCategory] = useState(item.category);
+  const [isVegetarian, setIsVegetarian] = useState(item.isVegetarian);
+  const [spiceLevel, setSpiceLevel] = useState(item.spiceLevel);
+  const [mealTimes, setMealTimes] = useState<MealTag[]>(normalizeMealTimes(item.mealTimes));
+
+  const openSettings = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
-    if (field === "image") {
-      pickAndUploadImage();
+    setName(item.name);
+    setPrice(item.price.toString());
+    setDescription(item.description);
+    setCategory(item.category);
+    setIsVegetarian(item.isVegetarian);
+    setSpiceLevel(item.spiceLevel);
+    setMealTimes(normalizeMealTimes(item.mealTimes));
+    setShowSettings(true);
+  };
+
+  const updateImage = async (picker: () => Promise<string | null>) => {
+    try {
+      setUploadingImage(true);
+      const uri = await picker();
+      if (!uri) return;
+      const publicUrl = await uploadMenuImage(item.id, uri);
+      const { error } = await supabase.from("menu_items").update({ image_url: publicUrl }).eq("id", Number(item.id));
+      if (error) throw error;
+      onItemUpdated({ ...item, image: publicUrl });
+    } catch (err: any) {
+      Alert.alert("Upload Failed", err.message || "Could not upload image.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const saveSettings = async () => {
+    const trimmedName = name.trim();
+    const parsedPrice = parseFloat(price);
+    if (!trimmedName) {
+      Alert.alert("Validation", "Name is required.");
       return;
     }
-    setEditField(field);
-    if (field === "price") setEditValue(item.price.toString());
-    else if (field === "name") setEditValue(item.name);
-    else if (field === "description") setEditValue(item.description);
-    else if (field === "category") setEditValue(item.category);
-    setEditModalVisible(true);
-  };
-
-  const pickAndUploadImage = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission needed", "Camera roll access is required to upload photos.");
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (result.canceled || !result.assets?.[0]) return;
-
-      setUploading(true);
-      const asset = result.assets[0];
-      const ext = asset.uri.split(".").pop() || "jpg";
-      const fileName = `menu_${item.id}_${Date.now()}.${ext}`;
-
-      const formData = new FormData();
-      formData.append("file", {
-        uri: asset.uri,
-        name: fileName,
-        type: `image/${ext}`,
-      } as any);
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("menu-images")
-        .upload(fileName, formData, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("menu-images")
-        .getPublicUrl(uploadData.path);
-
-      const publicUrl = urlData.publicUrl;
-
-      const { error: updateError } = await supabase
-        .from("menu_items")
-        .update({ image_url: publicUrl })
-        .eq("id", item.id);
-
-      if (updateError) throw updateError;
-
-      onItemUpdated({ ...item, image: publicUrl });
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err: any) {
-      console.error("Image upload error:", err);
-      Alert.alert("Upload Failed", err.message || "Could not upload image.");
-    } finally {
-      setUploading(false);
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      Alert.alert("Validation", "Please enter a valid price.");
+      return;
     }
-  };
-
-  const takePhoto = async () => {
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission needed", "Camera access is required.");
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (result.canceled || !result.assets?.[0]) return;
-
-      setUploading(true);
-      const asset = result.assets[0];
-      const ext = "jpg";
-      const fileName = `menu_${item.id}_${Date.now()}.${ext}`;
-
-      const formData = new FormData();
-      formData.append("file", {
-        uri: asset.uri,
-        name: fileName,
-        type: `image/${ext}`,
-      } as any);
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("menu-images")
-        .upload(fileName, formData, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("menu-images")
-        .getPublicUrl(uploadData.path);
-
-      const publicUrl = urlData.publicUrl;
-
-      const { error: updateError } = await supabase
-        .from("menu_items")
-        .update({ image_url: publicUrl })
-        .eq("id", item.id);
-
-      if (updateError) throw updateError;
-
-      onItemUpdated({ ...item, image: publicUrl });
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err: any) {
-      console.error("Camera upload error:", err);
-      Alert.alert("Upload Failed", err.message || "Could not upload image.");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const saveEdit = async () => {
-    if (!editField) return;
-
-    let updateData: Record<string, any> = {};
-    let localUpdate: Partial<UIMenuItem> = {};
-
-    if (editField === "name") {
-      const v = editValue.trim();
-      if (!v) { Alert.alert("Error", "Name cannot be empty"); return; }
-      updateData.name = v;
-      localUpdate.name = v;
-    } else if (editField === "price") {
-      const p = parseFloat(editValue);
-      if (isNaN(p) || p < 0) { Alert.alert("Error", "Invalid price"); return; }
-      updateData.price = p;
-      localUpdate.price = p;
-    } else if (editField === "description") {
-      updateData.description = editValue.trim();
-      localUpdate.description = editValue.trim();
-    } else if (editField === "category") {
-      updateData.category_id = null;
-      updateData.category = editValue.trim();
-      localUpdate.category = editValue.trim();
+    if (mealTimes.length === 0) {
+      Alert.alert("Validation", "Select at least one identifier (Breakfast/Lunch/Dinner/Specials/All Day).");
+      return;
     }
 
     try {
-      const { error } = await supabase
-        .from("menu_items")
-        .update(updateData)
-        .eq("id", item.id);
-
+      setSaving(true);
+      const updateData = {
+        name: trimmedName,
+        price: parsedPrice,
+        description: description.trim() || null,
+        category: category.trim() || null,
+        category_id: null,
+        meal_times: formatMealTimesForDb(mealTimes),
+        is_vegetarian: isVegetarian,
+        is_spicy: spiceLevel > 0,
+      };
+      const { error } = await supabase.from("menu_items").update(updateData).eq("id", Number(item.id));
       if (error) throw error;
-      onItemUpdated({ ...item, ...localUpdate });
-      setEditModalVisible(false);
+
+      onItemUpdated({
+        ...item,
+        name: trimmedName,
+        price: parsedPrice,
+        description: description.trim(),
+        category: category.trim() || "Menu Item",
+        mealTimes: formatMealTimesForDb(mealTimes),
+        isVegetarian,
+        spiceLevel,
+      });
+      setShowSettings(false);
     } catch (err: any) {
-      console.error("Error updating menu item:", err);
-      Alert.alert("Error", "Failed to update menu item.");
+      Alert.alert("Error", err.message || "Failed to update item.");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = () => {
-    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const deleteItem = () => {
     Alert.alert("Delete Item", `Remove "${item.name}" from the menu?`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -222,14 +340,12 @@ function EditableMenuItem({
         style: "destructive",
         onPress: async () => {
           try {
-            const { error } = await supabase
-              .from("menu_items")
-              .delete()
-              .eq("id", item.id);
+            const { error } = await supabase.from("menu_items").delete().eq("id", Number(item.id));
             if (error) throw error;
             onDelete(item.id);
+            setShowSettings(false);
           } catch (err: any) {
-            Alert.alert("Error", "Failed to delete item.");
+            Alert.alert("Error", err.message || "Failed to delete item.");
           }
         },
       },
@@ -238,13 +354,30 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem
-        item={item as any}
-        index={index}
-        onPress={onPress}
-        onQuickAdd={onQuickAdd}
-      />
+      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} />
+
       {canEdit && (
+        <Pressable
+          onPress={openSettings}
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.72)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.1)",
+          }}
+        >
+          <Settings size={14} color="#f5f5f5" />
+        </Pressable>
+      )}
+
+      {uploadingImage && (
         <View
           style={{
             position: "absolute",
@@ -252,110 +385,138 @@ function EditableMenuItem({
             left: 0,
             right: 0,
             bottom: 0,
-            pointerEvents: "box-none",
+            borderRadius: 12,
+            backgroundColor: "rgba(0,0,0,0.45)",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          {uploading && (
-            <View style={{
-              position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center",
-              borderRadius: 12, zIndex: 10,
-            }}>
-              <ActivityIndicator color="#FF9933" size="large" />
-            </View>
-          )}
-
-          <View style={{
-            position: "absolute", top: 6, right: 6,
-            flexDirection: "row", gap: 4,
-          }}>
-            <Pressable
-              onPress={() => handleEditClick("image")}
-              style={{ backgroundColor: "rgba(0,0,0,0.7)", padding: 5, borderRadius: 10 }}
-            >
-              <Camera size={12} color="#FF9933" />
-            </Pressable>
-            <Pressable
-              onPress={takePhoto}
-              style={{ backgroundColor: "rgba(0,0,0,0.7)", padding: 5, borderRadius: 10 }}
-            >
-              <Camera size={12} color="#22C55E" />
-            </Pressable>
-            <Pressable
-              onPress={handleDelete}
-              style={{ backgroundColor: "rgba(0,0,0,0.7)", padding: 5, borderRadius: 10 }}
-            >
-              <Trash2 size={12} color="#EF4444" />
-            </Pressable>
-          </View>
-
-          <View style={{
-            position: "absolute", bottom: 6, left: 6, right: 6,
-            flexDirection: "row", justifyContent: "space-between",
-          }}>
-            <Pressable
-              onPress={() => handleEditClick("name")}
-              style={{ backgroundColor: "rgba(0,0,0,0.7)", padding: 5, borderRadius: 10 }}
-            >
-              <Pencil size={12} color="#FF9933" />
-            </Pressable>
-            <Pressable
-              onPress={() => handleEditClick("price")}
-              style={{ backgroundColor: "rgba(0,0,0,0.7)", padding: 5, borderRadius: 10 }}
-            >
-              <Pencil size={12} color="#22C55E" />
-            </Pressable>
-          </View>
+          <ActivityIndicator color="#FF9933" />
         </View>
       )}
 
-      <Modal visible={editModalVisible} transparent animationType="fade">
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{
-            flex: 1, backgroundColor: "rgba(0,0,0,0.7)",
-            justifyContent: "center", alignItems: "center", padding: 20,
-          }}
-        >
-          <View style={{
-            backgroundColor: "#1a1a1a", padding: 24, borderRadius: 16,
-            width: "100%", borderWidth: 1, borderColor: "#333",
-          }}>
-            <Text style={{
-              fontFamily: "BricolageGrotesque_700Bold", color: "#FF9933",
-              fontSize: 18, marginBottom: 12,
-            }}>
-              Edit {editField === "name" ? "Name" : editField === "price" ? "Price" : editField === "description" ? "Description" : "Category"}
-            </Text>
-            <TextInput
+      <Modal visible={showSettings} transparent animationType="slide" onRequestClose={() => setShowSettings(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "flex-end" }}>
+            <Pressable style={{ flex: 1 }} onPress={() => setShowSettings(false)} />
+            <View
               style={{
-                backgroundColor: "#0f0f0f", color: "#f5f5f5", padding: 12,
-                borderRadius: 8, borderWidth: 1, borderColor: "#444",
-                marginBottom: 16, marginTop: 12, fontSize: 16,
-                ...(editField === "description" ? { height: 100, textAlignVertical: "top" as const } : {}),
+                backgroundColor: "#1a1a1a",
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+                padding: 20,
+                paddingBottom: Platform.OS === "ios" ? 10 : 8,
+                maxHeight: "92%",
+                minHeight: "70%",
               }}
-              value={editValue}
-              onChangeText={setEditValue}
-              keyboardType={editField === "price" ? "decimal-pad" : "default"}
-              multiline={editField === "description"}
-              autoFocus
-            />
-            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-              <Pressable onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setEditModalVisible(false);
-              }} style={{ padding: 12, marginRight: 8 }}>
-                <Text style={{ color: "#999", fontFamily: "Manrope_600SemiBold" }}>Cancel</Text>
-              </Pressable>
-              <Pressable onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                saveEdit();
-              }} style={{
-                backgroundColor: "#FF9933", paddingVertical: 12,
-                paddingHorizontal: 20, borderRadius: 8,
-              }}>
-                <Text style={{ color: "#0f0f0f", fontFamily: "BricolageGrotesque_700Bold" }}>Save</Text>
-              </Pressable>
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>Item Settings</Text>
+                <Pressable onPress={() => setShowSettings(false)} style={{ padding: 6 }}>
+                  <X size={22} color="#999" />
+                </Pressable>
+              </View>
+
+              <View style={{ flex: 1 }}>
+              <ScrollView
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 12 }}
+              >
+                <Text style={labelStyle}>Image</Text>
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                  <Pressable onPress={() => updateImage(pickImageFromCamera)} style={smallActionButton}>
+                    <Camera size={14} color="#22C55E" />
+                    <Text style={smallActionText}>Take Photo</Text>
+                  </Pressable>
+                  <Pressable onPress={() => updateImage(pickImageFromLibrary)} style={smallActionButton}>
+                    <ImageIcon size={14} color="#FF9933" />
+                    <Text style={smallActionText}>Camera Roll</Text>
+                  </Pressable>
+                  <Pressable onPress={deleteItem} style={[smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
+                    <Trash2 size={14} color="#EF4444" />
+                    <Text style={[smallActionText, { color: "#EF4444" }]}>Delete</Text>
+                  </Pressable>
+                </View>
+
+                <Text style={labelStyle}>Name</Text>
+                <TextInput style={inputStyle} value={name} onChangeText={setName} placeholder="Item name" placeholderTextColor="#666" />
+
+                <Text style={labelStyle}>Price</Text>
+                <TextInput style={inputStyle} value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="Price" placeholderTextColor="#666" />
+
+                <Text style={labelStyle}>Description</Text>
+                <TextInput
+                  style={[inputStyle, { minHeight: 82, textAlignVertical: "top" }]}
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                  placeholder="Description"
+                  placeholderTextColor="#666"
+                />
+
+                <Text style={labelStyle}>Category</Text>
+                <TextInput style={inputStyle} value={category} onChangeText={setCategory} placeholder="Category" placeholderTextColor="#666" />
+
+                <Text style={labelStyle}>Meal Identifiers *</Text>
+                <MealTimesSelector value={mealTimes} onChange={setMealTimes} />
+                <Text style={helperText}>Selecting Breakfast + Lunch + Dinner automatically switches to All Day.</Text>
+
+                <Text style={labelStyle}>Spice Level</Text>
+                <SpiceSelector level={spiceLevel} onChange={setSpiceLevel} />
+
+                <Text style={labelStyle}>Vegetarian</Text>
+                <Pressable
+                  onPress={() => setIsVegetarian((v) => !v)}
+                  style={{
+                    ...inputStyle,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderColor: isVegetarian ? "rgba(34,197,94,0.45)" : "#333",
+                    backgroundColor: isVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
+                  }}
+                >
+                  <Leaf size={14} color={isVegetarian ? "#22C55E" : "#777"} />
+                  <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isVegetarian ? "#22C55E" : "#777" }}>
+                    {isVegetarian ? "Vegetarian ON" : "Vegetarian OFF"}
+                  </Text>
+                </Pressable>
+
+              </ScrollView>
+              </View>
+              <View
+                style={{
+                  borderTopWidth: 1,
+                  borderTopColor: "#2a2a2a",
+                  marginHorizontal: -20,
+                  marginTop: 6,
+                  paddingTop: 12,
+                  paddingHorizontal: 20,
+                  paddingBottom: Platform.OS === "ios" ? 18 : 10,
+                  backgroundColor: "#1a1a1a",
+                }}
+              >
+                <Pressable
+                  onPress={saveSettings}
+                  disabled={saving}
+                  style={{
+                    backgroundColor: "#22C55E",
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    alignItems: "center",
+                    opacity: saving ? 0.7 : 1,
+                  }}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#0f0f0f" />
+                  ) : (
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 16 }}>Save Item</Text>
+                  )}
+                </Pressable>
+              </View>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -375,69 +536,105 @@ interface MenuEditorProps {
 export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId }: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
-  const [showAddCategory, setShowAddCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
+
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemDesc, setNewItemDesc] = useState("");
+  const [newItemCategory, setNewItemCategory] = useState("");
+  const [newMealTimes, setNewMealTimes] = useState<MealTag[]>([]);
+  const [newIsVegetarian, setNewIsVegetarian] = useState(false);
+  const [newSpiceLevel, setNewSpiceLevel] = useState(0);
+  const [newImageUri, setNewImageUri] = useState<string | null>(null);
   const [addingItem, setAddingItem] = useState(false);
 
-  const categories = Array.from(new Set(menu.map(m => m.category).filter(Boolean)));
-
   const handleItemUpdated = (updatedItem: UIMenuItem) => {
-    setMenu(menu.map(m => m.id === updatedItem.id ? updatedItem : m));
+    setMenu(menu.map((m) => (m.id === updatedItem.id ? updatedItem : m)));
   };
 
   const handleDelete = (id: string) => {
-    setMenu(menu.filter(m => m.id !== id));
+    setMenu(menu.filter((m) => m.id !== id));
+  };
+
+  const resetAddItemForm = () => {
+    setNewItemName("");
+    setNewItemPrice("");
+    setNewItemDesc("");
+    setNewItemCategory("");
+    setNewMealTimes([]);
+    setNewIsVegetarian(false);
+    setNewSpiceLevel(0);
+    setNewImageUri(null);
+  };
+
+  const pickAddImage = async () => {
+    const uri = await pickImageFromLibrary();
+    if (uri) setNewImageUri(uri);
   };
 
   const handleAddItem = async () => {
-    if (!newItemName.trim()) { Alert.alert("Error", "Name is required"); return; }
-    const price = parseFloat(newItemPrice);
-    if (isNaN(price) || price < 0) { Alert.alert("Error", "Invalid price"); return; }
-    if (!restaurantId) { Alert.alert("Error", "Restaurant ID missing"); return; }
+    const trimmedName = newItemName.trim();
+    const parsedPrice = parseFloat(newItemPrice);
 
-    setAddingItem(true);
+    if (!trimmedName) {
+      Alert.alert("Validation", "Name is required.");
+      return;
+    }
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      Alert.alert("Validation", "Please enter a valid price.");
+      return;
+    }
+    if (!restaurantId) {
+      Alert.alert("Error", "Restaurant ID is missing.");
+      return;
+    }
+    if (newMealTimes.length === 0) {
+      Alert.alert("Validation", "Please select at least one identifier (Breakfast/Lunch/Dinner/Specials/All Day).");
+      return;
+    }
+
     try {
-      const { data, error } = await supabase
-        .from("menu_items")
-        .insert({
-          restaurant_id: Number(restaurantId),
-          name: newItemName.trim(),
-          price,
-          description: newItemDesc.trim() || null,
-          is_available: true,
-          is_vegetarian: false,
-          is_spicy: false,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      const newItem: UIMenuItem = {
-        id: data.id.toString(),
-        name: data.name,
-        description: data.description || "",
-        price: data.price,
-        image: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80",
-        category: "Menu Item",
-        isPopular: false,
-        isVegetarian: false,
-        spiceLevel: 0,
-        mealTimes: [],
+      setAddingItem(true);
+      const insertPayload = {
+        restaurant_id: Number(restaurantId),
+        name: trimmedName,
+        price: parsedPrice,
+        description: newItemDesc.trim() || null,
+        category: newItemCategory.trim() || null,
+        category_id: null,
+        is_available: true,
+        is_vegetarian: newIsVegetarian,
+        is_spicy: newSpiceLevel > 0,
+        meal_times: formatMealTimesForDb(newMealTimes),
       };
 
-      setMenu([...menu, newItem]);
+      const { data, error } = await supabase.from("menu_items").insert(insertPayload).select("*").single();
+      if (error) throw error;
+
+      let row = data as SupabaseMenuItem;
+      if (newImageUri) {
+        const publicUrl = await uploadMenuImage(String(row.id), newImageUri);
+        const { error: imageUpdateError } = await supabase
+          .from("menu_items")
+          .update({ image_url: publicUrl })
+          .eq("id", row.id);
+        if (imageUpdateError) throw imageUpdateError;
+        row = { ...row, image_url: publicUrl };
+      }
+
+      const mapped = mapMenuItemToUI(row);
+      const uiItem: UIMenuItem = {
+        ...mapped,
+        spiceLevel: newSpiceLevel,
+        mealTimes: formatMealTimesForDb(newMealTimes),
+      };
+
+      setMenu([...menu, uiItem]);
+      resetAddItemForm();
       setShowAddItem(false);
-      setNewItemName("");
-      setNewItemPrice("");
-      setNewItemDesc("");
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to add item");
+      Alert.alert("Error", err.message || "Failed to add menu item.");
     } finally {
       setAddingItem(false);
     }
@@ -449,27 +646,25 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   return (
     <View>
       {canEdit && (
-        <View style={{
-          flexDirection: "row", justifyContent: "flex-end",
-          marginBottom: 12, gap: 8,
-        }}>
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 12 }}>
           <Pressable
             onPress={() => {
               if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setShowAddItem(true);
             }}
             style={{
-              flexDirection: "row", alignItems: "center",
+              flexDirection: "row",
+              alignItems: "center",
               backgroundColor: "rgba(34,197,94,0.12)",
-              paddingHorizontal: 12, paddingVertical: 8,
-              borderRadius: 10, borderWidth: 1,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 10,
+              borderWidth: 1,
               borderColor: "rgba(34,197,94,0.3)",
             }}
           >
             <Plus size={14} color="#22C55E" />
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#22C55E", fontSize: 12, marginLeft: 4 }}>
-              Add Item
-            </Text>
+            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#22C55E", fontSize: 12, marginLeft: 4 }}>Add Item</Text>
           </Pressable>
         </View>
       )}
@@ -505,77 +700,134 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
         </View>
       </View>
 
-      {/* Add Item Modal */}
-      <Modal visible={showAddItem} transparent animationType="slide">
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{
-            flex: 1, backgroundColor: "rgba(0,0,0,0.7)",
-            justifyContent: "flex-end",
-          }}
-        >
-          <View style={{
-            backgroundColor: "#1a1a1a", borderTopLeftRadius: 24,
-            borderTopRightRadius: 24, padding: 24,
-            paddingBottom: Platform.OS === "ios" ? 40 : 24,
-            borderWidth: 1, borderColor: "#2a2a2a",
-          }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#22C55E", fontSize: 20 }}>
-                Add Menu Item
-              </Text>
-              <Pressable onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowAddItem(false);
-              }} style={{ padding: 4 }}>
-                <X color="#999" size={24} />
-              </Pressable>
-            </View>
-
-            <TextInput
-              style={inputStyle}
-              placeholder="Item Name *"
-              placeholderTextColor="#666"
-              value={newItemName}
-              onChangeText={setNewItemName}
-            />
-            <TextInput
-              style={inputStyle}
-              placeholder="Price *"
-              placeholderTextColor="#666"
-              value={newItemPrice}
-              onChangeText={setNewItemPrice}
-              keyboardType="decimal-pad"
-            />
-            <TextInput
-              style={[inputStyle, { height: 80, textAlignVertical: "top" }]}
-              placeholder="Description (optional)"
-              placeholderTextColor="#666"
-              value={newItemDesc}
-              onChangeText={setNewItemDesc}
-              multiline
-            />
-
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                handleAddItem();
-              }}
-              disabled={addingItem}
+      <Modal visible={showAddItem} transparent animationType="slide" onRequestClose={() => setShowAddItem(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "flex-end" }}>
+            <Pressable style={{ flex: 1 }} onPress={() => setShowAddItem(false)} />
+            <View
               style={{
-                backgroundColor: "#22C55E", paddingVertical: 14,
-                borderRadius: 12, alignItems: "center", marginTop: 8,
-                opacity: addingItem ? 0.7 : 1,
+                backgroundColor: "#1a1a1a",
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+                padding: 20,
+                paddingBottom: Platform.OS === "ios" ? 10 : 8,
+                maxHeight: "92%",
+                minHeight: "70%",
               }}
             >
-              {addingItem ? (
-                <ActivityIndicator color="#0f0f0f" />
-              ) : (
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 16 }}>
-                  Add to Menu
-                </Text>
-              )}
-            </Pressable>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#22C55E", fontSize: 20 }}>Add Menu Item</Text>
+                <Pressable onPress={() => setShowAddItem(false)} style={{ padding: 6 }}>
+                  <X size={22} color="#999" />
+                </Pressable>
+              </View>
+
+              <View style={{ flex: 1 }}>
+              <ScrollView
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 12 }}
+              >
+                <Text style={labelStyle}>Image (Optional)</Text>
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                  <Pressable onPress={pickAddImage} style={smallActionButton}>
+                    <ImageIcon size={14} color="#FF9933" />
+                    <Text style={smallActionText}>Select Image</Text>
+                  </Pressable>
+                  {newImageUri && (
+                    <Pressable onPress={() => setNewImageUri(null)} style={[smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
+                      <Trash2 size={14} color="#EF4444" />
+                      <Text style={[smallActionText, { color: "#EF4444" }]}>Clear</Text>
+                    </Pressable>
+                  )}
+                </View>
+                {newImageUri && (
+                  <Image
+                    source={{ uri: newImageUri }}
+                    style={{ width: "100%", height: 140, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: "#2f2f2f" }}
+                    resizeMode="cover"
+                  />
+                )}
+
+                <Text style={labelStyle}>Name *</Text>
+                <TextInput style={inputStyle} placeholder="Item name" placeholderTextColor="#666" value={newItemName} onChangeText={setNewItemName} />
+
+                <Text style={labelStyle}>Price *</Text>
+                <TextInput style={inputStyle} placeholder="Price" placeholderTextColor="#666" value={newItemPrice} onChangeText={setNewItemPrice} keyboardType="decimal-pad" />
+
+                <Text style={labelStyle}>Description</Text>
+                <TextInput
+                  style={[inputStyle, { minHeight: 82, textAlignVertical: "top" }]}
+                  placeholder="Description (optional)"
+                  placeholderTextColor="#666"
+                  value={newItemDesc}
+                  onChangeText={setNewItemDesc}
+                  multiline
+                />
+
+                <Text style={labelStyle}>Category</Text>
+                <TextInput style={inputStyle} placeholder="Category (optional)" placeholderTextColor="#666" value={newItemCategory} onChangeText={setNewItemCategory} />
+
+                <Text style={labelStyle}>Meal Identifiers *</Text>
+                <MealTimesSelector value={newMealTimes} onChange={setNewMealTimes} />
+                <Text style={helperText}>Required. Choose at least one period.</Text>
+
+                <Text style={labelStyle}>Spice Level</Text>
+                <SpiceSelector level={newSpiceLevel} onChange={setNewSpiceLevel} />
+
+                <Text style={labelStyle}>Vegetarian</Text>
+                <Pressable
+                  onPress={() => setNewIsVegetarian((v) => !v)}
+                  style={{
+                    ...inputStyle,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderColor: newIsVegetarian ? "rgba(34,197,94,0.45)" : "#333",
+                    backgroundColor: newIsVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
+                  }}
+                >
+                  <Leaf size={14} color={newIsVegetarian ? "#22C55E" : "#777"} />
+                  <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsVegetarian ? "#22C55E" : "#777" }}>
+                    {newIsVegetarian ? "Vegetarian ON" : "Vegetarian OFF"}
+                  </Text>
+                </Pressable>
+
+              </ScrollView>
+              </View>
+              <View
+                style={{
+                  borderTopWidth: 1,
+                  borderTopColor: "#2a2a2a",
+                  marginHorizontal: -20,
+                  marginTop: 6,
+                  paddingTop: 12,
+                  paddingHorizontal: 20,
+                  paddingBottom: Platform.OS === "ios" ? 18 : 10,
+                  backgroundColor: "#1a1a1a",
+                }}
+              >
+                <Pressable
+                  onPress={handleAddItem}
+                  disabled={addingItem}
+                  style={{
+                    backgroundColor: "#22C55E",
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    alignItems: "center",
+                    opacity: addingItem ? 0.7 : 1,
+                  }}
+                >
+                  {addingItem ? (
+                    <ActivityIndicator color="#0f0f0f" />
+                  ) : (
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 16 }}>Add to Menu</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -583,15 +835,51 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   );
 }
 
+const labelStyle = {
+  fontFamily: "Manrope_600SemiBold",
+  color: "#999999",
+  fontSize: 12,
+  textTransform: "uppercase" as const,
+  letterSpacing: 1,
+  marginBottom: 8,
+  marginTop: 6,
+};
+
+const helperText = {
+  fontFamily: "Manrope_500Medium",
+  color: "#666",
+  fontSize: 11,
+  marginTop: 8,
+  marginBottom: 10,
+};
+
 const inputStyle = {
   backgroundColor: "#0f0f0f",
   color: "#f5f5f5",
   borderWidth: 1,
   borderColor: "#333",
-  borderRadius: 8,
+  borderRadius: 10,
   paddingHorizontal: 12,
   paddingVertical: 12,
   marginBottom: 12,
   fontFamily: "Manrope_500Medium",
   fontSize: 14,
 } as const;
+
+const smallActionButton = {
+  flexDirection: "row" as const,
+  alignItems: "center" as const,
+  gap: 6,
+  borderWidth: 1,
+  borderColor: "#2f2f2f",
+  borderRadius: 10,
+  backgroundColor: "#111111",
+  paddingHorizontal: 10,
+  paddingVertical: 8,
+};
+
+const smallActionText = {
+  fontFamily: "Manrope_600SemiBold" as const,
+  color: "#f5f5f5",
+  fontSize: 12,
+};

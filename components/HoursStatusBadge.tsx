@@ -9,6 +9,7 @@ import {
     Platform,
 } from 'react-native';
 import { X, Clock } from 'lucide-react-native';
+import { Settings } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { RestaurantStatusResult, RestaurantOpenStatus, RestaurantHour } from '@/lib/restaurant-hours';
 
@@ -18,6 +19,8 @@ interface HoursStatusBadgeProps {
     hours?: RestaurantHour[];
     /** 'sm' = compact (for cards/lists), 'md' = default, 'lg' = hero/detail view */
     size?: 'sm' | 'md' | 'lg';
+    /** Optional manage action for owners/admins */
+    onManageHoursPress?: () => void;
 }
 
 const STATUS_COLORS: Record<RestaurantOpenStatus, { dot: string; bg: string; text: string }> = {
@@ -60,7 +63,7 @@ function getTodayDow(): number {
     }
 }
 
-export function HoursStatusBadge({ statusResult, hours, size = 'md' }: HoursStatusBadgeProps) {
+export function HoursStatusBadge({ statusResult, hours, size = 'md', onManageHoursPress }: HoursStatusBadgeProps) {
     const [showModal, setShowModal] = useState(false);
 
     if (!statusResult) return null;
@@ -164,9 +167,29 @@ export function HoursStatusBadge({ statusResult, hours, size = 'md' }: HoursStat
                                 <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 16 }}>
                                     Hours
                                 </Text>
-                                <Pressable onPress={() => setShowModal(false)} hitSlop={12}>
-                                    <X size={18} color="#666" />
-                                </Pressable>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    {onManageHoursPress && (
+                                        <Pressable
+                                            onPress={() => {
+                                                if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                                setShowModal(false);
+                                                onManageHoursPress();
+                                            }}
+                                            hitSlop={12}
+                                        >
+                                            <Settings size={18} color="#FF9933" />
+                                        </Pressable>
+                                    )}
+                                    <Pressable
+                                        onPress={() => {
+                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                            setShowModal(false);
+                                        }}
+                                        hitSlop={12}
+                                    >
+                                        <X size={18} color="#666" />
+                                    </Pressable>
+                                </View>
                             </View>
 
                             {/* Schedule rows */}
