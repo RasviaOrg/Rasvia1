@@ -47,7 +47,9 @@ import {
   FileText,
   Camera,
   Store,
+  Users,
 } from "lucide-react-native";
+import { RolesModal } from "@/components/RolesModal";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -145,6 +147,7 @@ export default function ProfileSettingsScreen() {
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [showRoles, setShowRoles] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Admin tab state (only used when isAdmin)
@@ -976,7 +979,7 @@ export default function ProfileSettingsScreen() {
             </Text>
           </Animated.View>
 
-          {/* Settings List — Favorites, My Orders, Notifications */}
+          {/* Settings List — My Orders / Roles, Notifications */}
           {(!isAdmin || activeTab === 'preferences') && (
             <Animated.View
               entering={FadeInDown.delay(150).duration(500)}
@@ -989,37 +992,42 @@ export default function ProfileSettingsScreen() {
                 overflow: "hidden",
               }}
             >
-              <SettingsRow
-                icon={<Heart size={20} color="#EF4444" />}
-                label="Favorites"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/favorites" as any);
-                }}
-              />
-              <Divider />
-              <SettingsRow
-                icon={<ShoppingBag size={20} color="#FF9933" />}
-                label="My Orders"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/my-orders" as any);
-                }}
-              />
-              {isRestaurantOwner && (
+              {!isRestaurantOwner && (
                 <>
-                  <Divider />
                   <SettingsRow
-                    icon={<Store size={20} color="#4ADE80" />}
-                    label="Owner Dashboard"
+                    icon={<Heart size={20} color="#EF4444" />}
+                    label="Favorites"
                     hasChevron
                     onPress={() => {
                       if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/owner-dashboard" as any);
+                      router.push("/favorites" as any);
                     }}
                   />
+                  <Divider />
+                  <SettingsRow
+                    icon={<ShoppingBag size={20} color="#FF9933" />}
+                    label="My Orders"
+                    hasChevron
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      router.push("/my-orders" as any);
+                    }}
+                  />
+                  <Divider />
+                </>
+              )}
+              {isRestaurantOwner && (
+                <>
+                  <SettingsRow
+                    icon={<Users size={20} color="#A78BFA" />}
+                    label="Roles"
+                    hasChevron
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      setShowRoles(true);
+                    }}
+                  />
+                  <Divider />
                 </>
               )}
               <Divider />
@@ -2254,6 +2262,7 @@ export default function ProfileSettingsScreen() {
           </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
+      {showRoles && <RolesModal onClose={() => setShowRoles(false)} />}
     </View>
   );
 }

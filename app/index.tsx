@@ -42,6 +42,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useNotifications } from "@/lib/notifications-context";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { usePersonalization } from "@/hooks/usePersonalization";
+import { OwnerHomeContent } from "@/components/OwnerHomeContent";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -58,7 +59,7 @@ interface ActiveGroupOrder {
 export default function DiscoveryFeed() {
   const router = useRouter();
   const { userCoords, locationLabel } = useLocation();
-  const { isAdmin } = useAdminMode();
+  const { isAdmin, isRestaurantOwner, ownedRestaurantId, loading: roleLoading } = useAdminMode();
   const { session } = useAuth();
   const { unreadCount } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
@@ -68,6 +69,8 @@ export default function DiscoveryFeed() {
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
   const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
+
+  // Owners see their dashboard inline — no redirect needed
 
   // ==================================================
   // STATE MANAGEMENT - Replace Mock Data
@@ -370,10 +373,12 @@ export default function DiscoveryFeed() {
             <Pressable
               className="mr-3"
               onPress={() => {
-                if (Platform.OS !== "web") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (isRestaurantOwner && ownedRestaurantId) {
+                  router.push(`/restaurant/${ownedRestaurantId}` as any);
+                } else {
+                  setShowSearch(true);
                 }
-                setShowSearch(true);
               }}
               style={{
                 backgroundColor: "#1a1a1a",
@@ -386,7 +391,10 @@ export default function DiscoveryFeed() {
                 borderColor: "#2a2a2a",
               }}
             >
-              <Search size={20} color="#f5f5f5" />
+              {isRestaurantOwner
+                ? <UtensilsCrossed size={20} color="#f5f5f5" />
+                : <Search size={20} color="#f5f5f5" />
+              }
             </Pressable>
             <Pressable
               className="mr-3"
@@ -483,6 +491,17 @@ export default function DiscoveryFeed() {
           </View>
         </Animated.View>
 
+        {/* ── Owner home content (replaces discovery feed) ── */}
+        {isRestaurantOwner ? (
+          <OwnerHomeContent
+            refreshing={refreshing}
+            onRefreshSignal={() => {
+              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setRefreshing(true);
+              setTimeout(() => setRefreshing(false), 1500);
+            }}
+          />
+        ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
@@ -801,7 +820,10 @@ export default function DiscoveryFeed() {
                       <Pressable
                         key={restaurant.id}
                         onPress={() => {
-                          if (restaurant.waitStatus !== 'darkgrey') handleRestaurantPress(restaurant.id);
+                          if (restaurant.waitStatus === 'darkgrey') return;
+                          if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          const orderId = lastOrder?.orderId;
+                          router.push(`/restaurant/${restaurant.id}${orderId ? `?reorder=${orderId}` : ''}` as any);
                         }}
                         style={{
                           backgroundColor: "#141414",
@@ -962,6 +984,7 @@ export default function DiscoveryFeed() {
             </View>
           </Animated.View>
         </ScrollView>
+        )}
 
         {/* Search Overlay */}
         {showSearch && <SearchOverlay onClose={() => setShowSearch(false)} />}

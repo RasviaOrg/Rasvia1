@@ -36,7 +36,6 @@ import {
   Leaf,
   AlertTriangle,
   ShieldCheck,
-  BarChart3,
 } from "lucide-react-native";
 import Animated, {
   useAnimatedStyle,
@@ -90,7 +89,7 @@ const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 const RESTAURANT_SHARE_WEB_BASE_URL = "https://rasvia.com";
 
 export default function RestaurantDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, reorder } = useLocalSearchParams<{ id: string; reorder?: string }>();
   const router = useRouter();
   const { userCoords } = useLocation();
   const userCoordsRef = useRef(userCoords);
@@ -126,6 +125,7 @@ export default function RestaurantDetail() {
   const [showSelectedItemSettings, setShowSelectedItemSettings] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
+  const reorderSeeded = useRef(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [openHoursEditorOnOpen, setOpenHoursEditorOnOpen] = useState(false);
@@ -357,6 +357,34 @@ export default function RestaurantDetail() {
       console.error('Error fetching menu:', error);
     }
   }
+
+  // Seed cart from a previous order when navigated with ?reorder=<orderId>
+  useEffect(() => {
+    if (!reorder || reorderSeeded.current || menu.length === 0) return;
+    reorderSeeded.current = true;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("order_items")
+          .select("menu_item_id, quantity")
+          .eq("order_id", reorder);
+        if (!data || data.length === 0) return;
+        const itemsToAdd: CartItem[] = [];
+        for (const row of data as { menu_item_id: number; quantity: number }[]) {
+          const menuItem = menu.find((m) => m.id === String(row.menu_item_id));
+          if (menuItem) {
+            itemsToAdd.push({ ...menuItem, quantity: row.quantity, addedBy: localGroupMembers[0] });
+          }
+        }
+        if (itemsToAdd.length > 0) {
+          setCartItems(itemsToAdd);
+          if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (err) {
+        console.error("Reorder fetch error:", err);
+      }
+    })();
+  }, [reorder, menu, localGroupMembers]);
 
   // Recalculate distance when userCoords arrives after initial fetch
   useEffect(() => {
@@ -989,7 +1017,7 @@ export default function RestaurantDetail() {
             <>
               <View style={{ width: 1, height: 30, backgroundColor: "#333333" }} />
               <View className="items-center">
-                {isClosed ? (
+                {isClosed || waitlistClosed ? (
                   <>
                     <View className="flex-row items-center">
                       <Clock size={14} color="#999999" />
@@ -1004,7 +1032,7 @@ export default function RestaurantDetail() {
                           fontFamily: "JetBrainsMono_600SemiBold",
                           color: "#999999",
                           fontSize: 11,
-                        }}>Closed</Text>
+                        }}>{waitlistClosed && !isClosed ? "Closed" : "Closed"}</Text>
                       </View>
                     </View>
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 11, marginTop: 2 }}>wait time</Text>
@@ -1397,8 +1425,8 @@ export default function RestaurantDetail() {
         </View>
       </Animated.ScrollView>
 
-      {/* Sticky Footer */}
-      <View
+      {/* Sticky Footer — hidden for owners of this restaurant */}
+      {!ownerOwnsCurrentRestaurant && <View
         className="absolute bottom-0 left-0 right-0"
         style={{
           backgroundColor: "rgba(15, 15, 15, 0.97)",
@@ -1458,70 +1486,62 @@ export default function RestaurantDetail() {
               </Pressable>
             )}
 
-            <Animated.View style={[joinBtnStyle, { flex: 1 }]}>
-              <Pressable
-                onPress={
-                  !ownerRoleResolved
-                    ? undefined
-                    : ownerOwnsCurrentRestaurant
-                    ? () => router.push("/owner-dashboard" as any)
-                    : isRestaurantOwner
-                      ? handleJoinWaitlist
-                      : isClosed || noWait || waitlistClosed
+            {!ownerOwnsCurrentRestaurant && (
+              <Animated.View style={[joinBtnStyle, { flex: 1 }]}>
+                <Pressable
+                  onPress={
+                    !ownerRoleResolved
                       ? undefined
-                      : handleJoinWaitlist
-                }
-                disabled={
-                  !ownerRoleResolved
-                    ? true
-                    : ownerOwnsCurrentRestaurant
-                      ? false
+                      : isRestaurantOwner
+                        ? handleJoinWaitlist
+                        : isClosed || noWait || waitlistClosed
+                        ? undefined
+                        : handleJoinWaitlist
+                  }
+                  disabled={
+                    !ownerRoleResolved
+                      ? true
                       : (isRestaurantOwner ? false : (isClosed || noWait || waitlistClosed))
-                }
-                onPressIn={() => {
-                  if (!ownerRoleResolved) return;
-                  if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
-                    joinBtnScale.value = withSpring(0.95);
                   }
-                }}
-                onPressOut={() => {
-                  if (!ownerRoleResolved) return;
-                  if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
-                    joinBtnScale.value = withSpring(1);
-                  }
-                }}
-                className="rounded-2xl py-4 items-center flex-row justify-center"
-                style={{
-                  backgroundColor: !ownerRoleResolved ? "#333333" : (ownerOwnsCurrentRestaurant ? "#22C55E" : (isRestaurantOwner ? "#333333" : (isClosed || noWait || waitlistClosed ? "#333333" : "#FF9933"))),
-                  shadowColor: !ownerRoleResolved ? "transparent" : (ownerOwnsCurrentRestaurant ? "#22C55E" : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? "transparent" : "#FF9933")),
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: !ownerRoleResolved ? 0 : (ownerOwnsCurrentRestaurant ? 0.35 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 0.4)),
-                  shadowRadius: 16,
-                  elevation: !ownerRoleResolved ? 0 : (ownerOwnsCurrentRestaurant ? 8 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 10)),
-                }}
-              >
-                {!ownerRoleResolved ? (
-                  <Clock size={18} color="#999999" strokeWidth={2.5} />
-                ) : ownerOwnsCurrentRestaurant ? (
-                  <BarChart3 size={18} color="#0f0f0f" strokeWidth={2.5} />
-                ) : (
-                  <Clock size={18} color={isClosed || waitlistClosed ? "#999999" : "#0f0f0f"} strokeWidth={2.5} />
-                )}
-                <Text
+                  onPressIn={() => {
+                    if (!ownerRoleResolved) return;
+                    if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
+                      joinBtnScale.value = withSpring(0.95);
+                    }
+                  }}
+                  onPressOut={() => {
+                    if (!ownerRoleResolved) return;
+                    if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
+                      joinBtnScale.value = withSpring(1);
+                    }
+                  }}
+                  className="rounded-2xl py-4 items-center flex-row justify-center"
                   style={{
-                    fontFamily: "BricolageGrotesque_700Bold",
-                    color: !ownerRoleResolved ? "#999999" : (ownerOwnsCurrentRestaurant ? "#0f0f0f" : (isRestaurantOwner ? "#999999" : (isClosed || waitlistClosed ? "#999999" : "#0f0f0f"))),
-                    fontSize: 17,
-                    marginLeft: 8,
+                    backgroundColor: !ownerRoleResolved ? "#333333" : (isRestaurantOwner ? "#333333" : (isClosed || noWait || waitlistClosed ? "#333333" : "#FF9933")),
+                    shadowColor: !ownerRoleResolved ? "transparent" : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? "transparent" : "#FF9933"),
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: !ownerRoleResolved ? 0 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 0.4),
+                    shadowRadius: 16,
+                    elevation: !ownerRoleResolved ? 0 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 10),
                   }}
                 >
-                  {!ownerRoleResolved ? "Loading..." : (ownerOwnsCurrentRestaurant ? "Dashboard" : (waitlistClosed ? "Waitlist Closed" : isClosed ? "Currently Closed" : "Order"))}
-                </Text>
-              </Pressable>
-            </Animated.View>
+                  <Clock size={18} color={!ownerRoleResolved || isClosed || waitlistClosed ? "#999999" : "#0f0f0f"} strokeWidth={2.5} />
+                  <Text
+                    style={{
+                      fontFamily: "BricolageGrotesque_700Bold",
+                      color: !ownerRoleResolved ? "#999999" : (isRestaurantOwner ? "#999999" : (isClosed || waitlistClosed ? "#999999" : "#0f0f0f")),
+                      fontSize: 17,
+                      marginLeft: 8,
+                    }}
+                  >
+                    {!ownerRoleResolved ? "Loading..." : (waitlistClosed ? "Waitlist Closed" : isClosed ? "Currently Closed" : "Order")}
+                  </Text>
+                </Pressable>
+              </Animated.View>
+            )}
           </View>
         </SafeAreaView>
-      </View>
+      </View>}
 
       {selectedItem && (
         <FoodDetailModal

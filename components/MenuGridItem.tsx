@@ -22,6 +22,7 @@ interface MenuGridItemProps {
   index: number;
   onPress: () => void;
   onQuickAdd: () => void;
+  showQuickAdd?: boolean;
 }
 
 export function MenuGridItem({
@@ -29,6 +30,7 @@ export function MenuGridItem({
   index,
   onPress,
   onQuickAdd,
+  showQuickAdd = true,
 }: MenuGridItemProps) {
   const pressScale = useSharedValue(1);
   const isEven = index % 2 === 0;
@@ -75,31 +77,33 @@ export function MenuGridItem({
             />
 
             {/* Quick Add Button */}
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation?.();
-                if (Platform.OS !== "web") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                }
-                onQuickAdd();
-              }}
-              className="absolute bottom-2 right-2"
-              style={{
-                backgroundColor: "#FF9933",
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                alignItems: "center",
-                justifyContent: "center",
-                shadowColor: "#FF9933",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.4,
-                shadowRadius: 6,
-                elevation: 5,
-              }}
-            >
-              <Plus size={18} color="#0f0f0f" strokeWidth={3} />
-            </Pressable>
+            {showQuickAdd && (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  if (Platform.OS !== "web") {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  }
+                  onQuickAdd();
+                }}
+                className="absolute bottom-2 right-2"
+                style={{
+                  backgroundColor: "#FF9933",
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  shadowColor: "#FF9933",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 6,
+                  elevation: 5,
+                }}
+              >
+                <Plus size={18} color="#0f0f0f" strokeWidth={3} />
+              </Pressable>
+            )}
 
             {/* Popular Badge */}
             {item.isPopular && (

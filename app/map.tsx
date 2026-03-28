@@ -645,6 +645,7 @@ export default function MapScreen() {
         {mappableRestaurants.map((restaurant) => {
           const isClosed = closedRestaurantIds.has(restaurant.id);
           const showCard = Platform.OS !== "android" && isZoomedIn;
+          const isOwned = ownedRestaurantId != null && restaurant.id === ownedRestaurantId;
           return (
             <Marker
               key={`${restaurant.id}-${isClosed}`}
@@ -660,9 +661,9 @@ export default function MapScreen() {
               }
             >
               {showCard ? (
-                <ZoomedInMarker restaurant={restaurant} isClosed={isClosed} />
+                <ZoomedInMarker restaurant={restaurant} isClosed={isClosed} isOwned={isOwned} />
               ) : (
-                <DotMarker status={restaurant.waitStatus} isClosed={isClosed} />
+                <DotMarker status={restaurant.waitStatus} isClosed={isClosed} isOwned={isOwned} />
               )}
             </Marker>
           );
@@ -1082,7 +1083,7 @@ export default function MapScreen() {
 // ==========================================
 // ZOOMED IN MARKER — iOS only
 // ==========================================
-function ZoomedInMarker({ restaurant, isClosed }: { restaurant: UIRestaurant; isClosed?: boolean }) {
+function ZoomedInMarker({ restaurant, isClosed, isOwned }: { restaurant: UIRestaurant; isClosed?: boolean; isOwned?: boolean }) {
   const displayStatus = (isClosed ? 'darkgrey' : restaurant.waitStatus) as typeof restaurant.waitStatus;
   return (
     <View
@@ -1091,8 +1092,8 @@ function ZoomedInMarker({ restaurant, isClosed }: { restaurant: UIRestaurant; is
         backgroundColor: "#1a1a1a",
         borderRadius: 14,
         padding: 10,
-        borderWidth: 1,
-        borderColor: "#2a2a2a",
+        borderWidth: isOwned ? 2 : 1,
+        borderColor: isOwned ? "#5BB8F5" : "#2a2a2a",
         maxWidth: 220,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
@@ -1175,8 +1176,8 @@ function ZoomedInMarker({ restaurant, isClosed }: { restaurant: UIRestaurant; is
 // outer = wait color, middle = black, center = white
 // Size scales with zoom level
 // ==========================================
-function DotMarker({ status, size = 20, isClosed }: { status: WaitStatus | "purple"; size?: number; isClosed?: boolean }) {
-  const dotColor = isClosed ? '#555555' : STATUS_COLORS[status];
+function DotMarker({ status, size = 20, isClosed, isOwned }: { status: WaitStatus | "purple"; size?: number; isClosed?: boolean; isOwned?: boolean }) {
+  const dotColor = isOwned ? '#5BB8F5' : isClosed ? '#555555' : STATUS_COLORS[status];
   return (
     <View
       style={{

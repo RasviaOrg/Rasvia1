@@ -234,6 +234,7 @@ function EditableMenuItem({
   onItemUpdated,
   onDelete,
   canEdit,
+  showQuickAdd,
 }: {
   item: UIMenuItem;
   index: number;
@@ -242,6 +243,7 @@ function EditableMenuItem({
   onItemUpdated: (updatedItem: UIMenuItem) => void;
   onDelete: (id: string) => void;
   canEdit: boolean;
+  showQuickAdd: boolean;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -354,7 +356,7 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} />
+      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} />
 
       {canEdit && (
         <Pressable
@@ -681,6 +683,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
+              showQuickAdd={!canEdit}
             />
           ))}
         </View>
@@ -695,6 +698,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
+              showQuickAdd={!canEdit}
             />
           ))}
         </View>

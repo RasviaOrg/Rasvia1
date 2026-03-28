@@ -17,14 +17,14 @@ import { supabase } from "@/lib/supabase";
 
 interface RestaurantEditModalProps {
   restaurantId: string;
-  initial: {
+  initial?: {
     name: string;
     address: string;
     description: string;
     cuisine: string; // comma-separated tags
   };
   onClose: () => void;
-  onSaved: (updated: { name: string; address: string; description: string; cuisine: string }) => void;
+  onSaved?: (updated: { name: string; address: string; description: string; cuisine: string }) => void;
   onChangeLocation?: () => void;
   onHoursSaved?: () => void;
   openHoursOnMount?: boolean;
@@ -39,10 +39,10 @@ export function RestaurantEditModal({
   onHoursSaved,
   openHoursOnMount,
 }: RestaurantEditModalProps) {
-  const [name, setName] = useState(initial.name);
-  const [address, setAddress] = useState(initial.address);
-  const [description, setDescription] = useState(initial.description);
-  const [cuisine, setCuisine] = useState(initial.cuisine);
+  const [name, setName] = useState(initial?.name ?? "");
+  const [address, setAddress] = useState(initial?.address ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [cuisine, setCuisine] = useState(initial?.cuisine ?? "");
   const [saving, setSaving] = useState(false);
   const [showHoursModal, setShowHoursModal] = useState(false);
   const [hoursLoading, setHoursLoading] = useState(false);
@@ -80,7 +80,7 @@ export function RestaurantEditModal({
 
       if (error) throw error;
 
-      onSaved({
+      onSaved?.({
         name: name.trim(),
         address: address.trim(),
         description: description.trim(),
