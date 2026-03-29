@@ -682,6 +682,7 @@ export default function MapScreen() {
         />
       )}
 
+
       {/* Admin Restaurant Panel */}
       {isAdmin && adminPanelRestaurant && (
         <AdminRestaurantPanel
@@ -810,6 +811,41 @@ export default function MapScreen() {
                 {restaurantBeingMoved ? `Moving: ${restaurantBeingMoved.name}` : "Adding new restaurant"}
               </Text>
             </View>
+          </View>
+        )}
+
+        {/* Change location pill — owner tapped their own restaurant */}
+        {!isSettingLocation && selectedRestaurant && isRestaurantOwner && ownedRestaurantId === selectedRestaurant.id && (
+          <View style={{ alignItems: "center", paddingTop: 8 }}>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                const r = selectedRestaurant;
+                setSelectedRestaurant(null);
+                handleAdjustLocationStart(r);
+              }}
+            >
+              <View style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "#1a1a1a",
+                borderWidth: 1.5,
+                borderColor: "#5BB8F5",
+                borderRadius: 20,
+                paddingHorizontal: 14,
+                paddingVertical: 7,
+              }}>
+                <MapPin size={13} color="#5BB8F5" />
+                <Text style={{
+                  fontFamily: "Manrope_600SemiBold",
+                  color: "#5BB8F5",
+                  fontSize: 13,
+                  marginLeft: 6,
+                }}>
+                  Change location?
+                </Text>
+              </View>
+            </Pressable>
           </View>
         )}
       </SafeAreaView>

@@ -1101,7 +1101,7 @@ export default function ProfileSettingsScreen() {
           {/* ==========================================
                         DINING PREFERENCES SECTION
                     ========================================== */}
-          {(!isAdmin || activeTab === 'preferences') && (
+          {(!isAdmin || activeTab === 'preferences') && !isRestaurantOwner && (
 
             <Animated.View
               entering={FadeInDown.delay(150).duration(500)}
@@ -2035,38 +2035,44 @@ export default function ProfileSettingsScreen() {
                 </Pressable>
               </View>
 
-              {/* Legal Links at very bottom */}
-              <View
-                style={{
-                  backgroundColor: "#1a1a1a",
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: "#2a2a2a",
-                  overflow: "hidden",
-                }}
-              >
-                <SettingsRow
-                  icon={<Shield size={20} color="#888888" />}
-                  label="Privacy Policy"
-                  hasChevron
-                  onPress={() => {
-                    if (Platform.OS !== "web") Haptics.selectionAsync();
-                    router.push("/privacy" as any);
-                  }}
-                />
-                <Divider />
-                <SettingsRow
-                  icon={<FileText size={20} color="#888888" />}
-                  label="Terms of Service"
-                  hasChevron
-                  onPress={() => {
-                    if (Platform.OS !== "web") Haptics.selectionAsync();
-                    router.push("/terms" as any);
-                  }}
-                />
-              </View>
             </Animated.View>
           )}
+
+          {/* Legal Links — visible to all users */}
+          <Animated.View
+            entering={FadeInDown.delay(350).duration(500)}
+            className="mx-5 mb-8"
+          >
+            <View
+              style={{
+                backgroundColor: "#1a1a1a",
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+                overflow: "hidden",
+              }}
+            >
+              <SettingsRow
+                icon={<Shield size={20} color="#888888" />}
+                label="Privacy Policy"
+                hasChevron
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.selectionAsync();
+                  router.push("/privacy" as any);
+                }}
+              />
+              <Divider />
+              <SettingsRow
+                icon={<FileText size={20} color="#888888" />}
+                label="Terms of Service"
+                hasChevron
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.selectionAsync();
+                  router.push("/terms" as any);
+                }}
+              />
+            </View>
+          </Animated.View>
 
         </ScrollView>
 

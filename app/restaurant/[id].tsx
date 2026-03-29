@@ -55,6 +55,7 @@ import { GroupCartDrawer } from "@/components/GroupCartDrawer";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { HoursStatusBadge } from "@/components/HoursStatusBadge";
 import { RestaurantEditModal } from "@/components/RestaurantEditModal";
+import { ReviewsModal } from "@/components/ReviewsModal";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useRestaurantHours } from "@/hooks/useRestaurantHours";
 import { supabase } from "@/lib/supabase";
@@ -129,6 +130,10 @@ export default function RestaurantDetail() {
   const [isFavorited, setIsFavorited] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [openHoursEditorOnOpen, setOpenHoursEditorOnOpen] = useState(false);
+  const [showReviews, setShowReviews] = useState(false);
+  // Live review stats (count includes 2 hardcoded mocks)
+  const [liveReviewCount, setLiveReviewCount] = useState<number | null>(null);
+  const [liveAvgRating, setLiveAvgRating] = useState<number | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
@@ -987,7 +992,14 @@ export default function RestaurantDetail() {
               borderColor: "#2a2a2a",
             }}
           >
-            <View className="items-center">
+            <Pressable
+              className="items-center"
+              onPress={() => {
+                Haptics.selectionAsync();
+                setShowReviews(true);
+              }}
+              hitSlop={8}
+            >
               <View className="flex-row items-center">
                 <Star size={14} color="#FF9933" fill="#FF9933" />
                 <Text
@@ -998,20 +1010,21 @@ export default function RestaurantDetail() {
                     marginLeft: 4,
                   }}
                 >
-                  {restaurant.rating}
+                  {liveAvgRating !== null ? liveAvgRating.toFixed(1) : restaurant.rating}
                 </Text>
               </View>
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: "#FF9933",
                   fontSize: 11,
                   marginTop: 2,
+                  textDecorationLine: "underline",
                 }}
               >
-                {restaurant.reviewCount.toLocaleString()} reviews
+                {(liveReviewCount ?? (restaurant.reviewCount + 2)).toLocaleString()} reviews
               </Text>
-            </View>
+            </Pressable>
 
             {/* Divider + Wait time / Closed indicator */}
             <>
@@ -1916,6 +1929,20 @@ export default function RestaurantDetail() {
             setShowEditModal(false);
             setOpenHoursEditorOnOpen(false);
             fetchRestaurantData();
+          }}
+        />
+      )}
+
+      {showReviews && restaurant && (
+        <ReviewsModal
+          visible={showReviews}
+          onClose={() => setShowReviews(false)}
+          restaurantId={restaurant.id}
+          restaurantName={restaurant.name}
+          menuItems={menu}
+          onReviewsChanged={(count, avg) => {
+            setLiveReviewCount(count);
+            setLiveAvgRating(avg);
           }}
         />
       )}

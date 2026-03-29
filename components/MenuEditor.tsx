@@ -538,6 +538,7 @@ interface MenuEditorProps {
 export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId }: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
+  const canOrder = !isRestaurantOwner && !isAdmin;
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");
@@ -683,7 +684,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
-              showQuickAdd={!canEdit}
+              showQuickAdd={canOrder}
             />
           ))}
         </View>
@@ -698,7 +699,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
-              showQuickAdd={!canEdit}
+              showQuickAdd={canOrder}
             />
           ))}
         </View>
