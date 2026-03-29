@@ -131,7 +131,7 @@ export default function RestaurantDetail() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [openHoursEditorOnOpen, setOpenHoursEditorOnOpen] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
-  // Live review stats (count includes 2 hardcoded mocks)
+  // Live review stats from database
   const [liveReviewCount, setLiveReviewCount] = useState<number | null>(null);
   const [liveAvgRating, setLiveAvgRating] = useState<number | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -258,6 +258,7 @@ export default function RestaurantDetail() {
     if (!id) return;
 
     fetchRestaurantData();
+    fetchReviewStats();
     fetchMenu();
     fetchQueueCount();
 
@@ -297,6 +298,26 @@ export default function RestaurantDetail() {
       supabase.removeChannel(queueSub);
     };
   }, [id]);
+
+  async function fetchReviewStats() {
+    try {
+      const { data, error } = await supabase
+        .from("restaurant_reviews")
+        .select("rating")
+        .eq("restaurant_id", Number(id));
+
+      if (error) throw error;
+
+      const count = data?.length ?? 0;
+      const avg =
+        count > 0 ? data!.reduce((sum, row) => sum + Number(row.rating ?? 0), 0) / count : 0;
+
+      setLiveReviewCount(count);
+      setLiveAvgRating(avg);
+    } catch {
+      // keep existing display fallback
+    }
+  }
 
   async function fetchQueueCount() {
     try {
@@ -1022,7 +1043,9 @@ export default function RestaurantDetail() {
                   textDecorationLine: "underline",
                 }}
               >
-                {(liveReviewCount ?? (restaurant.reviewCount + 2)).toLocaleString()} reviews
+                {liveReviewCount === null
+                  ? "Loading reviews..."
+                  : `${liveReviewCount.toLocaleString()} reviews`}
               </Text>
             </Pressable>
 

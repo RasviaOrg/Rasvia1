@@ -70,40 +70,6 @@ interface Props {
 }
 
 // ================================================================
-// Hardcoded seed reviews shown on every restaurant until real ones exist
-// ================================================================
-const MOCK_REVIEWS: Review[] = [
-  {
-    id: -1,
-    user_id: null,
-    reviewer_name: "Via Google",
-    reviewer_avatar_url: null,
-    rating: 4,
-    body: "Great spot with authentic flavors. The service was attentive and the food came out quickly. Portions are generous for the price.",
-    menu_item_ids: [],
-    photo_urls: [],
-    is_verified_purchase: false,
-    is_from_google: true,
-    created_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-    edited_at: null,
-  },
-  {
-    id: -2,
-    user_id: null,
-    reviewer_name: "Alex R.",
-    reviewer_avatar_url: null,
-    rating: 5,
-    body: "One of the best meals I've had in a while. Everything was fresh and flavorful. Already planning my next visit!",
-    menu_item_ids: [],
-    photo_urls: [],
-    is_verified_purchase: true,
-    is_from_google: false,
-    created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    edited_at: null,
-  },
-];
-
-// ================================================================
 // Helpers
 // ================================================================
 function formatDate(iso: string) {
@@ -641,14 +607,14 @@ function WriteReviewForm({
       const arrayBuffer = await response.arrayBuffer();
 
       const { data, error } = await supabase.storage
-        .from("menu-images")
+        .from("review_images")
         .upload(fileName, arrayBuffer, { upsert: false, contentType: mimeType });
 
       if (error || !data) {
         console.warn("Review photo upload error:", error?.message);
         return null;
       }
-      const { data: urlData } = supabase.storage.from("menu-images").getPublicUrl(data.path);
+      const { data: urlData } = supabase.storage.from("review_images").getPublicUrl(data.path);
       return urlData.publicUrl;
     } catch (e) {
       console.warn("Review photo upload exception:", e);
@@ -1045,9 +1011,9 @@ export function ReviewsModal({
   }, [visible, fetchReviews]);
 
   // ──────────────────────────────────────────────────────────────
-  // Merge real reviews with mocks and apply sort
+  // Sort fetched reviews
   // ──────────────────────────────────────────────────────────────
-  const allReviews = [...reviews, ...MOCK_REVIEWS];
+  const allReviews = reviews;
 
   const sorted = [...allReviews].sort((a, b) => {
     if (sortBy === "date") {

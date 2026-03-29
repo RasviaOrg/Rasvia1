@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -69,6 +69,7 @@ export default function DiscoveryFeed() {
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
   const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
+  const [announcementBanner, setAnnouncementBanner] = useState("");
 
   // Owners see their dashboard inline — no redirect needed
 
@@ -84,8 +85,22 @@ export default function DiscoveryFeed() {
   const userCoordsRef = useRef(userCoords);
   userCoordsRef.current = userCoords;
 
+  const fetchAnnouncementBanner = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from("system_config")
+        .select("value")
+        .eq("key", "announcement_banner")
+        .single();
+      setAnnouncementBanner((data as any)?.value ?? "");
+    } catch {
+      setAnnouncementBanner("");
+    }
+  }, []);
+
   useEffect(() => {
     fetchRestaurants();
+    fetchAnnouncementBanner();
 
     const subscription = supabase
       .channel('public:restaurants')
@@ -103,8 +118,20 @@ export default function DiscoveryFeed() {
       )
       .subscribe();
 
+    const bannerSubscription = supabase
+      .channel('system_config:announcement')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'system_config', filter: 'key=eq.announcement_banner' },
+        (payload) => {
+          setAnnouncementBanner((payload.new as any)?.value ?? "");
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(subscription);
+      supabase.removeChannel(bannerSubscription);
     };
   }, []);
 
@@ -511,7 +538,7 @@ export default function DiscoveryFeed() {
               onRefresh={() => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setRefreshing(true);
-                Promise.all([fetchRestaurants(), fetchFavoriteRestaurantIds()]).finally(() => setRefreshing(false));
+                Promise.all([fetchRestaurants(), fetchFavoriteRestaurantIds(), fetchAnnouncementBanner()]).finally(() => setRefreshing(false));
               }}
               tintColor="#FF9933"
               colors={["#FF9933"]}
@@ -574,6 +601,39 @@ export default function DiscoveryFeed() {
                     <X size={16} color="#EF4444" />
                   </Pressable>
                 )}
+              </View>
+            </Animated.View>
+          )}
+
+          {/* Announcement Banner */}
+          {!!announcementBanner && (
+            <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
+              <View style={{
+                backgroundColor: "rgba(255,153,51,0.08)",
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: "rgba(255,153,51,0.25)",
+                padding: 14,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+              }}>
+                <View style={{
+                  width: 36, height: 36, borderRadius: 18,
+                  backgroundColor: "rgba(255,153,51,0.15)",
+                  alignItems: "center", justifyContent: "center",
+                }}>
+                  <Megaphone size={18} color="#FF9933" />
+                </View>
+                <Text style={{
+                  fontFamily: "Manrope_600SemiBold",
+                  color: "#f5f5f5",
+                  fontSize: 14,
+                  flex: 1,
+                  lineHeight: 20,
+                }}>
+                  {announcementBanner}
+                </Text>
               </View>
             </Animated.View>
           )}
@@ -686,6 +746,9 @@ export default function DiscoveryFeed() {
                 keyExtractor={(r) => `favorite-${r.id}`}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                decelerationRate="fast"
+                snapToInterval={212}
+                snapToAlignment="start"
                 renderItem={({ item: restaurant, index }) => (
                   <RestaurantListCard
                     restaurant={restaurant}
@@ -735,6 +798,9 @@ export default function DiscoveryFeed() {
                 keyExtractor={(r) => r.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                decelerationRate="fast"
+                snapToInterval={212}
+                snapToAlignment="start"
                 renderItem={({ item: restaurant, index }) => (
                   <RestaurantListCard
                     restaurant={restaurant}
@@ -777,20 +843,24 @@ export default function DiscoveryFeed() {
                 </View>
               </Animated.View>
 
-              <ScrollView
+              <FlatList
                 horizontal
+                data={quickBites}
+                keyExtractor={(r) => `quick-${r.id}`}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
-              >
-                {quickBites.map((restaurant, index) => (
-                    <RestaurantListCard
-                      key={restaurant.id}
-                      restaurant={restaurant}
-                      index={index}
-                      onPress={() => handleRestaurantPress(restaurant.id)}
-                    />
-                  ))}
-              </ScrollView>
+                decelerationRate="fast"
+                snapToInterval={212}
+                snapToAlignment="start"
+                renderItem={({ item: restaurant, index }) => (
+                  <RestaurantListCard
+                    key={restaurant.id}
+                    restaurant={restaurant}
+                    index={index}
+                    onPress={() => handleRestaurantPress(restaurant.id)}
+                  />
+                )}
+              />
             </>
           )}
 
@@ -938,16 +1008,24 @@ export default function DiscoveryFeed() {
                     Based on your taste in {personalization.topCuisineTags.slice(0, 2).join(" & ")}
                   </Text>
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}>
-                  {recommendations.map((restaurant, index) => (
+                <FlatList
+                  horizontal
+                  data={recommendations}
+                  keyExtractor={(r) => `rec-${r.id}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                  decelerationRate="fast"
+                  snapToInterval={212}
+                  snapToAlignment="start"
+                  renderItem={({ item: restaurant, index }) => (
                     <RestaurantListCard
                       key={restaurant.id}
                       restaurant={restaurant}
                       index={index}
                       onPress={() => handleRestaurantPress(restaurant.id)}
                     />
-                  ))}
-                </ScrollView>
+                  )}
+                />
               </Animated.View>
             );
           })()}

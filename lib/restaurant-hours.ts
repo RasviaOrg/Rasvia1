@@ -58,15 +58,34 @@ function formatMinutesToAmPm(totalMinutes: number): string {
 // ================================================
 
 let _debugTimeISO: string | null = null;
+const _debugTimeListeners = new Set<() => void>();
 
 /** Set a fake ISO timestamp to override the app's perceived time. Pass null to reset. */
 export function setDebugTime(iso: string | null): void {
   _debugTimeISO = iso;
+  for (const listener of _debugTimeListeners) {
+    try {
+      listener();
+    } catch {
+      // Ignore listener failures so one consumer cannot break others.
+    }
+  }
 }
 
 /** Get the currently active debug ISO string, or null if none is set. */
 export function getDebugTime(): string | null {
   return _debugTimeISO;
+}
+
+/**
+ * Subscribe to debug-time changes.
+ * Returns an unsubscribe function.
+ */
+export function subscribeDebugTimeChanges(listener: () => void): () => void {
+  _debugTimeListeners.add(listener);
+  return () => {
+    _debugTimeListeners.delete(listener);
+  };
 }
 
 /**

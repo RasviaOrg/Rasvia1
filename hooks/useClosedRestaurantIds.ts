@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getRestaurantStatus, type RestaurantHour } from '@/lib/restaurant-hours';
+import {
+    getRestaurantStatus,
+    subscribeDebugTimeChanges,
+    type RestaurantHour,
+} from '@/lib/restaurant-hours';
 
 /**
  * Fetches all restaurant_hours and returns a Set of restaurant IDs
@@ -66,7 +70,13 @@ export function useClosedRestaurantIds(): Set<string> {
     useEffect(() => {
         fetchAndCompute();
         const interval = setInterval(fetchAndCompute, 60_000);
-        return () => clearInterval(interval);
+        const unsubscribe = subscribeDebugTimeChanges(() => {
+            fetchAndCompute();
+        });
+        return () => {
+            clearInterval(interval);
+            unsubscribe();
+        };
     }, []);
 
     return closedIds;

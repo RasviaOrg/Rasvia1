@@ -8,6 +8,8 @@ import {
   Alert,
   RefreshControl,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -15,9 +17,9 @@ import {
   ArrowLeft,
   Activity,
   AlertTriangle,
-  Ban,
   Bell,
   ShoppingBag,
+  Ban,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
@@ -50,9 +52,7 @@ export default function AdminPulseScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const [shadowBanId, setShadowBanId] = useState("");
   const [announcementMessage, setAnnouncementMessage] = useState("");
-  const [shadowBanLoading, setShadowBanLoading] = useState(false);
   const [bannerLoading, setBannerLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -80,46 +80,29 @@ export default function AdminPulseScreen() {
     }
   }, []);
 
+  const fetchCurrentBanner = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from("system_config")
+        .select("value")
+        .eq("key", "announcement_banner")
+        .single();
+      if ((data as any)?.value) setAnnouncementMessage((data as any).value);
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (isAdmin) {
       fetchData();
+      fetchCurrentBanner();
     }
-  }, [isAdmin, fetchData]);
+  }, [isAdmin, fetchData, fetchCurrentBanner]);
 
   const onRefresh = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRefreshing(true);
     fetchData();
   }, [fetchData]);
-
-  const handleShadowBan = async () => {
-    const inputId = shadowBanId.trim();
-    if (!inputId) {
-      Alert.alert("Error", "Please enter a profile ID (UUID).");
-      return;
-    }
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setShadowBanLoading(true);
-    try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ is_shadow_banned: true })
-        .eq("id", inputId);
-
-      if (error) {
-        Alert.alert("Error", `Shadow ban failed: ${error.message}`);
-        return;
-      }
-      Alert.alert("Success", "User has been shadow banned.");
-      setShadowBanId("");
-    } catch (err) {
-      console.error("Shadow ban error:", err);
-      Alert.alert("Error", "Failed to shadow ban user.");
-    } finally {
-      setShadowBanLoading(false);
-    }
-  };
 
   const handlePushBanner = async () => {
     const msg = announcementMessage.trim();
@@ -176,6 +159,12 @@ export default function AdminPulseScreen() {
     router.back();
   };
 
+  const stats = {
+    total: restaurants.length,
+    highWait: restaurants.filter((r) => (r.current_wait_time ?? 0) >= 45 && r.is_waitlist_open).length,
+    closed: restaurants.filter((r) => (r.current_wait_time ?? 0) >= 999 || !r.is_waitlist_open).length,
+  };
+
   // Access guard
   if (!adminLoading && !isAdmin) {
     return (
@@ -219,6 +208,7 @@ export default function AdminPulseScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       {/* Header */}
       <View
         style={{
@@ -266,6 +256,9 @@ export default function AdminPulseScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -274,6 +267,34 @@ export default function AdminPulseScreen() {
           />
         }
       >
+        {/* Pulse Stats */}
+        <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
+          <View style={{ ...CARD_STYLE, flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
+            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: "#f5f5f5" }}>
+              {stats.total}
+            </Text>
+            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+              Restaurants
+            </Text>
+          </View>
+          <View style={{ ...CARD_STYLE, flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
+            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: "#EF4444" }}>
+              {stats.highWait}
+            </Text>
+            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+              High Wait
+            </Text>
+          </View>
+          <View style={{ ...CARD_STYLE, flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
+            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: "#999" }}>
+              {stats.closed}
+            </Text>
+            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+              Closed
+            </Text>
+          </View>
+        </View>
+
         {/* Orders Navigation Card */}
         <Pressable
           onPress={() => {
@@ -359,6 +380,16 @@ export default function AdminPulseScreen() {
                     }}
                   >
                     <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text
+                        style={{
+                          fontFamily: "JetBrainsMono_600SemiBold",
+                          fontSize: 11,
+                          color: "#666",
+                          width: 20,
+                        }}
+                      >
+                        {index + 1}
+                      </Text>
                       {isHighWait && (
                         <AlertTriangle size={18} color="#EF4444" />
                       )}
@@ -400,121 +431,103 @@ export default function AdminPulseScreen() {
           </View>
         </View>
 
-        {/* Shadow Ban Section */}
-        <View style={{ marginBottom: 24 }}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 12,
-            }}
-          >
-            <Ban size={20} color="#EF4444" />
-            <Text
-              style={{
-                fontFamily: "BricolageGrotesque_700Bold",
-                fontSize: 18,
-                color: "#f5f5f5",
-              }}
-            >
-              Shadow Ban
-            </Text>
-          </View>
-          <View style={{ ...CARD_STYLE, padding: 16 }}>
-            <TextInput
-              value={shadowBanId}
-              onChangeText={setShadowBanId}
-              placeholder="Profile ID (UUID)"
-              placeholderTextColor="#999999"
-              style={{
-                fontFamily: "Manrope_500Medium",
-                fontSize: 15,
-                color: "#f5f5f5",
-                backgroundColor: "#0f0f0f",
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                marginBottom: 12,
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Pressable
-              onPress={handleShadowBan}
-              disabled={shadowBanLoading}
-              style={({ pressed }) => ({
-                backgroundColor: pressed ? "#b91c1c" : "#EF4444",
-                borderRadius: 12,
-                paddingVertical: 14,
-                alignItems: "center",
-                opacity: shadowBanLoading ? 0.7 : 1,
-              })}
-            >
-              {shadowBanLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text
-                  style={{
-                    fontFamily: "Manrope_600SemiBold",
-                    fontSize: 16,
-                    color: "#fff",
-                  }}
-                >
-                  Shadow Ban
-                </Text>
-              )}
-            </Pressable>
-          </View>
-        </View>
-
         {/* Announcement Banner Section */}
         <View style={{ marginBottom: 24 }}>
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
-              gap: 8,
+              justifyContent: "space-between",
               marginBottom: 12,
             }}
           >
-            <Bell size={20} color="#FF9933" />
-            <Text
-              style={{
-                fontFamily: "BricolageGrotesque_700Bold",
-                fontSize: 18,
-                color: "#f5f5f5",
-              }}
-            >
-              Announcement Banner
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Bell size={20} color="#FF9933" />
+              <Text
+                style={{
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  fontSize: 18,
+                  color: "#f5f5f5",
+                }}
+              >
+                Announcement Banner
+              </Text>
+            </View>
+            {!!announcementMessage.trim() && (
+              <View style={{
+                backgroundColor: "rgba(34,197,94,0.12)",
+                borderRadius: 8,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderWidth: 1,
+                borderColor: "rgba(34,197,94,0.3)",
+              }}>
+                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: "#22C55E" }}>
+                  LIVE
+                </Text>
+              </View>
+            )}
           </View>
           <View style={{ ...CARD_STYLE, padding: 16 }}>
+            <Text style={{
+              fontFamily: "Manrope_600SemiBold",
+              fontSize: 11,
+              color: "#555",
+              letterSpacing: 0.8,
+              textTransform: "uppercase",
+              marginBottom: 8,
+            }}>
+              Message
+            </Text>
             <TextInput
               value={announcementMessage}
               onChangeText={setAnnouncementMessage}
-              placeholder="Announcement message..."
-              placeholderTextColor="#999999"
+              placeholder="Type your announcement..."
+              placeholderTextColor="#666"
               multiline
               numberOfLines={3}
               style={{
                 fontFamily: "Manrope_500Medium",
                 fontSize: 15,
                 color: "#f5f5f5",
-                backgroundColor: "#0f0f0f",
+                backgroundColor: "#252525",
                 borderRadius: 12,
                 paddingHorizontal: 16,
                 paddingVertical: 12,
-                marginBottom: 12,
+                marginBottom: 14,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: "#3a3a3a",
                 minHeight: 80,
                 textAlignVertical: "top",
               }}
             />
-            <View style={{ flexDirection: "row", gap: 12 }}>
+            {!!announcementMessage.trim() && (
+              <View
+                style={{
+                  marginBottom: 12,
+                  backgroundColor: "rgba(255,153,51,0.08)",
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,153,51,0.25)",
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 13 }}>
+                  Preview: {announcementMessage}
+                </Text>
+              </View>
+            )}
+            <Text style={{
+              fontFamily: "Manrope_500Medium",
+              fontSize: 11,
+              color: "#444",
+              marginBottom: 14,
+              marginLeft: 2,
+            }}>
+              This banner appears at the top of the home screen for all users.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
               <Pressable
                 onPress={handlePushBanner}
                 disabled={bannerLoading}
@@ -532,8 +545,8 @@ export default function AdminPulseScreen() {
                 ) : (
                   <Text
                     style={{
-                      fontFamily: "Manrope_600SemiBold",
-                      fontSize: 16,
+                      fontFamily: "Manrope_700Bold",
+                      fontSize: 15,
                       color: "#fff",
                     }}
                   >
@@ -546,29 +559,30 @@ export default function AdminPulseScreen() {
                 disabled={bannerLoading}
                 style={({ pressed }) => ({
                   flex: 1,
-                  backgroundColor: pressed ? "#2a2a2a" : "#1a1a1a",
+                  backgroundColor: pressed ? "#252525" : "transparent",
                   borderRadius: 12,
                   paddingVertical: 14,
                   alignItems: "center",
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: "#333",
                   opacity: bannerLoading ? 0.7 : 1,
                 })}
               >
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    fontSize: 16,
-                    color: "#f5f5f5",
+                    fontSize: 15,
+                    color: "#999",
                   }}
                 >
-                  Clear Banner
+                  Clear
                 </Text>
               </Pressable>
             </View>
           </View>
         </View>
       </ScrollView>
+    </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

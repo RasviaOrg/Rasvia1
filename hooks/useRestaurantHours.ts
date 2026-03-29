@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
     getRestaurantStatus,
+    subscribeDebugTimeChanges,
     type RestaurantHour,
     type RestaurantStatusResult,
 } from '@/lib/restaurant-hours';
@@ -63,13 +64,18 @@ export function useRestaurantHours(restaurantId: string | number | undefined): U
 
     // Re-evaluate status every 60 seconds (hours rarely change, status can)
     useEffect(() => {
-        if (hours.length === 0) return;
-
         const interval = setInterval(() => {
             setStatusResult(getRestaurantStatus(hours));
         }, 60_000);
 
         return () => clearInterval(interval);
+    }, [hours]);
+
+    // Immediately re-evaluate when admin debug-time override changes.
+    useEffect(() => {
+        return subscribeDebugTimeChanges(() => {
+            setStatusResult(getRestaurantStatus(hours));
+        });
     }, [hours]);
 
     return { hours, statusResult, loading, error, refetch: fetchHours };

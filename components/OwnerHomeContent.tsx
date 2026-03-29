@@ -31,8 +31,8 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
-import { getRestaurantStatus } from "@/lib/restaurant-hours";
-import type { RestaurantStatusResult } from "@/lib/restaurant-hours";
+import { getRestaurantStatus, subscribeDebugTimeChanges } from "@/lib/restaurant-hours";
+import type { RestaurantStatusResult, RestaurantHour } from "@/lib/restaurant-hours";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type RestaurantInfo = {
@@ -409,6 +409,13 @@ export function OwnerHomeContent({
     }, [ownedRestaurantId]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
+
+    // Recompute timings instantly when admin debug-time override changes.
+    useEffect(() => {
+        return subscribeDebugTimeChanges(() => {
+            fetchData();
+        });
+    }, [fetchData]);
 
     // Respond to parent pull-to-refresh signal
     useEffect(() => {

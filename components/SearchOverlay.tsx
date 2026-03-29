@@ -22,7 +22,6 @@ import { supabase } from "@/lib/supabase";
 import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineDistance } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
-import { getRestaurantStatus } from "@/lib/restaurant-hours";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 
 // --- Trie-based prefix search for efficient matching ---
@@ -107,36 +106,17 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
   useEffect(() => {
     async function fetchRestaurants() {
       try {
-        // Fetch restaurants and hours in parallel
-        const [restaurantRes, hoursRes] = await Promise.all([
-          supabase.from('restaurants').select('*').order('name', { ascending: true }),
-          supabase.from('restaurant_hours').select('*').order('day_of_week').order('open_time'),
-        ]);
+        const restaurantRes = await supabase
+          .from('restaurants')
+          .select('*')
+          .order('name', { ascending: true });
 
         if (restaurantRes.error) throw restaurantRes.error;
-
-        // Build a map of restaurant_id -> hours rows
-        const hoursMap = new Map<number, any[]>();
-        if (hoursRes.data) {
-          for (const h of hoursRes.data) {
-            if (!hoursMap.has(h.restaurant_id)) hoursMap.set(h.restaurant_id, []);
-            hoursMap.get(h.restaurant_id)!.push(h);
-          }
-        }
 
         if (restaurantRes.data) {
           const uiRestaurants = restaurantRes.data
             .map((r: SupabaseRestaurant) => {
-              const ui = mapSupabaseToUI(r, userCoords);
-              // Check hours-based closed status
-              const rHours = hoursMap.get(r.id);
-              if (rHours && rHours.length > 0) {
-                const status = getRestaurantStatus(rHours);
-                if (status.status === 'closed') {
-                  ui.waitStatus = 'darkgrey';
-                }
-              }
-              return ui;
+              return mapSupabaseToUI(r, userCoords);
             })
             .filter((r) => isAdmin || r.isEnabled);
           setRestaurants(uiRestaurants);
