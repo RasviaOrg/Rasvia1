@@ -16,6 +16,14 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+ios/build/
+ios/Pods/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+ios/.xcode.env.local
+.bundle/
+vendor/bundle/
 
 # Metro
 .metro-health-check*
