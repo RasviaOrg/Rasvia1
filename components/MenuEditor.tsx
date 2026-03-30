@@ -26,6 +26,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { supabase } from "@/lib/supabase";
+import { uploadMenuImageToStorage, type PickedImage } from "@/lib/menu-image-upload";
 import { MenuGridItem } from "./MenuGridItem";
 import { mapMenuItemToUI, type SupabaseMenuItem, type UIMenuItem } from "@/lib/restaurant-types";
 
@@ -84,7 +85,7 @@ function formatMealTimesForDb(values: MealTag[]): string[] {
   return values.map((m) => (m === "specials" ? "specials" : m));
 }
 
-async function pickImageFromLibrary(): Promise<string | null> {
+async function pickImageFromLibrary(): Promise<PickedImage | null> {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (status !== "granted") {
     Alert.alert("Permission needed", "Camera roll access is required to upload photos.");
@@ -97,10 +98,11 @@ async function pickImageFromLibrary(): Promise<string | null> {
     quality: 0.8,
   });
   if (result.canceled || !result.assets?.[0]) return null;
-  return result.assets[0].uri;
+  const a = result.assets[0];
+  return { uri: a.uri, mimeType: a.mimeType };
 }
 
-async function pickImageFromCamera(): Promise<string | null> {
+async function pickImageFromCamera(): Promise<PickedImage | null> {
   const { status } = await ImagePicker.requestCameraPermissionsAsync();
   if (status !== "granted") {
     Alert.alert("Permission needed", "Camera access is required.");
@@ -112,20 +114,8 @@ async function pickImageFromCamera(): Promise<string | null> {
     quality: 0.8,
   });
   if (result.canceled || !result.assets?.[0]) return null;
-  return result.assets[0].uri;
-}
-
-async function uploadMenuImage(itemId: string, assetUri: string): Promise<string> {
-  const ext = assetUri.split(".").pop() || "jpg";
-  const fileName = `menu_${itemId}_${Date.now()}.${ext}`;
-  const response = await fetch(assetUri);
-  const blob = await response.blob();
-  const { data: uploadData, error: uploadError } = await supabase.storage
-    .from("menu-images")
-    .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
-  if (uploadError) throw uploadError;
-  const { data: urlData } = supabase.storage.from("menu-images").getPublicUrl(uploadData.path);
-  return urlData.publicUrl;
+  const a = result.assets[0];
+  return { uri: a.uri, mimeType: a.mimeType };
 }
 
 function MealTimesSelector({
@@ -269,12 +259,12 @@ function EditableMenuItem({
     setShowSettings(true);
   };
 
-  const updateImage = async (picker: () => Promise<string | null>) => {
+  const updateImage = async (picker: () => Promise<PickedImage | null>) => {
     try {
       setUploadingImage(true);
-      const uri = await picker();
-      if (!uri) return;
-      const publicUrl = await uploadMenuImage(item.id, uri);
+      const picked = await picker();
+      if (!picked) return;
+      const publicUrl = await uploadMenuImageToStorage(item.id, picked.uri, picked.mimeType);
       const { error } = await supabase.from("menu_items").update({ image_url: publicUrl }).eq("id", Number(item.id));
       if (error) throw error;
       onItemUpdated({ ...item, image: publicUrl });
@@ -548,7 +538,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   const [newMealTimes, setNewMealTimes] = useState<MealTag[]>([]);
   const [newIsVegetarian, setNewIsVegetarian] = useState(false);
   const [newSpiceLevel, setNewSpiceLevel] = useState(0);
-  const [newImageUri, setNewImageUri] = useState<string | null>(null);
+  const [newImageAsset, setNewImageAsset] = useState<PickedImage | null>(null);
   const [addingItem, setAddingItem] = useState(false);
 
   const handleItemUpdated = (updatedItem: UIMenuItem) => {
@@ -567,12 +557,12 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     setNewMealTimes([]);
     setNewIsVegetarian(false);
     setNewSpiceLevel(0);
-    setNewImageUri(null);
+    setNewImageAsset(null);
   };
 
   const pickAddImage = async () => {
-    const uri = await pickImageFromLibrary();
-    if (uri) setNewImageUri(uri);
+    const picked = await pickImageFromLibrary();
+    if (picked) setNewImageAsset(picked);
   };
 
   const handleAddItem = async () => {
@@ -615,8 +605,8 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
       if (error) throw error;
 
       let row = data as SupabaseMenuItem;
-      if (newImageUri) {
-        const publicUrl = await uploadMenuImage(String(row.id), newImageUri);
+      if (newImageAsset) {
+        const publicUrl = await uploadMenuImageToStorage(String(row.id), newImageAsset.uri, newImageAsset.mimeType);
         const { error: imageUpdateError } = await supabase
           .from("menu_items")
           .update({ image_url: publicUrl })
@@ -741,16 +731,16 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                     <ImageIcon size={14} color="#FF9933" />
                     <Text style={smallActionText}>Select Image</Text>
                   </Pressable>
-                  {newImageUri && (
-                    <Pressable onPress={() => setNewImageUri(null)} style={[smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
+                  {newImageAsset && (
+                    <Pressable onPress={() => setNewImageAsset(null)} style={[smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
                       <Trash2 size={14} color="#EF4444" />
                       <Text style={[smallActionText, { color: "#EF4444" }]}>Clear</Text>
                     </Pressable>
                   )}
                 </View>
-                {newImageUri && (
+                {newImageAsset && (
                   <Image
-                    source={{ uri: newImageUri }}
+                    source={{ uri: newImageAsset.uri }}
                     style={{ width: "100%", height: 140, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: "#2f2f2f" }}
                     resizeMode="cover"
                   />

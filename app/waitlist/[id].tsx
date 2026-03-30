@@ -1005,7 +1005,7 @@ export default function WaitlistStatus() {
             padding: 32,
           }}
         >
-          <Animated.View entering={FadeInDown.springify().damping(14)} style={{ alignItems: "center" }}>
+          <Animated.View entering={FadeInDown.duration(380)} style={{ alignItems: "center" }}>
             <View
               style={{
                 width: 100,
@@ -1071,7 +1071,7 @@ export default function WaitlistStatus() {
           }}
         >
           <Animated.View
-            entering={FadeInDown.springify().damping(14)}
+            entering={FadeInDown.duration(380)}
             style={{
               backgroundColor: "#1a1a1a",
               borderRadius: 28,

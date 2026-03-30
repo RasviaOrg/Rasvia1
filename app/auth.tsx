@@ -12,9 +12,9 @@ import {
     Dimensions,
     Image,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Mail, Lock, Eye, EyeOff, Phone } from "lucide-react-native";
+import { Mail, Lock, Eye, EyeOff, Phone, ArrowLeft } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -35,6 +35,9 @@ Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.h
 WebBrowser.maybeCompleteAuthSession();
 const VERIFY_EMAIL_WEB_URL = "https://rasvia.com/verify-email";
 
+/** Create-account card, filler strip, and sticky footer — same value so gaps blend. */
+const SIGNUP_PANEL_BG = "rgba(26, 26, 26, 0.92)";
+
 function formatPhoneNumber(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 10);
     if (digits.length <= 3) return digits.length ? `(${digits}` : "";
@@ -42,15 +45,31 @@ function formatPhoneNumber(raw: string): string {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+function isValidEmail(s: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+}
+
+function digitsOnly(s: string): string {
+    return s.replace(/\D/g, "");
+}
+
+type AuthPhase = "identifier" | "signin_password" | "signup";
+
 export default function AuthScreen() {
-    const [isSignUp, setIsSignUp] = useState(false);
-    const [usePhone, setUsePhone] = useState(false);
+    const [authPhase, setAuthPhase] = useState<AuthPhase>("identifier");
+    const [identifierInput, setIdentifierInput] = useState("");
+    const [signInWithPhone, setSignInWithPhone] = useState(false);
     const [email, setEmail] = useState("");
     const [phoneSignIn, setPhoneSignIn] = useState("");
     const [password, setPassword] = useState("");
     const [firstName, setFirstName] = useState("");
     const [lastInitial, setLastInitial] = useState("");
     const router = useRouter();
+    const insets = useSafeAreaInsets();
+    /** Reserve space so scroll content clears the sticky signup footer (absolute bottom bar). */
+    const signupStickyFooterReserve =
+        12 + 56 + Math.max(insets.bottom, 12) + 8 + 8;
+    const [identifierChecking, setIdentifierChecking] = useState(false);
     const [phone, setPhone] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -145,104 +164,92 @@ export default function AuthScreen() {
         }
     }
 
-    async function handleAuth() {
-        // Sign-in validation
-        if (!isSignUp) {
-            const identifier = usePhone ? phoneSignIn.trim() : email.trim();
-            if (!identifier || !password) {
-                setNotification({
-                    visible: true,
-                    message: `Please enter your ${usePhone ? "phone number" : "email"} and password.`,
-                    type: "error",
-                });
-                return;
-            }
+    async function handleIdentifierContinue() {
+        const raw = identifierInput.trim();
+        if (!raw) {
+            setNotification({
+                visible: true,
+                message: "Enter your phone number or email to continue.",
+                type: "error",
+            });
+            return;
         }
-
-        // Sign-up validation
-        if (isSignUp) {
-            if (!email || !password) {
-                setNotification({ visible: true, message: "Please enter both email and password.", type: "error" });
-                return;
-            }
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-                setNotification({ visible: true, message: "Please enter a valid email address.", type: "error" });
-                return;
-            }
-            if (!firstName || !lastInitial) {
-                setNotification({ visible: true, message: "Please enter your first name and last initial.", type: "error" });
-                return;
-            }
-        }
-
-        setLoading(true);
-        try {
-            if (isSignUp) {
-                const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
-                const normalizedPhone = phone.replace(/\D/g, "").trim();
-                const { data, error } = await supabase.auth.signUp({
-                    email: email.trim(),
-                    password,
-                    options: {
-                        emailRedirectTo: VERIFY_EMAIL_WEB_URL,
-                        // Persist identity fields at auth level so first login can always sync profile.
-                        data: {
-                            full_name: fullName,
-                            first_name: firstName.trim(),
-                            last_name: `${lastInitial.trim().toUpperCase()}.`,
-                            phone_number: normalizedPhone,
-                        },
-                    },
+        if (isValidEmail(raw)) {
+            setIdentifierChecking(true);
+            try {
+                const { data: exists, error } = await supabase.rpc("account_exists_for_email", {
+                    p_email: raw.trim(),
                 });
                 if (error) throw error;
-
-                // Supabase can return "success" with an empty identities array when the email
-                // already exists (anti-enumeration behavior). Treat that as existing-account.
-                const identities = (data.user as any)?.identities;
-                const emailAlreadyExists =
-                    Array.isArray(identities) && identities.length === 0;
-                if (emailAlreadyExists) {
-                    setNotification({
-                        visible: true,
-                        message: "Email already exists. Please Log In.",
-                        type: "error",
-                    });
-                    return;
-                }
-
-                if (data.user) {
-                    // Only attempt direct profile write when signup returns an authenticated session.
-                    // If email confirmation is required, session is usually null and RLS will block writes.
-                    if (data.session?.access_token) {
-                        const { error: profileError } = await supabase
-                            .from('profiles')
-                            .upsert({
-                                id: data.user.id,
-                                email: email.trim(),
-                                full_name: fullName,
-                                phone_number: normalizedPhone,
-                                created_at: new Date().toISOString(),
-                            });
-                        // Non-blocking: metadata fallback still allows profile-sync to populate name on sign-in.
-                        if (profileError) {
-                            console.warn("Profile upsert during sign-up failed:", profileError.message);
-                        }
-                    }
-                }
-
-                // Navigate to the dedicated email verification screen
-                router.replace({
-                    pathname: "/email-verify" as any,
-                    params: { email: email.trim() },
+                setEmail(raw.trim());
+                setSignInWithPhone(false);
+                setPhoneSignIn("");
+                setPassword("");
+                if (exists === true) setAuthPhase("signin_password");
+                else setAuthPhase("signup");
+            } catch (e: any) {
+                setNotification({
+                    visible: true,
+                    message: e?.message || "Could not verify. Please try again.",
+                    type: "error",
                 });
-                return;
-            } else if (usePhone) {
-                // Phone sign-in: look up email stored in profiles, then sign in with password
+            } finally {
+                setIdentifierChecking(false);
+            }
+            return;
+        }
+        const d = digitsOnly(raw);
+        if (d.length === 10) {
+            setIdentifierChecking(true);
+            try {
+                const { data: exists, error } = await supabase.rpc("account_exists_for_phone", {
+                    p_phone_digits: d,
+                });
+                if (error) throw error;
+                setPhoneSignIn(formatPhoneNumber(d));
+                setSignInWithPhone(true);
+                setEmail("");
+                setPassword("");
+                if (exists === true) setAuthPhase("signin_password");
+                else {
+                    setPhone(formatPhoneNumber(d));
+                    setAuthPhase("signup");
+                }
+            } catch (e: any) {
+                setNotification({
+                    visible: true,
+                    message: e?.message || "Could not verify. Please try again.",
+                    type: "error",
+                });
+            } finally {
+                setIdentifierChecking(false);
+            }
+            return;
+        }
+        setNotification({
+            visible: true,
+            message: "Enter a valid email or a 10-digit US phone number.",
+            type: "error",
+        });
+    }
+
+    async function handleSignInWithPassword() {
+        if (!password) {
+            setNotification({
+                visible: true,
+                message: "Enter your password.",
+                type: "error",
+            });
+            return;
+        }
+        setLoading(true);
+        try {
+            if (signInWithPhone) {
                 const rawPhone = phoneSignIn.replace(/\D/g, "").trim();
                 const { data: profile, error: lookupError } = await supabase
-                    .from('profiles')
-                    .select('email')
-                    .eq('phone_number', rawPhone)
+                    .from("profiles")
+                    .select("email")
+                    .eq("phone_number", rawPhone)
                     .maybeSingle();
 
                 if (lookupError || !profile?.email) {
@@ -272,11 +279,145 @@ export default function AuthScreen() {
                 lower.includes("email_not_confirmed") ||
                 lower.includes("not confirmed")
             ) {
-                friendlyMessage = "Please verify your email before signing in.\nCheck your inbox for the link from Rasvia.";
+                friendlyMessage =
+                    "Please verify your email before signing in.\nCheck your inbox for the link from Rasvia.";
             }
             setNotification({
                 visible: true,
                 message: friendlyMessage,
+                type: "error",
+            });
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function handleSignUpSubmit() {
+        if (!email || !password) {
+            setNotification({
+                visible: true,
+                message: "Please enter both email and password.",
+                type: "error",
+            });
+            return;
+        }
+        if (!isValidEmail(email)) {
+            setNotification({
+                visible: true,
+                message: "Please enter a valid email address.",
+                type: "error",
+            });
+            return;
+        }
+        if (!firstName || !lastInitial) {
+            setNotification({
+                visible: true,
+                message: "Please enter your first name and last initial.",
+                type: "error",
+            });
+            return;
+        }
+        if (digitsOnly(phone).length !== 10) {
+            setNotification({
+                visible: true,
+                message: "Please enter a valid 10-digit phone number.",
+                type: "error",
+            });
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
+            const normalizedPhone = phone.replace(/\D/g, "").trim();
+            const { data, error } = await supabase.auth.signUp({
+                email: email.trim(),
+                password,
+                options: {
+                    emailRedirectTo: VERIFY_EMAIL_WEB_URL,
+                    data: {
+                        full_name: fullName,
+                        first_name: firstName.trim(),
+                        last_name: `${lastInitial.trim().toUpperCase()}.`,
+                        phone_number: normalizedPhone,
+                    },
+                },
+            });
+            if (error) throw error;
+
+            const identities = (data.user as any)?.identities;
+            const emailAlreadyExists = Array.isArray(identities) && identities.length === 0;
+            if (emailAlreadyExists) {
+                setNotification({
+                    visible: true,
+                    message: "Email already exists. Please Log In.",
+                    type: "error",
+                });
+                return;
+            }
+
+            if (data.user && data.session?.access_token) {
+                const { error: profileError } = await supabase.from("profiles").upsert({
+                    id: data.user.id,
+                    email: email.trim(),
+                    full_name: fullName,
+                    phone_number: normalizedPhone,
+                    created_at: new Date().toISOString(),
+                });
+                if (profileError) {
+                    console.warn("Profile upsert during sign-up failed:", profileError.message);
+                }
+            }
+
+            router.replace({
+                pathname: "/email-verify" as any,
+                params: { email: email.trim() },
+            });
+        } catch (error: any) {
+            const message = error.message || "Something went wrong.";
+            let friendlyMessage = message;
+            const lower = message.toLowerCase();
+            if (lower.includes("already registered") || lower.includes("already exists")) {
+                friendlyMessage = "Email already exists. Please Log In.";
+            }
+            setNotification({
+                visible: true,
+                message: friendlyMessage,
+                type: "error",
+            });
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function handleForgotPassword() {
+        if (!email.trim()) return;
+        try {
+            setLoading(true);
+            const redirectTo =
+                Platform.OS === "web"
+                    ? Linking.createURL("auth/callback")
+                    : Linking.createURL("auth/callback", { scheme: "rasvia" });
+            const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+                redirectTo,
+            });
+            if (error) throw error;
+            if (Platform.OS !== "web") {
+                Alert.alert(
+                    "Check your email",
+                    "We sent a password reset link. Open it on your device to choose a new password."
+                );
+            } else {
+                setNotification({
+                    visible: true,
+                    message: "Password reset email sent. Check your inbox.",
+                    type: "success",
+                });
+            }
+        } catch (e: any) {
+            setNotification({
+                visible: true,
+                message: e?.message || "Could not send reset email.",
                 type: "error",
             });
         } finally {
@@ -327,6 +468,7 @@ export default function AuthScreen() {
                     style={{ flex: 1 }}
                     keyboardVerticalOffset={Platform.OS === "android" ? 0 : 0}
                 >
+                    {authPhase !== "signup" ? (
                     <ScrollView
                         contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }}
                         keyboardShouldPersistTaps="handled"
@@ -377,7 +519,199 @@ export default function AuthScreen() {
                             paddingBottom: 40,
                         }}
                     >
-                        {/* Title */}
+                        {/* ─── Phase: identifier (email or phone, then Continue) ─── */}
+                        {authPhase === "identifier" && (
+                            <>
+                        <Text
+                            style={{
+                                fontFamily: "BricolageGrotesque_700Bold",
+                                color: "#f5f5f5",
+                                fontSize: 24,
+                                marginBottom: 8,
+                                textAlign: "center",
+                            }}
+                        >
+                            Sign in or create your account
+                        </Text>
+                        <Text
+                            style={{
+                                fontFamily: "Manrope_500Medium",
+                                color: "#999999",
+                                fontSize: 14,
+                                marginBottom: 22,
+                                textAlign: "center",
+                                lineHeight: 20,
+                            }}
+                        >
+                            Not sure if you have an account? Enter your phone number or email and we&apos;ll take you to the next step.
+                        </Text>
+
+                        <Text
+                            style={{
+                                fontFamily: "Manrope_700Bold",
+                                color: "#e5e5e5",
+                                fontSize: 13,
+                                marginBottom: 8,
+                            }}
+                        >
+                            Phone number or email *
+                        </Text>
+                        <TextInput
+                            style={{
+                                backgroundColor: "#262626",
+                                borderRadius: 16,
+                                borderWidth: 1,
+                                borderColor: "#333333",
+                                paddingHorizontal: 16,
+                                height: 56,
+                                color: "#f5f5f5",
+                                fontFamily: "Manrope_500Medium",
+                                fontSize: 16,
+                                marginBottom: 14,
+                            }}
+                            placeholder="you@email.com or (555) 000-0000"
+                            placeholderTextColor="#666666"
+                            value={identifierInput}
+                            onChangeText={setIdentifierInput}
+                            onFocus={() => {
+                                if (Platform.OS !== "web") Haptics.selectionAsync();
+                            }}
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete="email"
+                        />
+
+                        <Text
+                            style={{
+                                fontFamily: "Manrope_500Medium",
+                                color: "#666666",
+                                fontSize: 12,
+                                marginBottom: 20,
+                                lineHeight: 18,
+                            }}
+                        >
+                            Securing your personal information is our priority. See our{" "}
+                            <Text
+                                onPress={() => router.push("/privacy" as any)}
+                                style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", textDecorationLine: "underline" }}
+                            >
+                                Privacy Policy
+                            </Text>
+                            .
+                        </Text>
+
+                        <Animated.View style={btnStyle}>
+                            <Pressable
+                                onPress={() => {
+                                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    handleIdentifierContinue();
+                                }}
+                                onPressIn={() => {
+                                    btnScale.value = withSpring(0.96);
+                                }}
+                                onPressOut={() => {
+                                    btnScale.value = withSpring(1);
+                                }}
+                                disabled={loading || googleLoading || identifierChecking}
+                                style={{
+                                    backgroundColor: "#FF9933",
+                                    borderRadius: 28,
+                                    height: 54,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    shadowColor: "#FF9933",
+                                    shadowOffset: { width: 0, height: 4 },
+                                    shadowOpacity: 0.35,
+                                    shadowRadius: 16,
+                                    elevation: 10,
+                                    opacity: loading || googleLoading || identifierChecking ? 0.7 : 1,
+                                }}
+                            >
+                                {identifierChecking ? (
+                                    <ActivityIndicator color="#0f0f0f" />
+                                ) : (
+                                    <Text
+                                        style={{
+                                            fontFamily: "Manrope_700Bold",
+                                            color: "#0f0f0f",
+                                            fontSize: 17,
+                                        }}
+                                    >
+                                        Continue
+                                    </Text>
+                                )}
+                            </Pressable>
+                        </Animated.View>
+
+                        <View style={{ flexDirection: "row", alignItems: "center", marginVertical: 18 }}>
+                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
+                            <Text style={{ marginHorizontal: 10, color: "#666666", fontFamily: "Manrope_500Medium", fontSize: 12 }}>
+                                or
+                            </Text>
+                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
+                        </View>
+
+                        <Pressable
+                            onPress={handleGoogleAuth}
+                            disabled={loading || googleLoading || identifierChecking}
+                            style={{
+                                borderRadius: 16,
+                                height: 54,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexDirection: "row",
+                                backgroundColor: "#202020",
+                                borderWidth: 1,
+                                borderColor: "#333333",
+                                opacity: loading || googleLoading || identifierChecking ? 0.7 : 1,
+                                marginBottom: 20,
+                            }}
+                        >
+                            {googleLoading ? (
+                                <ActivityIndicator color="#f5f5f5" />
+                            ) : (
+                                <>
+                                    <View
+                                        style={{
+                                            width: 24,
+                                            height: 24,
+                                            borderRadius: 12,
+                                            backgroundColor: "#ffffff",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            marginRight: 10,
+                                        }}
+                                    >
+                                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#4285F4", fontSize: 14 }}>
+                                            G
+                                        </Text>
+                                    </View>
+                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 15 }}>
+                                        Continue with Google
+                                    </Text>
+                                </>
+                            )}
+                        </Pressable>
+                            </>
+                        )}
+
+                        {/* ─── Phase: sign in with password ─── */}
+                        {authPhase === "signin_password" && (
+                            <>
+                        <Pressable
+                            onPress={() => {
+                                if (Platform.OS !== "web") Haptics.selectionAsync();
+                                setAuthPhase("identifier");
+                                setPassword("");
+                            }}
+                            style={{ flexDirection: "row", alignItems: "center", marginBottom: 16, gap: 8 }}
+                        >
+                            <ArrowLeft size={18} color="#FF9933" />
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 15 }}>
+                                Back
+                            </Text>
+                        </Pressable>
                         <Text
                             style={{
                                 fontFamily: "BricolageGrotesque_700Bold",
@@ -386,24 +720,193 @@ export default function AuthScreen() {
                                 marginBottom: 6,
                             }}
                         >
-                            {isSignUp ? "Create Account" : "Welcome Back"}
+                            Sign in
                         </Text>
                         <Text
                             style={{
                                 fontFamily: "Manrope_500Medium",
                                 color: "#999999",
                                 fontSize: 14,
-                                marginBottom: 28,
+                                marginBottom: 22,
                             }}
                         >
-                            {isSignUp
-                                ? "Join the waitlist revolution."
-                                : "Sign in to skip the line."}
+                            {signInWithPhone ? phoneSignIn : email}
                         </Text>
 
-                        {/* Name Inputs (Sign Up Only) */}
-                        {isSignUp && (
-                            <>
+                        <View
+                            style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                backgroundColor: "#262626",
+                                borderRadius: 16,
+                                borderWidth: 1,
+                                borderColor: "#333333",
+                                paddingHorizontal: 16,
+                                marginBottom: 12,
+                                height: 56,
+                            }}
+                        >
+                            <Lock size={18} color="#999999" />
+                            <TextInput
+                                style={{
+                                    flex: 1,
+                                    color: "#f5f5f5",
+                                    fontFamily: "Manrope_500Medium",
+                                    fontSize: 15,
+                                    marginLeft: 12,
+                                }}
+                                placeholder="Password"
+                                placeholderTextColor="#666666"
+                                value={password}
+                                onChangeText={setPassword}
+                                onFocus={() => {
+                                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                                }}
+                                secureTextEntry={!showPassword}
+                                autoCapitalize="none"
+                            />
+                            <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
+                                {showPassword ? <EyeOff size={18} color="#999999" /> : <Eye size={18} color="#999999" />}
+                            </Pressable>
+                        </View>
+
+                        {!signInWithPhone && (
+                            <Pressable onPress={handleForgotPassword} style={{ marginBottom: 18, alignSelf: "flex-start" }}>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 13 }}>
+                                    Forgot password?
+                                </Text>
+                            </Pressable>
+                        )}
+
+                        <Animated.View style={btnStyle}>
+                            <Pressable
+                                onPress={() => {
+                                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    handleSignInWithPassword();
+                                }}
+                                onPressIn={() => {
+                                    btnScale.value = withSpring(0.96);
+                                }}
+                                onPressOut={() => {
+                                    btnScale.value = withSpring(1);
+                                }}
+                                disabled={loading || googleLoading}
+                                style={{
+                                    backgroundColor: "#FF9933",
+                                    borderRadius: 16,
+                                    height: 56,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    shadowColor: "#FF9933",
+                                    shadowOffset: { width: 0, height: 4 },
+                                    shadowOpacity: 0.35,
+                                    shadowRadius: 16,
+                                    elevation: 10,
+                                    opacity: loading || googleLoading ? 0.7 : 1,
+                                }}
+                            >
+                                {loading ? (
+                                    <ActivityIndicator color="#0f0f0f" />
+                                ) : (
+                                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 17 }}>
+                                        Sign in
+                                    </Text>
+                                )}
+                            </Pressable>
+                        </Animated.View>
+                            </>
+                        )}
+                    </Animated.View>
+                    </ScrollView>
+                ) : (
+                    <View style={{ flex: 1 }}>
+                        <ScrollView
+                            style={{ flex: 1 }}
+                            contentContainerStyle={{
+                                flexGrow: 1,
+                            }}
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={false}
+                            bounces={false}
+                        >
+                            <Animated.View
+                                entering={FadeIn.duration(800)}
+                                className="items-center mb-6"
+                                style={{ paddingTop: SCREEN_HEIGHT * 0.05 }}
+                            >
+                                <Text
+                                    style={{
+                                        fontFamily: "BricolageGrotesque_800ExtraBold",
+                                        color: "#FF9933",
+                                        fontSize: 48,
+                                        letterSpacing: -1,
+                                    }}
+                                >
+                                    rasvia
+                                </Text>
+                                <Text
+                                    style={{
+                                        fontFamily: "Manrope_500Medium",
+                                        color: "#999999",
+                                        fontSize: 16,
+                                        marginTop: 4,
+                                    }}
+                                >
+                                    The Path to Flavor.
+                                </Text>
+                            </Animated.View>
+
+                            <Animated.View
+                                entering={FadeInUp.delay(300).duration(600)}
+                                style={{
+                                    backgroundColor: SIGNUP_PANEL_BG,
+                                    borderTopLeftRadius: 32,
+                                    borderTopRightRadius: 32,
+                                    borderTopWidth: 1,
+                                    borderLeftWidth: 1,
+                                    borderRightWidth: 1,
+                                    borderColor: "rgba(255, 255, 255, 0.06)",
+                                    paddingHorizontal: 24,
+                                    paddingTop: 32,
+                                    paddingBottom: 24,
+                                }}
+                            >
+                                <Pressable
+                                    onPress={() => {
+                                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                                        setAuthPhase("identifier");
+                                        setPassword("");
+                                        setFirstName("");
+                                        setLastInitial("");
+                                    }}
+                                    style={{ flexDirection: "row", alignItems: "center", marginBottom: 16, gap: 8 }}
+                                >
+                                    <ArrowLeft size={18} color="#FF9933" />
+                                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 15 }}>
+                                        Back
+                                    </Text>
+                                </Pressable>
+                                <Text
+                                    style={{
+                                        fontFamily: "BricolageGrotesque_700Bold",
+                                        color: "#f5f5f5",
+                                        fontSize: 26,
+                                        marginBottom: 6,
+                                    }}
+                                >
+                                    Create Account
+                                </Text>
+                                <Text
+                                    style={{
+                                        fontFamily: "Manrope_500Medium",
+                                        color: "#999999",
+                                        fontSize: 14,
+                                        marginBottom: 28,
+                                    }}
+                                >
+                                    Join the waitlist revolution.
+                                </Text>
+
                                 <View
                                     style={{
                                         flexDirection: "row",
@@ -435,7 +938,9 @@ export default function AuthScreen() {
                                             placeholderTextColor="#666666"
                                             value={firstName}
                                             onChangeText={setFirstName}
-                                            onFocus={() => { if (Platform.OS !== "web") Haptics.selectionAsync(); }}
+                                            onFocus={() => {
+                                                if (Platform.OS !== "web") Haptics.selectionAsync();
+                                            }}
                                             autoCapitalize="words"
                                             autoCorrect={false}
                                         />
@@ -465,7 +970,9 @@ export default function AuthScreen() {
                                             placeholderTextColor="#666666"
                                             value={lastInitial}
                                             onChangeText={(text) => setLastInitial(text.slice(0, 1))}
-                                            onFocus={() => { if (Platform.OS !== "web") Haptics.selectionAsync(); }}
+                                            onFocus={() => {
+                                                if (Platform.OS !== "web") Haptics.selectionAsync();
+                                            }}
                                             maxLength={1}
                                             autoCapitalize="characters"
                                             autoCorrect={false}
@@ -484,7 +991,6 @@ export default function AuthScreen() {
                                     First name, last initial
                                 </Text>
 
-                                {/* Phone Number Input */}
                                 <View
                                     style={{
                                         flexDirection: "row",
@@ -511,372 +1017,188 @@ export default function AuthScreen() {
                                         placeholderTextColor="#666666"
                                         value={phone}
                                         onChangeText={(v) => setPhone(formatPhoneNumber(v))}
-                                        onFocus={() => { if (Platform.OS !== "web") Haptics.selectionAsync(); }}
+                                        onFocus={() => {
+                                            if (Platform.OS !== "web") Haptics.selectionAsync();
+                                        }}
                                         keyboardType="phone-pad"
                                         autoCapitalize="none"
                                         autoCorrect={false}
                                     />
                                 </View>
-                            </>
-                        )}
 
-                        {/* Email / Phone toggle (sign-in only) */}
-                        {!isSignUp && (
-                            <View
-                                style={{
-                                    flexDirection: "row",
-                                    backgroundColor: "#1a1a1a",
-                                    borderRadius: 12,
-                                    borderWidth: 1,
-                                    borderColor: "#333333",
-                                    marginBottom: 14,
-                                    padding: 4,
-                                }}
-                            >
-                                <Pressable
-                                    onPress={() => {
-                                        if (Platform.OS !== "web") Haptics.selectionAsync();
-                                        setUsePhone(false);
-                                    }}
+                                <View
                                     style={{
-                                        flex: 1,
-                                        height: 36,
-                                        borderRadius: 9,
+                                        flexDirection: "row",
                                         alignItems: "center",
-                                        justifyContent: "center",
-                                        backgroundColor: !usePhone ? "#FF9933" : "transparent",
+                                        backgroundColor: "#262626",
+                                        borderRadius: 16,
+                                        borderWidth: 1,
+                                        borderColor: "#333333",
+                                        paddingHorizontal: 16,
+                                        marginBottom: 14,
+                                        height: 56,
                                     }}
                                 >
-                                    <Text
+                                    <Mail size={18} color="#999999" />
+                                    <TextInput
                                         style={{
-                                            fontFamily: "Manrope_600SemiBold",
-                                            color: !usePhone ? "#0f0f0f" : "#999999",
-                                            fontSize: 13,
+                                            flex: 1,
+                                            color: "#f5f5f5",
+                                            fontFamily: "Manrope_500Medium",
+                                            fontSize: 15,
+                                            marginLeft: 12,
                                         }}
-                                    >
-                                        Email
-                                    </Text>
-                                </Pressable>
-                                <Pressable
-                                    onPress={() => {
-                                        if (Platform.OS !== "web") Haptics.selectionAsync();
-                                        setUsePhone(true);
-                                    }}
+                                        placeholder="Email address"
+                                        placeholderTextColor="#666666"
+                                        value={email}
+                                        onChangeText={setEmail}
+                                        onFocus={() => {
+                                            if (Platform.OS !== "web") Haptics.selectionAsync();
+                                        }}
+                                        keyboardType="email-address"
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                </View>
+
+                                <View
                                     style={{
-                                        flex: 1,
-                                        height: 36,
-                                        borderRadius: 9,
+                                        flexDirection: "row",
                                         alignItems: "center",
-                                        justifyContent: "center",
-                                        backgroundColor: usePhone ? "#FF9933" : "transparent",
+                                        backgroundColor: "#262626",
+                                        borderRadius: 16,
+                                        borderWidth: 1,
+                                        borderColor: "#333333",
+                                        paddingHorizontal: 16,
+                                        marginBottom: 20,
+                                        height: 56,
                                     }}
                                 >
-                                    <Text
+                                    <Lock size={18} color="#999999" />
+                                    <TextInput
                                         style={{
-                                            fontFamily: "Manrope_600SemiBold",
-                                            color: usePhone ? "#0f0f0f" : "#999999",
-                                            fontSize: 13,
+                                            flex: 1,
+                                            color: "#f5f5f5",
+                                            fontFamily: "Manrope_500Medium",
+                                            fontSize: 15,
+                                            marginLeft: 12,
                                         }}
+                                        placeholder="Password"
+                                        placeholderTextColor="#666666"
+                                        value={password}
+                                        onChangeText={setPassword}
+                                        onFocus={() => {
+                                            if (Platform.OS !== "web") Haptics.selectionAsync();
+                                        }}
+                                        secureTextEntry={!showPassword}
+                                        autoCapitalize="none"
+                                    />
+                                    <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
+                                        {showPassword ? (
+                                            <EyeOff size={18} color="#999999" />
+                                        ) : (
+                                            <Eye size={18} color="#999999" />
+                                        )}
+                                    </Pressable>
+                                </View>
+
+                                <Text
+                                    style={{
+                                        fontFamily: "Manrope_500Medium",
+                                        color: "#666666",
+                                        fontSize: 12,
+                                        textAlign: "center",
+                                        marginBottom: 0,
+                                        lineHeight: 18,
+                                    }}
+                                >
+                                    By continuing, you agree to our{" "}
+                                    <Text
+                                        onPress={() => router.push("/terms" as any)}
+                                        style={{ color: "#FF9933", fontFamily: "Manrope_700Bold" }}
                                     >
-                                        Phone
+                                        Terms of Service
+                                    </Text>{" "}
+                                    and{" "}
+                                    <Text
+                                        onPress={() => router.push("/privacy" as any)}
+                                        style={{ color: "#FF9933", fontFamily: "Manrope_700Bold" }}
+                                    >
+                                        Privacy Policy
                                     </Text>
-                                </Pressable>
-                            </View>
-                        )}
+                                    .
+                                </Text>
+                            </Animated.View>
 
-                        {/* Email Input (sign-up always, sign-in when email mode) */}
-                        {(!usePhone || isSignUp) && (
                             <View
-                                style={{
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    backgroundColor: "#262626",
-                                    borderRadius: 16,
-                                    borderWidth: 1,
-                                    borderColor: "#333333",
-                                    paddingHorizontal: 16,
-                                    marginBottom: 14,
-                                    height: 56,
-                                }}
-                            >
-                                <Mail size={18} color="#999999" />
-                                <TextInput
-                                    style={{
-                                        flex: 1,
-                                        color: "#f5f5f5",
-                                        fontFamily: "Manrope_500Medium",
-                                        fontSize: 15,
-                                        marginLeft: 12,
-                                    }}
-                                    placeholder="Email address"
-                                    placeholderTextColor="#666666"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    onFocus={() => { if (Platform.OS !== "web") Haptics.selectionAsync(); }}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                            </View>
-                        )}
-
-                        {/* Phone Input (sign-in phone mode only) */}
-                        {usePhone && !isSignUp && (
-                            <View
-                                style={{
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    backgroundColor: "#262626",
-                                    borderRadius: 16,
-                                    borderWidth: 1,
-                                    borderColor: "#333333",
-                                    paddingHorizontal: 16,
-                                    marginBottom: 14,
-                                    height: 56,
-                                }}
-                            >
-                                <Phone size={18} color="#999999" />
-                                <TextInput
-                                    style={{
-                                        flex: 1,
-                                        color: "#f5f5f5",
-                                        fontFamily: "Manrope_500Medium",
-                                        fontSize: 15,
-                                        marginLeft: 12,
-                                    }}
-                                    placeholder="(555) 000-0000"
-                                    placeholderTextColor="#666666"
-                                    value={phoneSignIn}
-                                    onChangeText={(v) => setPhoneSignIn(formatPhoneNumber(v))}
-                                    onFocus={() => { if (Platform.OS !== "web") Haptics.selectionAsync(); }}
-                                    keyboardType="phone-pad"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                            </View>
-                        )}
-
-                        {/* Password Input */}
-                        <View
-                            style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                backgroundColor: "#262626",
-                                borderRadius: 16,
-                                borderWidth: 1,
-                                borderColor: "#333333",
-                                paddingHorizontal: 16,
-                                marginBottom: 24,
-                                height: 56,
-                            }}
-                        >
-                            <Lock size={18} color="#999999" />
-                            <TextInput
                                 style={{
                                     flex: 1,
-                                    color: "#f5f5f5",
-                                    fontFamily: "Manrope_500Medium",
-                                    fontSize: 15,
-                                    marginLeft: 12,
+                                    minHeight: 0,
+                                    backgroundColor: SIGNUP_PANEL_BG,
+                                    paddingBottom: signupStickyFooterReserve,
                                 }}
-                                placeholder="Password"
-                                placeholderTextColor="#666666"
-                                value={password}
-                                onChangeText={setPassword}
-                                onFocus={() => { if (Platform.OS !== "web") Haptics.selectionAsync(); }}
-                                secureTextEntry={!showPassword}
-                                autoCapitalize="none"
                             />
-                            <Pressable
-                                onPress={() => setShowPassword(!showPassword)}
-                                hitSlop={10}
-                            >
-                                {showPassword ? (
-                                    <EyeOff size={18} color="#999999" />
-                                ) : (
-                                    <Eye size={18} color="#999999" />
-                                )}
-                            </Pressable>
-                        </View>
+                        </ScrollView>
 
-                        {/* Terms & Privacy Disclaimer (Sign Up Only) */}
-                        {isSignUp && (
-                            <Text
-                                style={{
-                                    fontFamily: "Manrope_500Medium",
-                                    color: "#666666",
-                                    fontSize: 12,
-                                    textAlign: "center",
-                                    marginBottom: 20,
-                                    lineHeight: 18,
-                                }}
-                            >
-                                By continuing, you agree to our{" "}
-                                <Text
-                                    onPress={() => router.push("/terms" as any)}
-                                    style={{ color: "#FF9933", fontFamily: "Manrope_700Bold" }}
-                                >
-                                    Terms of Service
-                                </Text>{" "}
-                                and{" "}
-                                <Text
-                                    onPress={() => router.push("/privacy" as any)}
-                                    style={{ color: "#FF9933", fontFamily: "Manrope_700Bold" }}
-                                >
-                                    Privacy Policy
-                                </Text>.
-                            </Text>
-                        )}
-
-                        {/* Google OAuth */}
-                        <Pressable
-                            onPress={handleGoogleAuth}
-                            disabled={loading || googleLoading}
+                        <View
                             style={{
-                                borderRadius: 16,
-                                height: 54,
-                                alignItems: "center",
-                                justifyContent: "center",
-                                flexDirection: "row",
-                                backgroundColor: "#202020",
-                                borderWidth: 1,
-                                borderColor: "#333333",
-                                opacity: loading || googleLoading ? 0.7 : 1,
-                                marginBottom: 14,
+                                position: "absolute",
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: SIGNUP_PANEL_BG,
+                                paddingHorizontal: 24,
+                                paddingTop: 12,
+                                paddingBottom: Math.max(insets.bottom, 12) + 8,
                             }}
                         >
-                            {googleLoading ? (
-                                <ActivityIndicator color="#f5f5f5" />
-                            ) : (
-                                <>
-                                    <View
-                                        style={{
-                                            width: 24,
-                                            height: 24,
-                                            borderRadius: 12,
-                                            backgroundColor: "#ffffff",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            marginRight: 10,
-                                        }}
-                                    >
+                            <Animated.View style={btnStyle}>
+                                <Pressable
+                                    onPress={() => {
+                                        if (Platform.OS !== "web") {
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        }
+                                        handleSignUpSubmit();
+                                    }}
+                                    onPressIn={() => {
+                                        btnScale.value = withSpring(0.96);
+                                    }}
+                                    onPressOut={() => {
+                                        btnScale.value = withSpring(1);
+                                    }}
+                                    disabled={loading || googleLoading}
+                                    style={{
+                                        backgroundColor: "#FF9933",
+                                        borderRadius: 16,
+                                        height: 56,
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        shadowColor: "#FF9933",
+                                        shadowOffset: { width: 0, height: 4 },
+                                        shadowOpacity: 0.35,
+                                        shadowRadius: 16,
+                                        elevation: 10,
+                                        opacity: loading || googleLoading ? 0.7 : 1,
+                                    }}
+                                >
+                                    {loading ? (
+                                        <ActivityIndicator color="#0f0f0f" />
+                                    ) : (
                                         <Text
                                             style={{
                                                 fontFamily: "BricolageGrotesque_700Bold",
-                                                color: "#4285F4",
-                                                fontSize: 14,
+                                                color: "#0f0f0f",
+                                                fontSize: 17,
                                             }}
                                         >
-                                            G
+                                            Get Started
                                         </Text>
-                                    </View>
-                                    <Text
-                                        style={{
-                                            fontFamily: "Manrope_700Bold",
-                                            color: "#f5f5f5",
-                                            fontSize: 15,
-                                        }}
-                                    >
-                                        Continue with Google
-                                    </Text>
-                                </>
-                            )}
-                        </Pressable>
-
-                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 18 }}>
-                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
-                            <Text style={{ marginHorizontal: 10, color: "#666666", fontFamily: "Manrope_500Medium", fontSize: 12 }}>
-                                or
-                            </Text>
-                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
+                                    )}
+                                </Pressable>
+                            </Animated.View>
                         </View>
-
-                        {/* Action Button */}
-                        <Animated.View style={btnStyle}>
-                            <Pressable
-                                onPress={() => {
-                                    if (Platform.OS !== "web") {
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                    }
-                                    handleAuth();
-                                }}
-                                onPressIn={() => {
-                                    btnScale.value = withSpring(0.96);
-                                }}
-                                onPressOut={() => {
-                                    btnScale.value = withSpring(1);
-                                }}
-                                disabled={loading || googleLoading}
-                                style={{
-                                    backgroundColor: "#FF9933",
-                                    borderRadius: 16,
-                                    height: 56,
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    shadowColor: "#FF9933",
-                                    shadowOffset: { width: 0, height: 4 },
-                                    shadowOpacity: 0.35,
-                                    shadowRadius: 16,
-                                    elevation: 10,
-                                    opacity: loading || googleLoading ? 0.7 : 1,
-                                }}
-                            >
-                                {loading ? (
-                                    <ActivityIndicator color="#0f0f0f" />
-                                ) : (
-                                    <Text
-                                        style={{
-                                            fontFamily: "BricolageGrotesque_700Bold",
-                                            color: "#0f0f0f",
-                                            fontSize: 17,
-                                        }}
-                                    >
-                                        {isSignUp ? "Get Started" : "Welcome Back"}
-                                    </Text>
-                                )}
-                            </Pressable>
-                        </Animated.View>
-
-                        {/* Toggle Sign In / Sign Up */}
-                        <Pressable
-                            onPress={() => {
-                                if (Platform.OS !== "web") {
-                                    Haptics.selectionAsync();
-                                }
-                                setIsSignUp(!isSignUp);
-                                setEmail("");
-                                setPassword("");
-                                setPhone("");
-                                setPhoneSignIn("");
-                                setFirstName("");
-                                setLastInitial("");
-                                setUsePhone(false);
-                            }}
-                            style={{
-                                marginTop: 20,
-                                alignItems: "center",
-                            }}
-                        >
-                            <Text
-                                style={{
-                                    fontFamily: "Manrope_500Medium",
-                                    color: "#999999",
-                                    fontSize: 14,
-                                }}
-                            >
-                                {isSignUp ? "Already have an account? " : "New to Rasvia? "}
-                                <Text
-                                    style={{
-                                        fontFamily: "Manrope_700Bold",
-                                        color: "#FF9933",
-                                    }}
-                                >
-                                    {isSignUp ? "Log In" : "Create Account"}
-                                </Text>
-                            </Text>
-                        </Pressable>
-                    </Animated.View>
-                    </ScrollView>
+                    </View>
+                )}
                 </KeyboardAvoidingView>
             </SafeAreaView>
         </View>

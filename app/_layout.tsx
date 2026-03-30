@@ -62,19 +62,13 @@ function GlobalTableReadyBanner() {
 
   useEffect(() => {
     if (tableReadyAlert && Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 150);
-      setTimeout(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success), 350);
-      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 600);
-      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 750);
-      setTimeout(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success), 950);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   }, [tableReadyAlert]);
 
   useEffect(() => {
     if (seatedAlert && Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setTimeout(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success), 400);
     }
   }, [seatedAlert]);
 

@@ -44,6 +44,26 @@ function roleLabel(role: string) {
     return ROLE_LABEL[role] ?? role.charAt(0).toUpperCase() + role.slice(1);
 }
 
+/** Supabase PostgrestError is a plain object, not an Error — String(err) becomes "[object Object]". */
+function formatSupabaseError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (err !== null && typeof err === "object") {
+        const o = err as Record<string, unknown>;
+        const msg = typeof o.message === "string" ? o.message : "";
+        const details = typeof o.details === "string" ? o.details : "";
+        const hint = typeof o.hint === "string" ? o.hint : "";
+        const code = typeof o.code === "string" ? o.code : "";
+        const parts = [msg, details, hint].filter(Boolean);
+        if (parts.length) return parts.join(" — ") + (code ? ` (${code})` : "");
+        try {
+            return JSON.stringify(err);
+        } catch {
+            return "Unknown error";
+        }
+    }
+    return String(err);
+}
+
 export function RolesModal({ onClose }: { onClose: () => void }) {
     const { ownedRestaurantId } = useAdminMode();
     const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -55,30 +75,46 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
         setLoading(true);
         setError(null);
         try {
-            // Fetch staff with their profile data and optional role name
-            const { data, error: fetchErr } = await supabase
+            // PostgREST only auto-embeds over declared FKs; restaurant_staff.user_id → auth.users, not profiles.
+            const { data: staffRows, error: staffErr } = await supabase
                 .from("restaurant_staff")
-                .select(`
-                    id,
-                    role,
-                    restaurant_roles ( name ),
-                    profiles ( full_name, email )
-                `)
+                .select("id, role, user_id, restaurant_roles ( name )")
                 .eq("restaurant_id", ownedRestaurantId)
                 .order("role");
 
-            if (fetchErr) throw fetchErr;
+            if (staffErr) throw staffErr;
 
-            const mapped: StaffMember[] = (data ?? []).map((row: any) => ({
-                id: row.id,
-                role: row.role ?? "staff",
-                role_name: row.restaurant_roles?.name ?? null,
-                full_name: row.profiles?.full_name ?? null,
-                email: row.profiles?.email ?? null,
-            }));
+            const userIds = [...new Set((staffRows ?? []).map((r: { user_id?: string }) => r.user_id).filter(Boolean))] as string[];
+            const profileMap = new Map<string, { full_name: string | null; email: string | null }>();
+            if (userIds.length > 0) {
+                const { data: profRows, error: profErr } = await supabase
+                    .from("profiles")
+                    .select("id, full_name, email")
+                    .in("id", userIds);
+                if (profErr) throw profErr;
+                for (const p of profRows ?? []) {
+                    profileMap.set(p.id as string, {
+                        full_name: (p as { full_name?: string | null }).full_name ?? null,
+                        email: (p as { email?: string | null }).email ?? null,
+                    });
+                }
+            }
+
+            const mapped: StaffMember[] = (staffRows ?? []).map((row: any) => {
+                const prof = row.user_id ? profileMap.get(row.user_id) : undefined;
+                return {
+                    id: row.id,
+                    role: row.role ?? "staff",
+                    role_name: row.restaurant_roles?.name ?? null,
+                    full_name: prof?.full_name ?? null,
+                    email: prof?.email ?? null,
+                };
+            });
             setStaff(mapped);
-        } catch (err: any) {
-            setError("Could not load staff list.");
+        } catch (err: unknown) {
+            console.error("[RolesModal] fetchStaff", err);
+            const msg = formatSupabaseError(err);
+            setError(msg || "Could not load staff list.");
         }
         setLoading(false);
     }, [ownedRestaurantId]);

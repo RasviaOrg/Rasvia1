@@ -32,13 +32,25 @@ import {
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/lib/supabase";
+import { uploadReviewPhotoToStorage } from "@/lib/review-image-upload";
 import { useAuth } from "@/lib/auth-context";
+import { useAdminMode } from "@/hooks/useAdminMode";
 import type { UIMenuItem } from "@/lib/restaurant-types";
 
 // ================================================================
 // Types
 // ================================================================
 type SortMode = "newest" | "highest" | "lowest";
+
+interface ReviewReply {
+  id: number;
+  review_id: number;
+  user_id: string;
+  author_name: string;
+  body: string;
+  created_at: string;
+  edited_at: string | null;
+}
 
 interface Review {
   id: number;
@@ -53,6 +65,7 @@ interface Review {
   is_from_google: boolean;
   created_at: string;
   edited_at: string | null;
+  review_replies?: ReviewReply[] | null;
 }
 
 interface Props {
@@ -103,6 +116,10 @@ function sortReviewsByMode(list: Review[], mode: SortMode): Review[] {
     arr.sort((a, b) => a.rating - b.rating);
   }
   return arr;
+}
+
+function sortReplies(list: ReviewReply[]): ReviewReply[] {
+  return [...list].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
 
 // ================================================================
@@ -323,6 +340,182 @@ function FullscreenPhotoModal({
 }
 
 // ================================================================
+// Sub-component: Reply thread (restaurant owner responses only — reviewers cannot reply to their own review)
+// ================================================================
+function ReviewReplyThread({
+  reviewId,
+  replies,
+  restaurantOwnerId,
+  sessionUserId,
+  isOwnerOfRestaurant,
+  onRepliesChanged,
+}: {
+  reviewId: number;
+  replies: ReviewReply[];
+  restaurantOwnerId: string | null;
+  sessionUserId: string | undefined;
+  isOwnerOfRestaurant: boolean;
+  onRepliesChanged: () => void;
+}) {
+  const { session } = useAuth();
+  const sorted = useMemo(() => sortReplies(replies), [replies]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const canReply = !!session?.user && isOwnerOfRestaurant;
+
+  const submit = async () => {
+    const t = draft.trim();
+    if (!t || !session?.user) return;
+    setSending(true);
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", session.user.id)
+        .maybeSingle();
+      const author_name = profile?.full_name || session.user.email?.split("@")[0] || "User";
+      const { error } = await supabase.from("review_replies").insert({
+        review_id: reviewId,
+        user_id: session.user.id,
+        author_name,
+        body: t,
+      });
+      if (error) throw error;
+      setDraft("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onRepliesChanged();
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not post reply.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const deleteReply = (replyId: number) => {
+    Alert.alert("Delete reply?", undefined, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          const { error } = await supabase.from("review_replies").delete().eq("id", replyId);
+          if (!error) onRepliesChanged();
+          else Alert.alert("Error", "Could not delete reply.");
+        },
+      },
+    ]);
+  };
+
+  return (
+    <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#2a2a2a" }}>
+      {sorted.length > 0 && (
+        <Text
+          style={{
+            color: "#777",
+            fontFamily: "Manrope_600SemiBold",
+            fontSize: 11,
+            marginBottom: 8,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+          }}
+        >
+          {isOwnerOfRestaurant ? "Conversation" : "Replies"}
+        </Text>
+      )}
+      {sorted.map((rp) => {
+        const isOwnerReply = restaurantOwnerId != null && rp.user_id === restaurantOwnerId;
+        const isMine = sessionUserId === rp.user_id;
+        return (
+          <View
+            key={rp.id}
+            style={{
+              marginBottom: 10,
+              paddingLeft: 10,
+              borderLeftWidth: 2,
+              borderLeftColor: isOwnerReply ? "rgba(255,153,51,0.55)" : "#444",
+            }}
+          >
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={{ color: isOwnerReply ? "#FFB366" : "#bbb", fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
+                  {isOwnerReply ? "Restaurant" : rp.author_name}
+                  {isOwnerReply ? (
+                    <Text style={{ color: "#888", fontFamily: "Manrope_500Medium", fontSize: 10 }}> · Owner</Text>
+                  ) : null}
+                </Text>
+                <Text
+                  style={{
+                    color: "#ccc",
+                    fontFamily: "Manrope_400Regular",
+                    fontSize: 13,
+                    lineHeight: 18,
+                    marginTop: 4,
+                  }}
+                >
+                  {rp.body}
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ color: "#555", fontFamily: "Manrope_400Regular", fontSize: 10 }}>{formatDate(rp.created_at)}</Text>
+                {isMine && (
+                  <Pressable onPress={() => deleteReply(rp.id)} hitSlop={6} style={{ marginTop: 4 }}>
+                    <Trash2 size={12} color="#666" />
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </View>
+        );
+      })}
+      {canReply && (
+        <View style={{ marginTop: 4 }}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="Respond as restaurant…"
+            placeholderTextColor="#555"
+            multiline
+            style={{
+              backgroundColor: "#141414",
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#333",
+              color: "#f5f5f5",
+              fontFamily: "Manrope_400Regular",
+              fontSize: 13,
+              padding: 10,
+              minHeight: 56,
+              textAlignVertical: "top",
+            }}
+          />
+          <Pressable
+            onPress={() => void submit()}
+            disabled={sending || !draft.trim()}
+            style={{
+              marginTop: 8,
+              alignSelf: "flex-end",
+              backgroundColor: draft.trim() && !sending ? "rgba(255,153,51,0.2)" : "#2a2a2a",
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: draft.trim() ? "rgba(255,153,51,0.4)" : "#333",
+            }}
+          >
+            {sending ? (
+              <ActivityIndicator color="#FF9933" size="small" />
+            ) : (
+              <Text style={{ color: "#FF9933", fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>Send</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ================================================================
 // Sub-component: ReviewCard
 // ================================================================
 function ReviewCard({
@@ -331,12 +524,20 @@ function ReviewCard({
   menuItems,
   onEdit,
   onDelete,
+  restaurantOwnerId,
+  sessionUserId,
+  isOwnerOfRestaurant,
+  onRepliesChanged,
 }: {
   review: Review;
   isOwn: boolean;
   menuItems: UIMenuItem[];
   onEdit?: () => void;
   onDelete?: () => void;
+  restaurantOwnerId: string | null;
+  sessionUserId: string | undefined;
+  isOwnerOfRestaurant: boolean;
+  onRepliesChanged: () => void;
 }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -535,6 +736,15 @@ function ReviewCard({
           onClose={() => setLightboxIndex(null)}
         />
       )}
+
+      <ReviewReplyThread
+        reviewId={review.id}
+        replies={review.review_replies ?? []}
+        restaurantOwnerId={restaurantOwnerId}
+        sessionUserId={sessionUserId}
+        isOwnerOfRestaurant={isOwnerOfRestaurant}
+        onRepliesChanged={onRepliesChanged}
+      />
     </View>
   );
 }
@@ -559,9 +769,9 @@ function WriteReviewForm({
   const [rating, setRating] = useState(existing?.rating ?? 0);
   const [body, setBody] = useState(existing?.body ?? "");
   const [selectedMenuIds, setSelectedMenuIds] = useState<number[]>(existing?.menu_item_ids ?? []);
-  const [photos, setPhotos] = useState<{ uri: string; uploaded?: string }[]>(
-    (existing?.photo_urls ?? []).map((url) => ({ uri: url, uploaded: url }))
-  );
+  const [photos, setPhotos] = useState<
+    { uri: string; mimeType?: string | null; uploaded?: string }[]
+  >((existing?.photo_urls ?? []).map((url) => ({ uri: url, uploaded: url })));
   const [saving, setSaving] = useState(false);
 
   const toggleMenuItem = (id: number) => {
@@ -583,54 +793,19 @@ function WriteReviewForm({
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: "images",
       quality: 0.75,
       allowsEditing: true,
       aspect: [4, 3],
     });
-    if (!result.canceled && result.assets[0]) {
-      setPhotos((prev) => [...prev, { uri: result.assets[0].uri }]);
+    const asset = result.assets?.[0];
+    if (!result.canceled && asset) {
+      setPhotos((prev) => [...prev, { uri: asset.uri, mimeType: asset.mimeType }]);
     }
   };
 
   const removePhoto = (idx: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const uploadPhoto = async (uri: string): Promise<string | null> => {
-    try {
-      // Derive a safe extension — strip query params, default to jpg
-      const rawExt = (uri.split(".").pop()?.split("?")[0] ?? "jpg").toLowerCase();
-      // Treat HEIC/HEIF as jpeg (iOS photo library format)
-      const safeExt = ["png", "gif", "webp"].includes(rawExt) ? rawExt : "jpg";
-      const mimeType =
-        safeExt === "png" ? "image/png"
-        : safeExt === "gif" ? "image/gif"
-        : safeExt === "webp" ? "image/webp"
-        : "image/jpeg";
-
-      const fileName = `review-photos/${restaurantId}/${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}.${safeExt}`;
-
-      // arrayBuffer is more reliable than blob() for local file URIs on React Native
-      const response = await fetch(uri);
-      const arrayBuffer = await response.arrayBuffer();
-
-      const { data, error } = await supabase.storage
-        .from("review_images")
-        .upload(fileName, arrayBuffer, { upsert: false, contentType: mimeType });
-
-      if (error || !data) {
-        console.warn("Review photo upload error:", error?.message);
-        return null;
-      }
-      const { data: urlData } = supabase.storage.from("review_images").getPublicUrl(data.path);
-      return urlData.publicUrl;
-    } catch (e) {
-      console.warn("Review photo upload exception:", e);
-      return null;
-    }
   };
 
   const handleSave = async () => {
@@ -666,14 +841,14 @@ function WriteReviewForm({
 
     setSaving(true);
     try {
-      // Upload any new photos
+      // Upload any new photos (throws with a clear message if read/upload fails)
       const uploadedUrls: string[] = [];
       for (const p of photos) {
         if (p.uploaded) {
           uploadedUrls.push(p.uploaded);
         } else {
-          const url = await uploadPhoto(p.uri);
-          if (url) uploadedUrls.push(url);
+          const url = await uploadReviewPhotoToStorage(restaurantId, p.uri, p.mimeType);
+          uploadedUrls.push(url);
         }
       }
 
@@ -992,6 +1167,10 @@ export function ReviewsModal({
   onReviewsChanged,
 }: Props) {
   const { session } = useAuth();
+  const { isRestaurantOwner, ownedRestaurantId } = useAdminMode();
+  /** Signed-in user owns this restaurant page — reply only, no new review on own venue */
+  const isOwnerHere = isRestaurantOwner && ownedRestaurantId === restaurantId;
+  const [restaurantOwnerId, setRestaurantOwnerId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
@@ -1005,14 +1184,31 @@ export function ReviewsModal({
     if (!restaurantId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("restaurant_reviews")
-        .select("*")
-        .eq("restaurant_id", restaurantId)
-        .order("created_at", { ascending: false });
+      const [{ data, error }, { data: restRow }] = await Promise.all([
+        supabase
+          .from("restaurant_reviews")
+          .select(
+            `
+          *,
+          review_replies (
+            id,
+            review_id,
+            user_id,
+            author_name,
+            body,
+            created_at,
+            edited_at
+          )
+        `
+          )
+          .eq("restaurant_id", restaurantId)
+          .order("created_at", { ascending: false }),
+        supabase.from("restaurants").select("owner_id").eq("id", restaurantId).maybeSingle(),
+      ]);
       if (!error && data) {
         setReviews(data as Review[]);
       }
+      setRestaurantOwnerId((restRow as { owner_id: string | null } | null)?.owner_id ?? null);
     } finally {
       setLoading(false);
     }
@@ -1069,14 +1265,15 @@ export function ReviewsModal({
   // Write / edit / delete handlers
   // ──────────────────────────────────────────────────────────────
   const handleSaved = (review: Review) => {
+    const normalized: Review = { ...review, review_replies: review.review_replies ?? [] };
     setReviews((prev) => {
-      const idx = prev.findIndex((r) => r.id === review.id);
+      const idx = prev.findIndex((r) => r.id === normalized.id);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = review;
+        next[idx] = normalized;
         return next;
       }
-      return [review, ...prev];
+      return [normalized, ...prev];
     });
     setShowWrite(false);
     setEditingReview(null);
@@ -1275,7 +1472,11 @@ export function ReviewsModal({
                       marginTop: 40,
                     }}
                   >
-                    No reviews yet. Be the first!
+                    {isOwnerHere
+                      ? "No reviews yet. When customers leave reviews, you can reply here."
+                      : isRestaurantOwner
+                        ? "No reviews yet."
+                        : "No reviews yet. Be the first!"}
                   </Text>
                 ) : (
                   sortedReviews.map((r) => (
@@ -1286,13 +1487,17 @@ export function ReviewsModal({
                       menuItems={menuItems}
                       onEdit={() => openEdit(r)}
                       onDelete={() => handleDelete(r.id)}
+                      restaurantOwnerId={restaurantOwnerId}
+                      sessionUserId={session?.user?.id}
+                      isOwnerOfRestaurant={!!isOwnerHere}
+                      onRepliesChanged={() => void fetchReviews()}
                     />
                   ))
                 )}
               </ScrollView>
 
-              {/* ── Write review button ── */}
-              {session && (
+              {/* ── Write review (customers only) or owner hints ── */}
+              {session && !isRestaurantOwner && (
                 <View
                   style={{
                     position: "absolute",
@@ -1331,6 +1536,62 @@ export function ReviewsModal({
                       Write a Review
                     </Text>
                   </Pressable>
+                </View>
+              )}
+              {session && isOwnerHere && (
+                <View
+                  style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    paddingHorizontal: 20,
+                    paddingBottom: Platform.OS === "ios" ? 32 : 20,
+                    paddingTop: 12,
+                    backgroundColor: "#111",
+                    borderTopWidth: 1,
+                    borderTopColor: "#2a2a2a",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#666",
+                      fontFamily: "Manrope_500Medium",
+                      fontSize: 13,
+                      textAlign: "center",
+                      lineHeight: 18,
+                    }}
+                  >
+                    You manage this restaurant. Reply to reviews above. You cannot post a new review on your own venue.
+                  </Text>
+                </View>
+              )}
+              {session && isRestaurantOwner && !isOwnerHere && (
+                <View
+                  style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    paddingHorizontal: 20,
+                    paddingBottom: Platform.OS === "ios" ? 32 : 20,
+                    paddingTop: 12,
+                    backgroundColor: "#111",
+                    borderTopWidth: 1,
+                    borderTopColor: "#2a2a2a",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#666",
+                      fontFamily: "Manrope_500Medium",
+                      fontSize: 13,
+                      textAlign: "center",
+                      lineHeight: 18,
+                    }}
+                  >
+                    Restaurant owners can’t post reviews on other venues.
+                  </Text>
                 </View>
               )}
             </>

@@ -15,6 +15,7 @@ import { Camera, Flame, Image as ImageIcon, Leaf, Trash2, X } from "lucide-react
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/lib/supabase";
+import { uploadMenuImageToStorage } from "@/lib/menu-image-upload";
 import type { UIMenuItem } from "@/lib/restaurant-types";
 
 type MealTag = "breakfast" | "lunch" | "dinner" | "specials" | "all_day";
@@ -57,19 +58,6 @@ function toggleMealTag(current: MealTag[], tag: MealTag): MealTag[] {
 
 function formatMealTimesForDb(value: MealTag[]): string[] {
   return value.map((m) => (m === "specials" ? "specials" : m));
-}
-
-async function uploadMenuImage(itemId: string, uri: string): Promise<string> {
-  const ext = uri.split(".").pop() || "jpg";
-  const fileName = `menu_${itemId}_${Date.now()}.${ext}`;
-  const response = await fetch(uri);
-  const blob = await response.blob();
-  const { data: uploadData, error: uploadError } = await supabase.storage
-    .from("menu-images")
-    .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
-  if (uploadError) throw uploadError;
-  const { data: urlData } = supabase.storage.from("menu-images").getPublicUrl(uploadData.path);
-  return urlData.publicUrl;
 }
 
 export function MenuItemDetailSettingsModal({
@@ -129,7 +117,8 @@ export function MenuItemDetailSettingsModal({
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       if (result.canceled || !result.assets?.[0]) return;
 
-      const publicUrl = await uploadMenuImage(item.id, result.assets[0].uri);
+      const asset = result.assets[0];
+      const publicUrl = await uploadMenuImageToStorage(item.id, asset.uri, asset.mimeType);
       const { error } = await supabase.from("menu_items").update({ image_url: publicUrl }).eq("id", Number(item.id));
       if (error) throw error;
       onSaved({ ...item, image: publicUrl });

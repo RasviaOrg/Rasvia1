@@ -39,13 +39,21 @@ export function InAppNotification({
 
     const [renderVisible, setRenderVisible] = useState(visible);
 
+    const smoothEnter =
+        type === "table_ready" || type === "seated";
+
     useEffect(() => {
         if (visible) {
             setRenderVisible(true);
-            translateY.value = withSpring(0, {
-                damping: 25,
-                stiffness: 150,
-            });
+            // No spring/bounce for table-ready & seated — feels calmer than generic toasts
+            if (smoothEnter) {
+                translateY.value = withTiming(0, { duration: 280 });
+            } else {
+                translateY.value = withSpring(0, {
+                    damping: 25,
+                    stiffness: 150,
+                });
+            }
             opacity.value = withTiming(1, { duration: 200 });
 
             if (autoDismiss) {
@@ -60,7 +68,7 @@ export function InAppNotification({
             });
             opacity.value = withTiming(0, { duration: 250 });
         }
-    }, [visible, autoDismiss, duration]);
+    }, [visible, autoDismiss, duration, smoothEnter]);
 
     const handleDismiss = () => {
         translateY.value = withTiming(-200, { duration: 250 }, () => {
@@ -82,7 +90,10 @@ export function InAppNotification({
                 });
                 opacity.value = withTiming(0, { duration: 200 });
             } else {
-                translateY.value = withSpring(0);
+                translateY.value =
+                    type === "table_ready" || type === "seated"
+                        ? withTiming(0, { duration: 200 })
+                        : withSpring(0);
             }
         });
 
