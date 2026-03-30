@@ -56,6 +56,7 @@ import { CheckoutModal } from "@/components/CheckoutModal";
 import { HoursStatusBadge } from "@/components/HoursStatusBadge";
 import { RestaurantEditModal } from "@/components/RestaurantEditModal";
 import { ReviewsModal } from "@/components/ReviewsModal";
+import { fetchReviewStats } from "@/lib/review-stats";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useRestaurantHours } from "@/hooks/useRestaurantHours";
 import { supabase } from "@/lib/supabase";
@@ -131,9 +132,13 @@ export default function RestaurantDetail() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [openHoursEditorOnOpen, setOpenHoursEditorOnOpen] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
-  // Live review stats from database
+  // Live review stats from restaurant_reviews (not the legacy DB rating column)
   const [liveReviewCount, setLiveReviewCount] = useState<number | null>(null);
   const [liveAvgRating, setLiveAvgRating] = useState<number | null>(null);
+  const handleReviewsStatsChanged = useCallback((count: number, avg: number) => {
+    setLiveReviewCount(count);
+    setLiveAvgRating(avg);
+  }, []);
   const [showCheckout, setShowCheckout] = useState(false);
   const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
@@ -258,7 +263,6 @@ export default function RestaurantDetail() {
     if (!id) return;
 
     fetchRestaurantData();
-    fetchReviewStats();
     fetchMenu();
     fetchQueueCount();
 
@@ -299,26 +303,6 @@ export default function RestaurantDetail() {
     };
   }, [id]);
 
-  async function fetchReviewStats() {
-    try {
-      const { data, error } = await supabase
-        .from("restaurant_reviews")
-        .select("rating")
-        .eq("restaurant_id", Number(id));
-
-      if (error) throw error;
-
-      const count = data?.length ?? 0;
-      const avg =
-        count > 0 ? data!.reduce((sum, row) => sum + Number(row.rating ?? 0), 0) / count : 0;
-
-      setLiveReviewCount(count);
-      setLiveAvgRating(avg);
-    } catch {
-      // keep existing display fallback
-    }
-  }
-
   async function fetchQueueCount() {
     try {
       const { count } = await supabase
@@ -344,6 +328,10 @@ export default function RestaurantDetail() {
       if (data) {
         setRestaurant(mapSupabaseToUI(data as SupabaseRestaurant, userCoords));
         setRestaurantOwnerId((data as any)?.owner_id ?? null);
+        // Fetch live review stats from restaurant_reviews (not the DB rating column)
+        const stats = await fetchReviewStats(id);
+        setLiveReviewCount(stats.count);
+        setLiveAvgRating(stats.average);
       }
 
       // Check if this restaurant is favorited by the current user
@@ -1004,25 +992,27 @@ export default function RestaurantDetail() {
 
         {/* Info Section */}
         <View className="px-5 pt-3 pb-4">
-          {/* Stats Row */}
-          <View
-            className="flex-row items-center justify-between py-4 px-4 rounded-2xl"
-            style={{
-              backgroundColor: "#1a1a1a",
-              borderWidth: 1,
-              borderColor: "#2a2a2a",
-            }}
-          >
+          {/* Stats Row — 3 equal separate rounded rectangles */}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+
+            {/* ── Rating / Reviews (fully tappable) ── */}
             <Pressable
-              className="items-center"
               onPress={() => {
                 Haptics.selectionAsync();
                 setShowReviews(true);
               }}
-              hitSlop={8}
+              style={{
+                flex: 1,
+                alignItems: "center",
+                paddingVertical: 14,
+                backgroundColor: "#1a1a1a",
+                borderRadius: 16,
+                borderWidth: 2,
+                borderColor: "rgba(255, 153, 51, 0.55)",
+              }}
             >
-              <View className="flex-row items-center">
-                <Star size={14} color="#FF9933" fill="#FF9933" />
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Star size={13} color="#FF9933" fill="#FF9933" />
                 <Text
                   style={{
                     fontFamily: "JetBrainsMono_600SemiBold",
@@ -1031,7 +1021,11 @@ export default function RestaurantDetail() {
                     marginLeft: 4,
                   }}
                 >
-                  {liveAvgRating !== null ? liveAvgRating.toFixed(1) : restaurant.rating}
+                  {liveAvgRating === null
+                    ? "…"
+                    : liveAvgRating > 0
+                    ? liveAvgRating.toFixed(1)
+                    : "—"}
                 </Text>
               </View>
               <Text
@@ -1039,61 +1033,94 @@ export default function RestaurantDetail() {
                   fontFamily: "Manrope_500Medium",
                   color: "#FF9933",
                   fontSize: 11,
-                  marginTop: 2,
-                  textDecorationLine: "underline",
+                  marginTop: 3,
                 }}
               >
                 {liveReviewCount === null
-                  ? "Loading reviews..."
-                  : `${liveReviewCount.toLocaleString()} reviews`}
+                  ? "…"
+                  : `${liveReviewCount.toLocaleString()} review${liveReviewCount !== 1 ? "s" : ""}`}
               </Text>
             </Pressable>
 
-            {/* Divider + Wait time / Closed indicator */}
-            <>
-              <View style={{ width: 1, height: 30, backgroundColor: "#333333" }} />
-              <View className="items-center">
-                {isClosed || waitlistClosed ? (
-                  <>
-                    <View className="flex-row items-center">
-                      <Clock size={14} color="#999999" />
-                      <View style={{
-                        backgroundColor: "rgba(153,153,153,0.15)",
-                        borderRadius: 20,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
+            {/* ── Wait time ── */}
+            <View
+              style={{
+                flex: 1,
+                alignItems: "center",
+                justifyContent: "center",
+                paddingVertical: 14,
+                backgroundColor: "#1a1a1a",
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+              }}
+            >
+              {isClosed || waitlistClosed ? (
+                <>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+                    <Clock size={13} color="#999999" />
+                    <Text
+                      style={{
+                        fontFamily: "JetBrainsMono_600SemiBold",
+                        color: "#999999",
+                        fontSize: 16,
                         marginLeft: 4,
-                      }}>
-                        <Text style={{
-                          fontFamily: "JetBrainsMono_600SemiBold",
-                          color: "#999999",
-                          fontSize: 11,
-                        }}>{waitlistClosed && !isClosed ? "Closed" : "Closed"}</Text>
-                      </View>
-                    </View>
-                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 11, marginTop: 2 }}>wait time</Text>
-                  </>
-                ) : (
-                  <>
-                    <View className="flex-row items-center">
-                      <Clock size={14} color="#FF9933" />
+                      }}
+                    >
+                      —
+                    </Text>
+                  </View>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 11, marginTop: 3 }}>
+                    closed
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Clock size={13} color="#FF9933" />
+                    <View style={{ marginLeft: 4 }}>
                       <WaitBadge
                         waitTime={restaurant.waitTime}
                         status={restaurant.waitStatus}
                         size="sm"
                       />
                     </View>
-                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 11, marginTop: 2 }}>
-                      wait time
-                    </Text>
-                  </>
-                )}
-              </View>
-            </>
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#999999",
+                      fontSize: 11,
+                      marginTop: 3,
+                      textAlign: "center",
+                    }}
+                  >
+                    wait time
+                  </Text>
+                </>
+              )}
+            </View>
 
-            <View className="items-center">
-              <View className="flex-row items-center">
-                <Users size={14} color="#FF9933" />
+            {/* ── In queue ── */}
+            <View
+              style={{
+                flex: 1,
+                alignItems: "center",
+                paddingVertical: 14,
+                backgroundColor: "#1a1a1a",
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Users size={13} color="#FF9933" />
                 <Text
                   style={{
                     fontFamily: "JetBrainsMono_600SemiBold",
@@ -1110,12 +1137,13 @@ export default function RestaurantDetail() {
                   fontFamily: "Manrope_500Medium",
                   color: "#999999",
                   fontSize: 11,
-                  marginTop: 2,
+                  marginTop: 3,
                 }}
               >
                 in queue
               </Text>
             </View>
+
           </View>
 
           {/* Address */}
@@ -1963,10 +1991,9 @@ export default function RestaurantDetail() {
           restaurantId={restaurant.id}
           restaurantName={restaurant.name}
           menuItems={menu}
-          onReviewsChanged={(count, avg) => {
-            setLiveReviewCount(count);
-            setLiveAvgRating(avg);
-          }}
+          initialReviewCount={liveReviewCount}
+          initialAvgRating={liveAvgRating}
+          onReviewsChanged={handleReviewsStatsChanged}
         />
       )}
     </View>

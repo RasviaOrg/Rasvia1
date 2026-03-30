@@ -29,6 +29,7 @@ import { FilterBar } from "@/components/FilterBar";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { type FilterType } from "@/data/mockData";
 import { supabase } from "@/lib/supabase";
+import { fetchBatchReviewStats } from "@/lib/review-stats";
 import {
   type SupabaseRestaurant,
   type UIRestaurant,
@@ -178,6 +179,14 @@ export default function DiscoveryFeed() {
       if (data) {
         const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userCoordsRef.current));
         setRestaurants(uiRestaurants);
+        // Overlay live review stats (count + average) from restaurant_reviews
+        const ids = uiRestaurants.map((r) => r.id);
+        const statsMap = await fetchBatchReviewStats(ids);
+        setRestaurants(uiRestaurants.map((r) => {
+          const s = statsMap.get(r.id);
+          if (!s) return r;
+          return { ...r, rating: s.average, reviewCount: s.count };
+        }));
       }
     } catch (error) {
       console.error('Error fetching restaurants:', error);

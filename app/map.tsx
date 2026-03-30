@@ -39,6 +39,7 @@ import {
 import * as Haptics from "expo-haptics";
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, LinearTransition } from "react-native-reanimated";
 import { supabase } from "@/lib/supabase";
+import { fetchBatchReviewStats } from "@/lib/review-stats";
 import {
   type SupabaseRestaurant,
   type UIRestaurant,
@@ -251,7 +252,16 @@ export default function MapScreen() {
 
         if (error) throw error;
         if (data) {
-          setRestaurants(data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userLocationRef.current)));
+          const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userLocationRef.current));
+          setRestaurants(uiRestaurants);
+          // Overlay live review stats from restaurant_reviews
+          const ids = uiRestaurants.map((r) => r.id);
+          const statsMap = await fetchBatchReviewStats(ids);
+          setRestaurants(uiRestaurants.map((r) => {
+            const s = statsMap.get(r.id);
+            if (!s) return r;
+            return { ...r, rating: s.average, reviewCount: s.count };
+          }));
         }
       } catch (err) {
         console.error("Map: error fetching restaurants:", err);

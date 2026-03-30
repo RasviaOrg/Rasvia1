@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -27,9 +27,6 @@ import {
   Camera,
   Pencil,
   Trash2,
-  ChevronUp,
-  ChevronDown,
-  ImageIcon,
   Check,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -41,8 +38,7 @@ import type { UIMenuItem } from "@/lib/restaurant-types";
 // ================================================================
 // Types
 // ================================================================
-type SortBy = "date" | "rating";
-type SortDir = "desc" | "asc";
+type SortMode = "newest" | "highest" | "lowest";
 
 interface Review {
   id: number;
@@ -65,7 +61,10 @@ interface Props {
   restaurantId: string;
   restaurantName: string;
   menuItems: UIMenuItem[];
-  /** Called after a review is submitted/edited/deleted so parent can refresh count */
+  /** From parent (e.g. restaurant page) so header matches before fetch completes */
+  initialReviewCount?: number | null;
+  initialAvgRating?: number | null;
+  /** Called when review list stats change (submit/edit/delete or after fetch) */
   onReviewsChanged?: (newCount: number, newAvg: number) => void;
 }
 
@@ -92,6 +91,18 @@ function formatEditedLabel(edited: string, created: string) {
 function avgRating(reviews: Review[]) {
   if (!reviews.length) return 0;
   return reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+}
+
+function sortReviewsByMode(list: Review[], mode: SortMode): Review[] {
+  const arr = [...list];
+  if (mode === "newest") {
+    arr.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  } else if (mode === "highest") {
+    arr.sort((a, b) => b.rating - a.rating);
+  } else {
+    arr.sort((a, b) => a.rating - b.rating);
+  }
+  return arr;
 }
 
 // ================================================================
@@ -976,13 +987,14 @@ export function ReviewsModal({
   restaurantId,
   restaurantName,
   menuItems,
+  initialReviewCount = null,
+  initialAvgRating = null,
   onReviewsChanged,
 }: Props) {
   const { session } = useAuth();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy] = useState<SortBy>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [showWrite, setShowWrite] = useState(false);
   const [editingReview, setEditingReview] = useState<Review | null>(null);
 
@@ -1010,23 +1022,26 @@ export function ReviewsModal({
     if (visible) fetchReviews();
   }, [visible, fetchReviews]);
 
-  // ──────────────────────────────────────────────────────────────
-  // Sort fetched reviews
-  // ──────────────────────────────────────────────────────────────
-  const allReviews = reviews;
+  // Sorted list — memoized so changing sort mode doesn't re-sort on unrelated renders
+  const sortedReviews = useMemo(
+    () => sortReviewsByMode(reviews, sortMode),
+    [reviews, sortMode]
+  );
 
-  const sorted = [...allReviews].sort((a, b) => {
-    if (sortBy === "date") {
-      const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      return sortDir === "desc" ? -diff : diff;
-    } else {
-      const diff = a.rating - b.rating;
-      return sortDir === "desc" ? -diff : diff;
-    }
-  });
+  const computedAvg = useMemo(() => avgRating(reviews), [reviews]);
+  const computedCount = reviews.length;
 
-  const totalCount = allReviews.length;
-  const avg = avgRating(allReviews);
+  const headerAvg = useMemo(() => {
+    if (reviews.length > 0) return computedAvg;
+    if (initialAvgRating != null && initialAvgRating > 0) return initialAvgRating;
+    return 0;
+  }, [reviews.length, computedAvg, initialAvgRating]);
+
+  const headerCount = useMemo(() => {
+    if (reviews.length > 0) return computedCount;
+    if (initialReviewCount != null) return initialReviewCount;
+    return 0;
+  }, [reviews.length, computedCount, initialReviewCount]);
 
   // True when the signed-in user already has a review this calendar month
   const hasReviewedThisMonth = !!session?.user && reviews.some((r) => {
@@ -1036,33 +1051,19 @@ export function ReviewsModal({
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
 
-  // Notify parent
+  // Push live stats to parent only after fetch completes (avoids wiping with 0 while loading)
   useEffect(() => {
-    onReviewsChanged?.(totalCount, avg);
-  }, [totalCount, avg]);
+    if (!onReviewsChanged || loading) return;
+    const c = reviews.length;
+    const a = c > 0 ? computedAvg : 0;
+    onReviewsChanged(c, a);
+  }, [reviews, computedAvg, loading, onReviewsChanged]);
 
-  // ──────────────────────────────────────────────────────────────
-  // Sort toggle helpers
-  // ──────────────────────────────────────────────────────────────
-  const toggleSortDate = () => {
+  const setSortModeAndHaptic = useCallback((mode: SortMode) => {
+    if (mode === sortMode) return;
     Haptics.selectionAsync();
-    if (sortBy === "date") {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
-      setSortBy("date");
-      setSortDir("desc");
-    }
-  };
-
-  const toggleSortRating = () => {
-    Haptics.selectionAsync();
-    if (sortBy === "rating") {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
-      setSortBy("rating");
-      setSortDir("desc");
-    }
-  };
+    setSortMode(mode);
+  }, [sortMode]);
 
   // ──────────────────────────────────────────────────────────────
   // Write / edit / delete handlers
@@ -1112,25 +1113,6 @@ export function ReviewsModal({
     setEditingReview(null);
     setShowWrite(true);
   };
-
-  // ──────────────────────────────────────────────────────────────
-  // Sort button label helpers
-  // ──────────────────────────────────────────────────────────────
-  const dateBtnLabel = sortBy === "date"
-    ? sortDir === "desc" ? "Newest first" : "Oldest first"
-    : "Newest first";
-
-  const ratingBtnLabel = sortBy === "rating"
-    ? sortDir === "desc" ? "Highest rated" : "Lowest rated"
-    : "Highest rated";
-
-  const DateIcon = sortBy === "date"
-    ? sortDir === "desc" ? ChevronDown : ChevronUp
-    : ChevronDown;
-
-  const RatingIcon = sortBy === "rating"
-    ? sortDir === "desc" ? ChevronDown : ChevronUp
-    : ChevronDown;
 
   // ──────────────────────────────────────────────────────────────
   // Render
@@ -1206,10 +1188,10 @@ export function ReviewsModal({
                       fontSize: 34,
                     }}
                   >
-                    {avg.toFixed(1)}
+                    {headerCount === 0 ? "—" : headerAvg.toFixed(1)}
                   </Text>
                   <View>
-                    <StarRow rating={Math.round(avg)} size={18} />
+                    <StarRow rating={headerCount === 0 ? 0 : Math.round(headerAvg)} size={18} />
                     <Text
                       style={{
                         color: "#666",
@@ -1218,76 +1200,62 @@ export function ReviewsModal({
                         marginTop: 3,
                       }}
                     >
-                      {totalCount} {totalCount === 1 ? "review" : "reviews"}
+                      {headerCount} {headerCount === 1 ? "review" : "reviews"}
                     </Text>
                   </View>
                 </View>
               </View>
 
-              {/* ── Sort buttons ── */}
+              {/* ── Sort by (single active pill) ── */}
               <View
                 style={{
-                  flexDirection: "row",
-                  gap: 8,
                   paddingHorizontal: 20,
                   paddingVertical: 12,
                   borderBottomWidth: 1,
                   borderBottomColor: "#2a2a2a",
                 }}
               >
-                <Pressable
-                  onPress={toggleSortDate}
+                <Text
                   style={{
-                    flex: 1,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 5,
-                    paddingVertical: 9,
-                    borderRadius: 10,
-                    backgroundColor: sortBy === "date" ? "rgba(255,153,51,0.15)" : "#1a1a1a",
-                    borderWidth: 1,
-                    borderColor: sortBy === "date" ? "rgba(255,153,51,0.4)" : "#2a2a2a",
+                    color: "#888",
+                    fontFamily: "Manrope_600SemiBold",
+                    fontSize: 12,
+                    marginBottom: 10,
                   }}
                 >
-                  <Text
-                    style={{
-                      color: sortBy === "date" ? "#FF9933" : "#888",
-                      fontFamily: "Manrope_600SemiBold",
-                      fontSize: 12,
-                    }}
-                  >
-                    {dateBtnLabel}
-                  </Text>
-                  <DateIcon size={13} color={sortBy === "date" ? "#FF9933" : "#888"} />
-                </Pressable>
-
-                <Pressable
-                  onPress={toggleSortRating}
-                  style={{
-                    flex: 1,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 5,
-                    paddingVertical: 9,
-                    borderRadius: 10,
-                    backgroundColor: sortBy === "rating" ? "rgba(255,153,51,0.15)" : "#1a1a1a",
-                    borderWidth: 1,
-                    borderColor: sortBy === "rating" ? "rgba(255,153,51,0.4)" : "#2a2a2a",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: sortBy === "rating" ? "#FF9933" : "#888",
-                      fontFamily: "Manrope_600SemiBold",
-                      fontSize: 12,
-                    }}
-                  >
-                    {ratingBtnLabel}
-                  </Text>
-                  <RatingIcon size={13} color={sortBy === "rating" ? "#FF9933" : "#888"} />
-                </Pressable>
+                  Sort by:
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {(["newest", "highest", "lowest"] as const).map((mode) => {
+                    const active = sortMode === mode;
+                    const label =
+                      mode === "newest" ? "Newest" : mode === "highest" ? "Highest" : "Lowest";
+                    return (
+                      <Pressable
+                        key={mode}
+                        onPress={() => setSortModeAndHaptic(mode)}
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          borderRadius: 20,
+                          backgroundColor: active ? "rgba(255,153,51,0.2)" : "#1a1a1a",
+                          borderWidth: 1,
+                          borderColor: active ? "rgba(255,153,51,0.55)" : "#2a2a2a",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: active ? "#FF9933" : "#888",
+                            fontFamily: "Manrope_600SemiBold",
+                            fontSize: 13,
+                          }}
+                        >
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
 
               {/* ── Reviews list ── */}
@@ -1297,7 +1265,7 @@ export function ReviewsModal({
               >
                 {loading ? (
                   <ActivityIndicator color="#FF9933" style={{ marginTop: 40 }} />
-                ) : sorted.length === 0 ? (
+                ) : sortedReviews.length === 0 ? (
                   <Text
                     style={{
                       color: "#555",
@@ -1310,7 +1278,7 @@ export function ReviewsModal({
                     No reviews yet. Be the first!
                   </Text>
                 ) : (
-                  sorted.map((r) => (
+                  sortedReviews.map((r) => (
                     <ReviewCard
                       key={r.id}
                       review={r}
