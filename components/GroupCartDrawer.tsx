@@ -8,7 +8,7 @@ import {
   Dimensions,
   Platform,
 } from "react-native";
-import { X, Minus, Plus, Users, Share2, Clock } from "lucide-react-native";
+import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag } from "lucide-react-native";
 import type { CartItem, GroupMember } from "@/data/mockData";
 import * as Haptics from "expo-haptics";
 import Animated, {
@@ -286,7 +286,11 @@ export function GroupCartDrawer({
               elevation: isClosed ? 0 : 8,
             }}
           >
-            {isClosed && <Clock size={16} color="#999" />}
+            {isClosed ? (
+              <Clock size={16} color="#999" />
+            ) : (
+              <ShoppingBag size={18} color="#0f0f0f" strokeWidth={2.5} />
+            )}
             <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isClosed ? "#999999" : "#0f0f0f", fontSize: 17 }}>
               {isClosed
                 ? "Currently Closed"

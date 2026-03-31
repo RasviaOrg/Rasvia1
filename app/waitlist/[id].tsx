@@ -21,34 +21,26 @@ import {
   UtensilsCrossed,
   Bell,
   Share2,
+  AlertTriangle,
 } from "lucide-react-native";
 import { isPushEnabled, enablePushNotifications } from "@/lib/push-notifications";
 import Animated, {
   FadeIn,
   FadeInDown,
   FadeInUp,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { WaitlistRing } from "@/components/WaitlistRing";
-import { AppetizerCarousel } from "@/components/AppetizerCarousel";
 import { supabase } from "@/lib/supabase";
 import {
   type SupabaseRestaurant,
   type UIRestaurant,
-  type SupabaseMenuItem,
-  type UIMenuItem,
   mapSupabaseToUI,
-  mapMenuItemToUI,
   haversineDistance,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { MenuItem, CartItem } from "@/data/mockData";
-import { CheckoutModal } from "@/components/CheckoutModal";
 
 const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 
@@ -68,17 +60,25 @@ export default function WaitlistStatus() {
   // SUPABASE STATE
   // ==========================================
   const [restaurant, setRestaurant] = useState<UIRestaurant | null>(null);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
   const [position, setPosition] = useState<number | null>(null);
   const [totalInQueue, setTotalInQueue] = useState<number>(0);
-  const [preOrderItems, setPreOrderItems] = useState<MenuItem[]>([]);
   const [showTableReady, setShowTableReady] = useState(false);
   const [showSeated, setShowSeated] = useState(false);
   const [partyOwnerName, setPartyOwnerName] = useState<string>("");
   const myPartySize = party_size ? parseInt(party_size, 10) : 1;
+
+  /** Replica identity may omit `old` on UPDATE — compare to last known state */
+  const myEntryStateRef = useRef<{
+    status: string;
+    notified_at: string | null;
+  } | null>(null);
+  /** True while we’re applying self-initiated leave — suppresses “removed” modal on cancelled */
+  const userLeftVoluntarilyRef = useRef(false);
+
+  const restaurantIdNum = id ? Number(id) : NaN;
 
   // ==========================================
   // FETCH FROM SUPABASE
@@ -115,38 +115,6 @@ export default function WaitlistStatus() {
           const uiRestaurant = mapSupabaseToUI(restData as SupabaseRestaurant, userCoords);
           setRestaurant(uiRestaurant);
         }
-
-        // 2. Fetch menu items for this restaurant
-        const { data: menuData, error: menuError } = await supabase
-          .from("menu_items")
-          .select("*")
-          .eq("restaurant_id", Number(id))
-          .eq("is_available", true);
-
-        if (menuError) {
-          console.error("❌ Error fetching menu items:", menuError);
-        }
-
-        if (menuData && menuData.length > 0) {
-          const uiMenuItems = (menuData as SupabaseMenuItem[]).map(
-            (item): MenuItem => {
-              const mapped = mapMenuItemToUI(item);
-              return {
-                id: mapped.id,
-                name: mapped.name,
-                description: mapped.description,
-                price: mapped.price,
-                image: mapped.image,
-                category: mapped.category,
-                isPopular: mapped.isPopular,
-                isVegetarian: mapped.isVegetarian,
-                spiceLevel: mapped.spiceLevel,
-                mealTimes: mapped.mealTimes,
-              };
-            }
-          );
-          setMenuItems(uiMenuItems);
-        }
       } catch (error) {
         console.error("Error:", error);
         setLoadError(true);
@@ -167,7 +135,12 @@ export default function WaitlistStatus() {
       .channel(`waitlist-restaurant:${id}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "restaurants", filter: `id=eq.${id}` },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "restaurants",
+          filter: `id=eq.${restaurantIdNum}`,
+        },
         (payload) => {
           const updated = mapSupabaseToUI(payload.new as SupabaseRestaurant, userCoords);
           setRestaurant(updated);
@@ -180,8 +153,15 @@ export default function WaitlistStatus() {
       .channel(`waitlist-queue:${id}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "waitlist_entries", filter: `restaurant_id=eq.${id}` },
-        () => { if (entry_id) fetchPosition(entry_id); }
+        {
+          event: "*",
+          schema: "public",
+          table: "waitlist_entries",
+          filter: `restaurant_id=eq.${restaurantIdNum}`,
+        },
+        () => {
+          if (entry_id) fetchPosition(entry_id);
+        }
       )
       .subscribe();
 
@@ -193,11 +173,47 @@ export default function WaitlistStatus() {
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "waitlist_entries", filter: `id=eq.${entry_id}` },
           (payload) => {
-            if (payload.new?.status === "seated" && payload.old?.status !== "seated") {
+            const row = payload.new as {
+              status?: string;
+              notified_at?: string | null;
+            } | null;
+            if (!row) return;
+            const prev = myEntryStateRef.current;
+            const prevStatus = prev?.status ?? "";
+            const prevNotified = prev?.notified_at ?? null;
+
+            if (row.status === "cancelled" || row.status === "removed") {
+              if (userLeftVoluntarilyRef.current) {
+                userLeftVoluntarilyRef.current = false;
+                myEntryStateRef.current = {
+                  status: row.status ?? prevStatus,
+                  notified_at: row.notified_at ?? prevNotified,
+                };
+                return;
+              }
+              if (prevStatus !== "cancelled" && prevStatus !== "removed") {
+                setShowRemovedModal(true);
+                if (Platform.OS !== "web") {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                }
+              }
+              myEntryStateRef.current = {
+                status: row.status ?? prevStatus,
+                notified_at: row.notified_at ?? prevNotified,
+              };
+              return;
+            }
+
+            if (row.status === "seated" && prevStatus !== "seated") {
               triggerSeated();
-            } else if (payload.new?.notified_at && !payload.old?.notified_at) {
+            } else if (row.notified_at && !prevNotified) {
               triggerTableReady();
             }
+
+            myEntryStateRef.current = {
+              status: row.status ?? prevStatus,
+              notified_at: row.notified_at ?? prevNotified,
+            };
           }
         )
         .subscribe()
@@ -232,6 +248,19 @@ export default function WaitlistStatus() {
         .select("notified_at, status")
         .eq("id", entryId)
         .single();
+      if (data) {
+        myEntryStateRef.current = {
+          status: data.status ?? "waiting",
+          notified_at: data.notified_at ?? null,
+        };
+      }
+      if (data?.status === "removed") {
+        setShowRemovedModal(true);
+        return;
+      }
+      if (data?.status === "cancelled") {
+        return;
+      }
       if (data?.status === "seated") {
         triggerSeated();
       } else if (data?.notified_at) {
@@ -333,6 +362,7 @@ export default function WaitlistStatus() {
           style: "destructive",
           onPress: async () => {
             if (entry_id) {
+              userLeftVoluntarilyRef.current = true;
               await supabase
                 .from("waitlist_entries")
                 .update({ status: "cancelled" })
@@ -355,21 +385,9 @@ export default function WaitlistStatus() {
     );
   }, [router, entry_id, restaurant?.name, id, myPartySize, addEvent, dismissEntry]);
 
-  const handleAddAppetizer = useCallback((item: MenuItem) => {
-    if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    setPreOrderItems((prev) => [...prev, item]);
-    Alert.alert("Added!", `${item.name} added to your pre-order`, [
-      { text: "OK" },
-    ]);
-  }, []);
-
   const [creatingParty, setCreatingParty] = useState(false);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [showPreOrderCheckout, setShowPreOrderCheckout] = useState(false);
   const [pushActive, setPushActive] = useState(true);
-  const [hasPlacedOrder, setHasPlacedOrder] = useState(false);
+  const [showRemovedModal, setShowRemovedModal] = useState(false);
 
   // Check push notification status on mount
   useEffect(() => {
@@ -518,11 +536,6 @@ export default function WaitlistStatus() {
     }
   };
 
-  const menuBtnScale = useSharedValue(1);
-  const menuBtnStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: menuBtnScale.value }],
-  }));
-
   // ==========================================
   // LOADING STATE
   // ==========================================
@@ -625,25 +638,21 @@ export default function WaitlistStatus() {
           >
             Waitlist Status
           </Text>
-          {!hasPlacedOrder ? (
-            <Pressable
-              onPress={handleLeaveQueue}
-              style={{
-                backgroundColor: "rgba(239, 68, 68, 0.15)",
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: "rgba(239, 68, 68, 0.2)",
-              }}
-            >
-              <X size={20} color="#EF4444" />
-            </Pressable>
-          ) : (
-            <View style={{ width: 44 }} />
-          )}
+          <Pressable
+            onPress={handleLeaveQueue}
+            style={{
+              backgroundColor: "rgba(239, 68, 68, 0.15)",
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: "rgba(239, 68, 68, 0.2)",
+            }}
+          >
+            <X size={20} color="#EF4444" />
+          </Pressable>
         </Animated.View>
 
         <ScrollView
@@ -800,7 +809,7 @@ export default function WaitlistStatus() {
                       const granted = await enablePushNotifications();
                       setPushActive(granted);
                       if (!granted) {
-                        Alert.alert("Notifications Blocked", "Enable notifications in your device Settings to receive table-ready alerts.");
+                        Alert.alert("Notifications Blocked", "Enable notifications in your device settings to receive table-ready alerts.");
                       }
                     }}
                     style={{
@@ -820,15 +829,25 @@ export default function WaitlistStatus() {
               </View>
             </View>
 
-            {/* Pre-Order Button */}
+            {/* Pre-Order from menu (full restaurant menu + checkout happens there) */}
             {entry_id && (
               <Animated.View entering={FadeInDown.delay(200).duration(400)} style={{ marginTop: 8 }}>
+                <Text
+                  style={{
+                    fontFamily: "Manrope_500Medium",
+                    color: "#999999",
+                    fontSize: 13,
+                    lineHeight: 19,
+                    marginBottom: 10,
+                  }}
+                >
+                  While you wait, tap below to open this restaurant’s menu—you can browse and pre-order from
+                  there so your food is ready when you’re seated.
+                </Text>
                 <TouchableOpacity
                   onPress={() => {
                     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    // Navigate back to restaurant page to browse menu and checkout
-                    // The checkout will detect the existing waitlist entry and save as pre_order
-                    router.push(`/restaurant/${id}` as any);
+                    router.push(`/restaurant/${id}?waitlist_entry=${entry_id}` as any);
                   }}
                   className="flex-row items-center justify-center py-3 rounded-2xl"
                   style={{
@@ -883,70 +902,9 @@ export default function WaitlistStatus() {
             </TouchableOpacity>
           </Animated.View>
 
-          {/* Pre-order count */}
-          {preOrderItems.length > 0 && (
-            <Animated.View
-              entering={FadeIn.duration(400)}
-              className="px-5 mb-6"
-            >
-              <View
-                className="p-4 rounded-2xl flex-row items-center justify-between"
-                style={{
-                  backgroundColor: "rgba(255, 153, 51, 0.1)",
-                  borderWidth: 1,
-                  borderColor: "rgba(255, 153, 51, 0.2)",
-                }}
-              >
-                <View>
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_700Bold",
-                      color: "#FF9933",
-                      fontSize: 15,
-                    }}
-                  >
-                    Pre-Order Ready
-                  </Text>
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_500Medium",
-                      color: "#999999",
-                      fontSize: 13,
-                      marginTop: 2,
-                    }}
-                  >
-                    {preOrderItems.length} items will arrive with your table
-                  </Text>
-                </View>
-                <Text
-                  style={{
-                    fontFamily: "JetBrainsMono_600SemiBold",
-                    color: "#FF9933",
-                    fontSize: 20,
-                  }}
-                >
-                  $
-                  {preOrderItems
-                    .reduce((sum, i) => sum + i.price, 0)
-                    .toFixed(2)}
-                </Text>
-              </View>
-            </Animated.View>
-          )}
-
-          {/* Appetizer Carousel — only if menu items exist */}
-          {menuItems.length > 0 && (
-            <Animated.View entering={FadeInUp.delay(600).duration(500)}>
-              <AppetizerCarousel
-                items={menuItems}
-                onAddItem={handleAddAppetizer}
-              />
-            </Animated.View>
-          )}
-
         </ScrollView>
 
-        {/* Bottom Action */}
+        {/* Bottom: quick link to full menu (ordering happens on restaurant screen) */}
         <View
           className="px-5 pt-3 pb-2"
           style={{
@@ -956,40 +914,36 @@ export default function WaitlistStatus() {
           }}
         >
           <SafeAreaView edges={["bottom"]}>
-            <Animated.View style={menuBtnStyle}>
-              <Pressable
-                onPress={() => {
-                  if (Platform.OS !== "web") {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }
-                  router.push(`/restaurant/${restaurant.id}` as any);
-                }}
-                onPressIn={() => {
-                  menuBtnScale.value = withSpring(0.95);
-                }}
-                onPressOut={() => {
-                  menuBtnScale.value = withSpring(1);
-                }}
-                className="rounded-2xl py-4 items-center flex-row justify-center"
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+                router.push(
+                  entry_id
+                    ? (`/restaurant/${restaurant.id}?waitlist_entry=${entry_id}` as any)
+                    : (`/restaurant/${restaurant.id}` as any)
+                );
+              }}
+              className="rounded-2xl py-4 items-center flex-row justify-center"
+              style={{
+                backgroundColor: "#1a1a1a",
+                borderWidth: 1,
+                borderColor: "#333333",
+              }}
+            >
+              <UtensilsCrossed size={18} color="#FF9933" />
+              <Text
                 style={{
-                  backgroundColor: "#1a1a1a",
-                  borderWidth: 1,
-                  borderColor: "#333333",
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  color: "#f5f5f5",
+                  fontSize: 16,
+                  marginLeft: 8,
                 }}
               >
-                <UtensilsCrossed size={18} color="#FF9933" />
-                <Text
-                  style={{
-                    fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
-                    fontSize: 16,
-                    marginLeft: 8,
-                  }}
-                >
-                  Browse Full Menu
-                </Text>
-              </Pressable>
-            </Animated.View>
+                Browse Full Menu
+              </Text>
+            </Pressable>
           </SafeAreaView>
         </View>
       </SafeAreaView>
@@ -1156,28 +1110,76 @@ export default function WaitlistStatus() {
         </View>
       </Modal>
 
-      {/* Pre-Order Checkout Modal */}
-      <CheckoutModal
-        visible={showPreOrderCheckout}
-        restaurantId={id ?? ""}
-        restaurantName={restaurant?.name ?? ""}
-        cartItems={cartItems}
-        waitlistEntryId={entry_id}
-        onUpdateQuantity={(itemId, delta) => {
-          setCartItems((prev) => {
-            const updated = prev.map((ci) =>
-              ci.id === itemId ? { ...ci, quantity: Math.max(0, ci.quantity + delta) } : ci
-            );
-            return updated.filter((ci) => ci.quantity > 0);
-          });
-        }}
-        onClose={() => setShowPreOrderCheckout(false)}
-        onOrderPlaced={() => {
-          setCartItems([]);
-          setShowPreOrderCheckout(false);
-          setHasPlacedOrder(true);
-        }}
-      />
+      <Modal visible={showRemovedModal} transparent animationType="fade">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.88)",
+            justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#1a1a1a",
+              borderRadius: 22,
+              padding: 24,
+              borderWidth: 1.5,
+              borderColor: "rgba(239,68,68,0.45)",
+            }}
+          >
+            <View style={{ alignItems: "center", marginBottom: 16 }}>
+              <AlertTriangle size={48} color="#EF4444" />
+            </View>
+            <Text
+              style={{
+                fontFamily: "BricolageGrotesque_800ExtraBold",
+                color: "#f5f5f5",
+                fontSize: 22,
+                textAlign: "center",
+                marginBottom: 10,
+              }}
+            >
+              Removed from waitlist
+            </Text>
+            <Text
+              style={{
+                fontFamily: "Manrope_500Medium",
+                color: "#999",
+                fontSize: 15,
+                textAlign: "center",
+                lineHeight: 22,
+                marginBottom: 24,
+              }}
+            >
+              You have been removed from the waitlist. If you believe this was a mistake, contact a staff
+              member.
+            </Text>
+            <Pressable
+              onPress={() => {
+                setShowRemovedModal(false);
+                router.back();
+              }}
+              style={{
+                backgroundColor: "#EF4444",
+                borderRadius: 14,
+                paddingVertical: 14,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  color: "#fff",
+                  fontSize: 16,
+                }}
+              >
+                OK
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

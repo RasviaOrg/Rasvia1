@@ -1,7 +1,8 @@
 import React from "react";
-import { View, Text, Pressable, Image, ScrollView } from "react-native";
+import { View, Text, Pressable, Image, ScrollView, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Plus } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
 import type { MenuItem } from "@/data/mockData";
 import Animated, {
   FadeInRight,
@@ -13,6 +14,49 @@ import Animated, {
 interface AppetizerCarouselProps {
   items: MenuItem[];
   onAddItem: (item: MenuItem) => void;
+}
+
+const MEAL_TIME_STYLES: Record<
+  string,
+  { bg: string; border: string; color: string; label: string }
+> = {
+  breakfast: {
+    bg: "rgba(249,115,22,0.15)",
+    border: "rgba(249,115,22,0.4)",
+    color: "#F97316",
+    label: "Breakfast",
+  },
+  lunch: {
+    bg: "rgba(34,197,94,0.15)",
+    border: "rgba(34,197,94,0.4)",
+    color: "#22C55E",
+    label: "Lunch",
+  },
+  dinner: {
+    bg: "rgba(129,140,248,0.15)",
+    border: "rgba(129,140,248,0.4)",
+    color: "#818CF8",
+    label: "Dinner",
+  },
+  all_day: {
+    bg: "rgba(56,189,248,0.15)",
+    border: "rgba(56,189,248,0.4)",
+    color: "#38BDF8",
+    label: "All Day",
+  },
+  specials: {
+    bg: "rgba(245,158,11,0.15)",
+    border: "rgba(245,158,11,0.4)",
+    color: "#F59E0B",
+    label: "Specials",
+  },
+};
+
+function normalizeMealKey(mt: string): string {
+  const m = mt?.toLowerCase?.().trim() ?? "";
+  if (m === "all" || m === "all day") return "all_day";
+  if (m === "special") return "specials";
+  return m;
 }
 
 export function AppetizerCarousel({ items, onAddItem }: AppetizerCarouselProps) {
@@ -38,7 +82,7 @@ export function AppetizerCarousel({ items, onAddItem }: AppetizerCarouselProps) 
           paddingHorizontal: 20,
         }}
       >
-        Pre-order appetizers to arrive with your table
+        Add items to your cart and checkout — same menu and payment as the full restaurant order flow
       </Text>
       <ScrollView
         horizontal
@@ -119,19 +163,57 @@ function AppetizerCard({
             {/* Category + meal time chips */}
             <View className="flex-row flex-wrap mb-1" style={{ gap: 3 }}>
               {item.category && item.category !== "Menu Item" && (
-                <View style={{ backgroundColor: "rgba(255,153,51,0.12)", borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2, borderWidth: 0.5, borderColor: "rgba(255,153,51,0.3)" }}>
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 8, textTransform: "capitalize" }}>
+                <View
+                  style={{
+                    backgroundColor: "rgba(255,153,51,0.12)",
+                    borderRadius: 4,
+                    paddingHorizontal: 4,
+                    paddingVertical: 2,
+                    borderWidth: 0.5,
+                    borderColor: "rgba(255,153,51,0.3)",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_600SemiBold",
+                      color: "#FF9933",
+                      fontSize: 8,
+                      textTransform: "capitalize",
+                    }}
+                  >
                     {item.category}
                   </Text>
                 </View>
               )}
-              {item.mealTimes && item.mealTimes.slice(0, 2).map((mt, i) => (
-                <View key={i} style={{ backgroundColor: "#2a2a2a", borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 }}>
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 8, textTransform: "capitalize" }}>
-                    {mt}
-                  </Text>
-                </View>
-              ))}
+              {item.mealTimes &&
+                item.mealTimes.slice(0, 2).map((mt, i) => {
+                  const key = normalizeMealKey(mt);
+                  const style = MEAL_TIME_STYLES[key];
+                  if (!style) return null;
+                  return (
+                    <View
+                      key={i}
+                      style={{
+                        backgroundColor: style.bg,
+                        borderRadius: 4,
+                        paddingHorizontal: 5,
+                        paddingVertical: 2,
+                        borderWidth: 0.5,
+                        borderColor: style.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_600SemiBold",
+                          color: style.color,
+                          fontSize: 8,
+                        }}
+                      >
+                        {style.label}
+                      </Text>
+                    </View>
+                  );
+                })}
             </View>
             <View className="flex-row items-center justify-between mt-1">
               <Text
@@ -144,7 +226,12 @@ function AppetizerCard({
                 ${item.price.toFixed(2)}
               </Text>
               <Pressable
-                onPress={onAdd}
+                onPress={() => {
+                  if (Platform.OS !== "web") {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  }
+                  onAdd();
+                }}
                 style={{
                   backgroundColor: "#FF9933",
                   width: 26,

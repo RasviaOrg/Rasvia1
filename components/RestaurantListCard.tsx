@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Star, Clock } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
 import Animated, {
+  FadeIn,
   FadeInRight,
   useAnimatedStyle,
   useSharedValue,
@@ -27,9 +28,15 @@ export function RestaurantListCard({
     transform: [{ scale: pressScale.value }],
   }));
 
+  // FadeInRight on index 0 in horizontal FlatLists often fails to complete on first paint (blank tile with layout preserved).
+  const entering =
+    index === 0
+      ? FadeIn.duration(400)
+      : FadeInRight.delay(index * 50).duration(400);
+
   return (
     <Animated.View
-      entering={FadeInRight.delay(index * 50).duration(400)}
+      entering={entering}
       style={{ width: 200, marginRight: 12 }}
     >
       <Animated.View style={animatedStyle}>
@@ -44,7 +51,7 @@ export function RestaurantListCard({
         className="rounded-xl overflow-hidden bg-rasvia-card"
         style={{ borderWidth: 1, borderColor: "#2a2a2a" }}
       >
-        <View style={{ height: 130, position: "relative" }}>
+        <View style={{ height: 130, position: "relative", backgroundColor: "#2a2a2a" }}>
           <Image
             source={{ uri: restaurant.image }}
             style={{ width: "100%", height: "100%" }}

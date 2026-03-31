@@ -76,6 +76,8 @@ interface NotificationsContextValue {
   events: NotificationEvent[];
   activeEntries: ActiveWaitlistEntry[];
   unreadCount: number;
+  /** Includes unread events plus active “table ready” widgets when the event row is missing */
+  notificationBadgeCount: number;
   tableReadyAlert: TableReadyAlert | null;
   clearTableReadyAlert: () => void;
   seatedAlert: SeatedAlert | null;
@@ -92,6 +94,7 @@ const NotificationsContext = createContext<NotificationsContextValue>({
   events: [],
   activeEntries: [],
   unreadCount: 0,
+  notificationBadgeCount: 0,
   tableReadyAlert: null,
   clearTableReadyAlert: () => {},
   seatedAlert: null,
@@ -360,6 +363,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             }
 
             if (newRow.status === "cancelled" && prev.status !== "cancelled") {
+              // Guest self-cancel already records a "left" event in-app; staff cancel uses the same status.
+              // Only "removed" rows get a dedicated removed notification below.
               setActiveEntries((prevEntries) => prevEntries.filter((e) => e.entryId !== entryId));
             }
 
@@ -464,12 +469,22 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
   const unreadCount = events.filter((e) => !e.read).length;
 
+  const unreadTableReadyEvents = events.filter(
+    (e) => !e.read && e.type === "table_ready"
+  ).length;
+  const notifiedWithoutUnreadEvent = Math.max(
+    0,
+    activeEntries.filter((e) => e.status === "notified").length - unreadTableReadyEvents
+  );
+  const notificationBadgeCount = unreadCount + notifiedWithoutUnreadEvent;
+
   return (
     <NotificationsContext.Provider
       value={{
         events,
         activeEntries,
         unreadCount,
+        notificationBadgeCount,
         tableReadyAlert,
         clearTableReadyAlert,
         seatedAlert,

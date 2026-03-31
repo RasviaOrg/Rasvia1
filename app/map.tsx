@@ -35,6 +35,7 @@ import {
   Home,
   ArrowUpDown,
   Plus,
+  Store,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, LinearTransition } from "react-native-reanimated";
@@ -654,8 +655,10 @@ export default function MapScreen() {
 
         {mappableRestaurants.map((restaurant) => {
           const isClosed = closedRestaurantIds.has(restaurant.id);
-          const showCard = Platform.OS !== "android" && isZoomedIn;
-          const isOwned = ownedRestaurantId != null && restaurant.id === ownedRestaurantId;
+          const isOwnedVenue =
+            isRestaurantOwner && ownedRestaurantId != null && restaurant.id === ownedRestaurantId;
+          /** iOS: past ZOOM_THRESHOLD, everyone (including owners) sees the zoomed mini-card; zoomed out, owners see the Store pin */
+          const showZoomedInCard = Platform.OS !== "android" && isZoomedIn;
           return (
             <Marker
               key={`${restaurant.id}-${isClosed}`}
@@ -663,17 +666,32 @@ export default function MapScreen() {
                 latitude: restaurant.lat!,
                 longitude: restaurant.long!,
               }}
+              zIndex={isOwnedVenue ? 250 : 1}
               tracksViewChanges={Platform.OS === "android"}
-              onPress={() =>
-                showCard
-                  ? handleRestaurantPress(restaurant)
-                  : handleDotPress(restaurant)
-              }
+              onPress={() => {
+                if (isOwnedVenue) {
+                  handleDotPress(restaurant);
+                } else if (showZoomedInCard) {
+                  handleRestaurantPress(restaurant);
+                } else {
+                  handleDotPress(restaurant);
+                }
+              }}
             >
-              {showCard ? (
-                <ZoomedInMarker restaurant={restaurant} isClosed={isClosed} isOwned={isOwned} />
+              {showZoomedInCard ? (
+                <ZoomedInMarker
+                  restaurant={restaurant}
+                  isClosed={isClosed}
+                  isOwned={isOwnedVenue}
+                />
+              ) : isOwnedVenue ? (
+                <OwnerVenueMarker isClosed={isClosed} />
               ) : (
-                <DotMarker status={restaurant.waitStatus} isClosed={isClosed} isOwned={isOwned} />
+                <DotMarker
+                  status={restaurant.waitStatus}
+                  isClosed={isClosed}
+                  isOwned={false}
+                />
               )}
             </Marker>
           );
@@ -1122,6 +1140,33 @@ export default function MapScreen() {
           }}
         />
       )}
+    </View>
+  );
+}
+
+// ==========================================
+// OWNER'S VENUE — persistent map pin at restaurant coords (not replaced by iOS zoomed-in cards)
+// ==========================================
+function OwnerVenueMarker({ isClosed }: { isClosed: boolean }) {
+  return (
+    <View
+      style={{
+        backgroundColor: isClosed ? "#555555" : "#FF9933",
+        padding: 8,
+        borderRadius: 22,
+        borderWidth: 2.5,
+        borderColor: "#0f0f0f",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.35,
+        shadowRadius: 4,
+        elevation: 6,
+        opacity: isClosed ? 0.65 : 1,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Store size={18} color="#0f0f0f" strokeWidth={2.5} />
     </View>
   );
 }

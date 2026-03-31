@@ -9,10 +9,12 @@ import {
   Alert,
   Platform,
   RefreshControl,
+  Animated as RNAnimated,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2 } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -20,6 +22,9 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
+  runOnJS,
+  interpolateColor,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -33,6 +38,7 @@ import { fetchBatchReviewStats } from "@/lib/review-stats";
 import {
   type SupabaseRestaurant,
   type UIRestaurant,
+  type OrderStatus,
   mapSupabaseToUI,
   haversineDistance,
   parseFavorites,
@@ -57,16 +63,161 @@ interface ActiveGroupOrder {
   memberCount?: number;
 }
 
+const LIVE_TRACK_STEPS: {
+  label: string;
+  Icon: React.ComponentType<{ size: number; color: string }>;
+}[] = [
+  { label: "Received", Icon: ClipboardList },
+  { label: "Preparing", Icon: ChefHat },
+  { label: "Ready", Icon: ShoppingBag },
+  { label: "Served", Icon: CheckCircle },
+];
+
+function liveStepIndex(status: OrderStatus): number {
+  if (status === "pending") return 0;
+  if (status === "preparing") return 1;
+  if (status === "ready") return 2;
+  if (status === "served") return 3;
+  return -1;
+}
+
+const HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia:home-live-order-dismissed-ids:v1";
+const HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia:home-waitlist-seated-dismissed-entry-ids:v1";
+
+/** Live order banner: Received → Preparing → Ready → Served (orange → blue → teal → green) */
+const LIVE_ORDER_CARD_BG = [
+  "rgba(249,115,22,0.09)",
+  "rgba(59,130,246,0.09)",
+  "rgba(20,184,166,0.09)",
+  "rgba(34,197,94,0.09)",
+];
+const LIVE_ORDER_CARD_BORDER = [
+  "rgba(249,115,22,0.32)",
+  "rgba(59,130,246,0.32)",
+  "rgba(20,184,166,0.32)",
+  "rgba(34,197,94,0.32)",
+];
+const LIVE_ORDER_ICON_BG = [
+  "rgba(249,115,22,0.16)",
+  "rgba(59,130,246,0.16)",
+  "rgba(20,184,166,0.16)",
+  "rgba(34,197,94,0.16)",
+];
+const LIVE_ORDER_ICON_BORDER = [
+  "#F97316",
+  "#3B82F6",
+  "#14B8A6",
+  "#22C55E",
+];
+const LIVE_ORDER_ACCENT_SOLID = ["#F97316", "#3B82F6", "#14B8A6", "#22C55E"];
+
 export default function DiscoveryFeed() {
   const router = useRouter();
   const { userCoords, locationLabel } = useLocation();
   const { isAdmin, isRestaurantOwner, ownedRestaurantId, loading: roleLoading } = useAdminMode();
   const { session } = useAuth();
-  const { unreadCount } = useNotifications();
+  const { notificationBadgeCount } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [showSearch, setShowSearch] = useState(false);
   const [activeGroupOrder, setActiveGroupOrder] = useState<ActiveGroupOrder | null>(null);
+  const [liveOrderTrack, setLiveOrderTrack] = useState<{
+    id: string;
+    restaurantName: string;
+    status: OrderStatus;
+  } | null>(null);
+  const [liveWaitlistBanner, setLiveWaitlistBanner] = useState<{
+    entryId: string;
+    restaurantId: string;
+    restaurantName: string;
+    partySize: number;
+    position: number;
+    phase: "in_queue" | "table_ready" | "seated";
+  } | null>(null);
+  const [dismissedLiveOrderIds, setDismissedLiveOrderIds] = useState<Set<string>>(() => new Set());
+  const [dismissedSeatedWaitlistEntryIds, setDismissedSeatedWaitlistEntryIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const liveOrderSwipeRef = useRef<Swipeable>(null);
+  const liveOrderTrackRef = useRef<typeof liveOrderTrack>(null);
+  const dismissedLiveOrderIdsRef = useRef<Set<string>>(new Set());
+  const liveOrderFadeOutRef = useRef(false);
+  const bannerOpacity = useSharedValue(1);
+  const liveColorProgress = useSharedValue(0);
+
+  useEffect(() => {
+    liveOrderTrackRef.current = liveOrderTrack;
+  }, [liveOrderTrack]);
+
+  useEffect(() => {
+    dismissedLiveOrderIdsRef.current = dismissedLiveOrderIds;
+  }, [dismissedLiveOrderIds]);
+
+  useEffect(() => {
+    if (!liveOrderTrack) return;
+    const idx = liveStepIndex(liveOrderTrack.status);
+    if (idx < 0) return;
+    liveColorProgress.value = withTiming(idx, { duration: 550 });
+  }, [liveOrderTrack?.status, liveOrderTrack?.id]);
+
+  const liveOrderBannerOpacityStyle = useAnimatedStyle(() => ({
+    opacity: bannerOpacity.value,
+  }));
+
+  const liveOrderCardSurfaceStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      liveColorProgress.value,
+      [0, 1, 2, 3],
+      LIVE_ORDER_CARD_BG
+    ),
+    borderColor: interpolateColor(
+      liveColorProgress.value,
+      [0, 1, 2, 3],
+      LIVE_ORDER_CARD_BORDER
+    ),
+  }));
+
+  const liveOrderIconCircleStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      liveColorProgress.value,
+      [0, 1, 2, 3],
+      LIVE_ORDER_ICON_BG
+    ),
+    borderColor: interpolateColor(
+      liveColorProgress.value,
+      [0, 1, 2, 3],
+      LIVE_ORDER_ICON_BORDER
+    ),
+  }));
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(HOME_LIVE_ORDER_DISMISSED_KEY);
+        if (raw) setDismissedLiveOrderIds(new Set(JSON.parse(raw) as string[]));
+        const rawWl = await AsyncStorage.getItem(HOME_WAITLIST_SEATED_DISMISSED_KEY);
+        if (rawWl) setDismissedSeatedWaitlistEntryIds(new Set(JSON.parse(rawWl) as string[]));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
+
+  const dismissLiveOrderBanner = useCallback((orderId: string) => {
+    setDismissedLiveOrderIds((prev) => {
+      const next = new Set(prev).add(orderId);
+      void AsyncStorage.setItem(HOME_LIVE_ORDER_DISMISSED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  const dismissSeatedWaitlistBanner = useCallback((entryId: string) => {
+    setDismissedSeatedWaitlistEntryIds((prev) => {
+      const next = new Set(prev).add(entryId);
+      void AsyncStorage.setItem(HOME_WAITLIST_SEATED_DISMISSED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
   const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
@@ -282,11 +433,215 @@ export default function DiscoveryFeed() {
     }
   }, [currentUserId, activeOrderKey]);
 
+  const fetchLiveOrder = useCallback(async () => {
+    if (!currentUserId) {
+      liveOrderFadeOutRef.current = false;
+      bannerOpacity.value = 1;
+      setLiveOrderTrack(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id, status, restaurants(name)")
+        .eq("created_by", currentUserId)
+        .in("status", ["pending", "preparing", "ready", "served"])
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const row = data?.[0];
+      if (error || !row) {
+        const prev = liveOrderTrackRef.current;
+        const dismissed = dismissedLiveOrderIdsRef.current;
+        if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
+          liveOrderFadeOutRef.current = true;
+          bannerOpacity.value = withTiming(0, { duration: 620 }, (finished) => {
+            if (finished) {
+              runOnJS(() => {
+                setLiveOrderTrack(null);
+                bannerOpacity.value = 1;
+                liveOrderFadeOutRef.current = false;
+              })();
+            }
+          });
+        } else if (!liveOrderFadeOutRef.current) {
+          liveOrderFadeOutRef.current = false;
+          bannerOpacity.value = 1;
+          setLiveOrderTrack(null);
+        }
+        return;
+      }
+
+      liveOrderFadeOutRef.current = false;
+      bannerOpacity.value = 1;
+      setLiveOrderTrack({
+        id: String(row.id),
+        restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
+        status: row.status as OrderStatus,
+      });
+    } catch {
+      const prev = liveOrderTrackRef.current;
+      const dismissed = dismissedLiveOrderIdsRef.current;
+      if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
+        liveOrderFadeOutRef.current = true;
+        bannerOpacity.value = withTiming(0, { duration: 620 }, (finished) => {
+          if (finished) {
+            runOnJS(() => {
+              setLiveOrderTrack(null);
+              bannerOpacity.value = 1;
+              liveOrderFadeOutRef.current = false;
+            })();
+          }
+        });
+      } else if (!liveOrderFadeOutRef.current) {
+        liveOrderFadeOutRef.current = false;
+        bannerOpacity.value = 1;
+        setLiveOrderTrack(null);
+      }
+    }
+  }, [currentUserId]);
+
+  const fetchLiveWaitlist = useCallback(async () => {
+    if (!currentUserId) {
+      setLiveWaitlistBanner(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("waitlist_entries")
+        .select("id, party_size, restaurant_id, created_at, notified_at, status, restaurants(name)")
+        .eq("user_id", currentUserId)
+        .in("status", ["waiting", "seated"])
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const row = data?.[0];
+      if (error || !row) {
+        setLiveWaitlistBanner(null);
+        return;
+      }
+
+      const status = String(row.status ?? "");
+      let phase: "in_queue" | "table_ready" | "seated";
+      if (status === "seated") {
+        phase = "seated";
+      } else if (row.notified_at) {
+        phase = "table_ready";
+      } else {
+        phase = "in_queue";
+      }
+
+      let position = 1;
+      if (phase === "in_queue") {
+        const rid = row.restaurant_id;
+        const createdAt = row.created_at;
+        const { count: ahead } = await supabase
+          .from("waitlist_entries")
+          .select("*", { count: "exact", head: true })
+          .eq("restaurant_id", rid)
+          .eq("status", "waiting")
+          .lt("created_at", createdAt);
+        position = (ahead ?? 0) + 1;
+      }
+
+      setLiveWaitlistBanner({
+        entryId: String(row.id),
+        restaurantId: String(row.restaurant_id),
+        restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
+        partySize: row.party_size,
+        position,
+        phase,
+      });
+    } catch {
+      setLiveWaitlistBanner(null);
+    }
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      liveOrderFadeOutRef.current = false;
+      bannerOpacity.value = 1;
+      setLiveOrderTrack(null);
+      return;
+    }
+    void fetchLiveOrder();
+    const ch = supabase
+      .channel(`home-live-order:${currentUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `created_by=eq.${currentUserId}`,
+        },
+        () => {
+          void fetchLiveOrder();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [currentUserId, fetchLiveOrder]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setLiveWaitlistBanner(null);
+      return;
+    }
+    void fetchLiveWaitlist();
+    const ch = supabase
+      .channel(`home-waitlist:${currentUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "waitlist_entries",
+          filter: `user_id=eq.${currentUserId}`,
+        },
+        () => {
+          void fetchLiveWaitlist();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [currentUserId, fetchLiveWaitlist]);
+
+  // Extra subscription on the active entry so notified_at / status updates from the dashboard always refetch (Realtime filter nuances).
+  useEffect(() => {
+    const eid = liveWaitlistBanner?.entryId;
+    if (!eid || !currentUserId) return;
+    const ch = supabase
+      .channel(`home-waitlist-entry:${eid}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "waitlist_entries",
+          filter: `id=eq.${eid}`,
+        },
+        () => {
+          void fetchLiveWaitlist();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [liveWaitlistBanner?.entryId, currentUserId, fetchLiveWaitlist]);
+
   useFocusEffect(
     useCallback(() => {
       checkActiveGroupOrder();
       fetchFavoriteRestaurantIds();
-    }, [checkActiveGroupOrder, fetchFavoriteRestaurantIds])
+      void fetchLiveOrder();
+      void fetchLiveWaitlist();
+    }, [checkActiveGroupOrder, fetchFavoriteRestaurantIds, fetchLiveOrder, fetchLiveWaitlist])
   );
 
   // Recalculate distances when userCoords arrives after initial fetch
@@ -473,7 +828,7 @@ export default function DiscoveryFeed() {
               }}
             >
               <Bell size={20} color="#f5f5f5" />
-              {unreadCount > 0 && (
+              {notificationBadgeCount > 0 && (
                 <View
                   style={{
                     position: "absolute",
@@ -487,7 +842,7 @@ export default function DiscoveryFeed() {
                     borderColor: "#1a1a1a",
                     alignItems: "center",
                     justifyContent: "center",
-                    paddingHorizontal: unreadCount > 9 ? 3 : 0,
+                    paddingHorizontal: notificationBadgeCount > 9 ? 3 : 0,
                   }}
                 >
                   <Text
@@ -498,7 +853,7 @@ export default function DiscoveryFeed() {
                       lineHeight: 10,
                     }}
                   >
-                    {unreadCount > 9 ? "9+" : unreadCount}
+                    {notificationBadgeCount > 9 ? "9+" : notificationBadgeCount}
                   </Text>
                 </View>
               )}
@@ -547,7 +902,14 @@ export default function DiscoveryFeed() {
               onRefresh={() => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setRefreshing(true);
-                Promise.all([fetchRestaurants(), fetchFavoriteRestaurantIds(), fetchAnnouncementBanner()]).finally(() => setRefreshing(false));
+                setLiveOrderTrack(null);
+                Promise.all([
+                  fetchRestaurants(),
+                  fetchFavoriteRestaurantIds(),
+                  fetchAnnouncementBanner(),
+                  fetchLiveOrder(),
+                  fetchLiveWaitlist(),
+                ]).finally(() => setRefreshing(false));
               }}
               tintColor="#FF9933"
               colors={["#FF9933"]}
@@ -646,6 +1008,391 @@ export default function DiscoveryFeed() {
               </View>
             </Animated.View>
           )}
+
+          {/* Live order tracker — directly above Trending (swipe left → remove to hide) */}
+          {liveOrderTrack &&
+            liveStepIndex(liveOrderTrack.status) >= 0 &&
+            !dismissedLiveOrderIds.has(liveOrderTrack.id) && (
+            <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
+              <Animated.View style={liveOrderBannerOpacityStyle}>
+              <Swipeable
+                ref={liveOrderSwipeRef}
+                overshootRight={false}
+                friction={2}
+                renderRightActions={(
+                  _progress: RNAnimated.AnimatedInterpolation<number>,
+                  dragX: RNAnimated.AnimatedInterpolation<number>
+                ) => {
+                  const scale = dragX.interpolate({
+                    inputRange: [-80, 0],
+                    outputRange: [1, 0.6],
+                    extrapolate: "clamp",
+                  });
+                  return (
+                    <RNAnimated.View
+                      style={{
+                        width: 72,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transform: [{ scale }],
+                      }}
+                    >
+                      <Pressable
+                        onPress={() => {
+                          if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          liveOrderSwipeRef.current?.close();
+                          dismissLiveOrderBanner(liveOrderTrack.id);
+                        }}
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: "#EF444420",
+                          borderWidth: 1,
+                          borderColor: "#EF444440",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Trash2 size={18} color="#EF4444" />
+                      </Pressable>
+                    </RNAnimated.View>
+                  );
+                }}
+              >
+                <Pressable
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    router.push("/my-orders" as any);
+                  }}
+                >
+                  <Animated.View
+                    style={[
+                      liveOrderCardSurfaceStyle,
+                      {
+                        borderRadius: 20,
+                        borderWidth: 1.5,
+                        padding: 16,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 14,
+                      },
+                    ]}
+                  >
+                  <Animated.View
+                    style={[
+                      liveOrderIconCircleStyle,
+                      {
+                        width: 48,
+                        height: 48,
+                        borderRadius: 24,
+                        borderWidth: 2,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      },
+                    ]}
+                  >
+                    <UtensilsCrossed
+                      size={22}
+                      color={LIVE_ORDER_ACCENT_SOLID[liveStepIndex(liveOrderTrack.status)] ?? LIVE_ORDER_ACCENT_SOLID[0]}
+                    />
+                  </Animated.View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor:
+                            LIVE_ORDER_ACCENT_SOLID[liveStepIndex(liveOrderTrack.status)] ?? LIVE_ORDER_ACCENT_SOLID[0],
+                        }}
+                      />
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_600SemiBold",
+                          color:
+                            LIVE_ORDER_ACCENT_SOLID[liveStepIndex(liveOrderTrack.status)] ?? LIVE_ORDER_ACCENT_SOLID[0],
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Live order
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_700Bold",
+                        color: "#f5f5f5",
+                        fontSize: 16,
+                        letterSpacing: -0.2,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {liveOrderTrack.restaurantName}
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, gap: 4 }}>
+                      {LIVE_TRACK_STEPS.map((step, idx) => {
+                        const cur = liveStepIndex(liveOrderTrack.status);
+                        const done = idx < cur;
+                        const active = idx === cur;
+                        const accent = LIVE_ORDER_ACCENT_SOLID[idx] ?? "#555";
+                        const dim = "#333";
+                        const StepIcon = step.Icon;
+                        const lineColor = cur >= idx ? LIVE_ORDER_ACCENT_SOLID[idx - 1] ?? dim : dim;
+                        return (
+                          <React.Fragment key={step.label}>
+                            {idx > 0 && (
+                              <View
+                                style={{
+                                  width: 12,
+                                  height: 2,
+                                  backgroundColor: lineColor,
+                                  borderRadius: 1,
+                                }}
+                              />
+                            )}
+                            <View style={{ alignItems: "center", minWidth: 56 }}>
+                              <View
+                                style={{
+                                  width: active ? 30 : 26,
+                                  height: active ? 30 : 26,
+                                  borderRadius: 15,
+                                  backgroundColor:
+                                    done || active
+                                      ? `${accent}22`
+                                      : "#1a1a1a",
+                                  borderWidth: 1,
+                                  borderColor: done || active ? accent : "#333",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                <StepIcon
+                                  size={active ? 14 : 12}
+                                  color={done || active ? accent : "#555"}
+                                />
+                              </View>
+                              <Text
+                                style={{
+                                  fontFamily: active ? "Manrope_700Bold" : "Manrope_500Medium",
+                                  fontSize: 9,
+                                  color: active ? accent : done ? "#888" : "#444",
+                                  marginTop: 4,
+                                  textAlign: "center",
+                                }}
+                                numberOfLines={1}
+                              >
+                                {step.label}
+                              </Text>
+                            </View>
+                          </React.Fragment>
+                        );
+                      })}
+                    </View>
+                  </View>
+                  <View style={{ marginTop: -15, justifyContent: "center" }}>
+                    <ChevronRight
+                      size={20}
+                      color={
+                        LIVE_ORDER_ACCENT_SOLID[liveStepIndex(liveOrderTrack.status)] ?? LIVE_ORDER_ACCENT_SOLID[0]
+                      }
+                    />
+                  </View>
+                  </Animated.View>
+                </Pressable>
+              </Swipeable>
+              </Animated.View>
+            </Animated.View>
+          )}
+
+          {/* Active waitlist — queue / table ready / seated (syncs when staff updates from web) */}
+          {liveWaitlistBanner &&
+            !(liveWaitlistBanner.phase === "seated" && dismissedSeatedWaitlistEntryIds.has(liveWaitlistBanner.entryId)) &&
+            (() => {
+            const wl = liveWaitlistBanner;
+            const isReady = wl.phase === "table_ready";
+            const isSeated = wl.phase === "seated";
+            const accent = isReady || isSeated ? "#22C55E" : "#FF9933";
+            const cardBg = isReady || isSeated ? "rgba(34,197,94,0.09)" : "rgba(255,153,51,0.08)";
+            const cardBorder = isReady || isSeated ? "rgba(34,197,94,0.3)" : "rgba(255,153,51,0.28)";
+            const iconBg = isReady || isSeated ? "rgba(34,197,94,0.16)" : "rgba(255,153,51,0.15)";
+            const kicker =
+              isSeated ? "Seated" : isReady ? "Table ready" : "Waitlist";
+            const kickerUpper = kicker.toUpperCase();
+            const waitlistCardStyle = {
+              backgroundColor: cardBg,
+              borderRadius: 20,
+              borderWidth: 1.5,
+              borderColor: cardBorder,
+              padding: 16,
+              flexDirection: "row" as const,
+              alignItems: "center" as const,
+              gap: 14,
+            };
+            const miniStatBox = {
+              alignItems: "center" as const,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              backgroundColor: "#1a1a1a",
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+            };
+            const cardBody = (
+              <>
+                <View
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: iconBg,
+                    borderWidth: 2,
+                    borderColor: accent,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {isReady ? (
+                    <Bell size={22} color={accent} />
+                  ) : isSeated ? (
+                    <CheckCircle size={22} color={accent} />
+                  ) : (
+                    <Users size={22} color={accent} />
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: accent }} />
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_600SemiBold",
+                        color: accent,
+                        fontSize: 11,
+                        letterSpacing: 0.5,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {kickerUpper}
+                    </Text>
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: "BricolageGrotesque_700Bold",
+                      color: "#f5f5f5",
+                      fontSize: 16,
+                      letterSpacing: -0.2,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {wl.restaurantName}
+                  </Text>
+                  {(isReady || isSeated) && (
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_500Medium",
+                        color: "#888888",
+                        fontSize: 12,
+                        marginTop: 4,
+                      }}
+                      numberOfLines={2}
+                    >
+                      {isReady
+                        ? "Your table is ready — check in with the host."
+                        : "You're seated. Bon appétit!"}
+                    </Text>
+                  )}
+                </View>
+                {wl.phase === "in_queue" ? (
+                  <View style={miniStatBox}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Users size={13} color={accent} />
+                      <Text
+                        style={{
+                          fontFamily: "JetBrainsMono_600SemiBold",
+                          color: "#f5f5f5",
+                          fontSize: 16,
+                          marginLeft: 4,
+                        }}
+                      >
+                        #{wl.position}
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_500Medium",
+                        color: "#999999",
+                        fontSize: 11,
+                        marginTop: 3,
+                      }}
+                    >
+                      in queue
+                    </Text>
+                  </View>
+                ) : isReady ? (
+                  <View style={miniStatBox}>
+                    <Bell size={20} color={accent} />
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_600SemiBold",
+                        color: "#22C55E",
+                        fontSize: 12,
+                        marginTop: 6,
+                        textAlign: "center",
+                      }}
+                    >
+                      See host
+                    </Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      dismissSeatedWaitlistBanner(wl.entryId);
+                    }}
+                    hitSlop={10}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: "#EF444420",
+                      borderWidth: 1,
+                      borderColor: "#EF444440",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Trash2 size={18} color="#EF4444" />
+                  </Pressable>
+                )}
+                {!isSeated && (
+                  <View style={{ marginTop: -15, justifyContent: "center" }}>
+                    <ChevronRight size={20} color={accent} />
+                  </View>
+                )}
+              </>
+            );
+            return (
+            <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
+              {isSeated ? (
+                <View style={waitlistCardStyle}>{cardBody}</View>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    router.push(
+                      `/waitlist/${wl.restaurantId}?entry_id=${wl.entryId}&party_size=${wl.partySize}` as any
+                    );
+                  }}
+                  style={waitlistCardStyle}
+                >
+                  {cardBody}
+                </Pressable>
+              )}
+            </Animated.View>
+            );
+          })()}
 
           {/* Trending Section */}
           <View style={{ height: 10 }} />
@@ -758,6 +1505,8 @@ export default function DiscoveryFeed() {
                 decelerationRate="fast"
                 snapToInterval={212}
                 snapToAlignment="start"
+                removeClippedSubviews={false}
+                initialNumToRender={Math.min(8, Math.max(4, favoritesRestaurants.length))}
                 renderItem={({ item: restaurant, index }) => (
                   <RestaurantListCard
                     restaurant={restaurant}

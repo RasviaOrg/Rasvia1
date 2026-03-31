@@ -428,14 +428,14 @@ export function CheckoutModal({
                     >
                         <CheckCircle2 size={56} color="#22C55E" style={{ marginBottom: 16 }} />
                         <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 26, marginBottom: 8, textAlign: "center" }}>
-                            Order Placed!
+                            Order sent
                         </Text>
                         <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 15, textAlign: "center", marginBottom: 4 }}>
                             {orderType === "takeout"
-                                ? `Your takeout order at ${restaurantName} is being prepared.`
+                                ? `${restaurantName} received your order and is preparing it.`
                                 : orderType === "pre_order"
-                                    ? `Your pre-order at ${restaurantName} is confirmed! It'll arrive with your table.`
-                                    : `Your order at ${restaurantName} has been received.`}
+                                    ? `Your pre-order at ${restaurantName} is confirmed — it'll arrive with your table.`
+                                    : `${restaurantName} has your order and the kitchen is on it.`}
                         </Text>
                         {orderType === "takeout" && (
                             <View style={{ backgroundColor: "rgba(255,153,51,0.1)", borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(255,153,51,0.2)", width: "100%" }}>

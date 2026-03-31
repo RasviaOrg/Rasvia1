@@ -11,6 +11,7 @@ import {
     TextInput,
     KeyboardAvoidingView,
     Platform,
+    StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -92,6 +93,132 @@ function statusColor(status: string) {
 
 function formatOrderType(type: string) {
     return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const ownerOrderListRowStyles = StyleSheet.create({
+    pressable: {
+        alignSelf: "stretch",
+        width: "100%",
+    },
+    pressablePressed: {
+        backgroundColor: "rgba(255,255,255,0.05)",
+    },
+    inner: {
+        flexDirection: "row",
+        alignItems: "center",
+        direction: "ltr",
+        width: "100%",
+        paddingVertical: 12,
+        paddingLeft: 16,
+        paddingRight: 14,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "#2a2a2a",
+    },
+    innerLast: {
+        borderBottomWidth: 0,
+    },
+    leftCol: {
+        flex: 1,
+        minWidth: 0,
+        marginRight: 12,
+        justifyContent: "center",
+    },
+    name: {
+        fontFamily: "Manrope_600SemiBold",
+        fontSize: 15,
+        lineHeight: 20,
+        color: "#f5f5f5",
+    },
+    meta: {
+        fontFamily: "Manrope_500Medium",
+        fontSize: 12,
+        lineHeight: 16,
+        color: "#9ca3af",
+        marginTop: 3,
+    },
+    rightCol: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexShrink: 0,
+        justifyContent: "flex-end",
+    },
+    pill: {
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderWidth: StyleSheet.hairlineWidth,
+        maxWidth: 120,
+    },
+    pillText: {
+        fontFamily: "Manrope_700Bold",
+        fontSize: 10,
+        lineHeight: 13,
+        letterSpacing: 0.35,
+    },
+});
+
+/** Shared list row: stacked name + meta (left); status pill + chevron (right), vertically centered with text block. */
+function OrderListRow({
+    order,
+    isLast,
+    onPress,
+}: {
+    order: Order;
+    isLast: boolean;
+    onPress: () => void;
+}) {
+    const sc = statusColor(order.status);
+    const typePrice = `${formatOrderType(order.order_type)} · $${(order.subtotal ?? 0).toFixed(2)}`;
+    const androidText = Platform.OS === "android" ? { includeFontPadding: false } : undefined;
+    return (
+        <Pressable
+            onPress={onPress}
+            style={({ pressed }) => [
+                ownerOrderListRowStyles.pressable,
+                pressed && ownerOrderListRowStyles.pressablePressed,
+            ]}
+        >
+            <View style={[ownerOrderListRowStyles.inner, isLast && ownerOrderListRowStyles.innerLast]}>
+                <View style={ownerOrderListRowStyles.leftCol}>
+                    <Text
+                        style={[ownerOrderListRowStyles.name, androidText]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                    >
+                        {order.customer_name || `Order #${order.id}`}
+                    </Text>
+                    <Text
+                        style={[ownerOrderListRowStyles.meta, androidText]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                    >
+                        {typePrice}
+                    </Text>
+                </View>
+                <View style={ownerOrderListRowStyles.rightCol}>
+                    <View
+                        style={[
+                            ownerOrderListRowStyles.pill,
+                            {
+                                backgroundColor: `${sc}22`,
+                                borderColor: `${sc}55`,
+                            },
+                        ]}
+                    >
+                        <Text
+                            style={[ownerOrderListRowStyles.pillText, { color: sc }]}
+                            numberOfLines={1}
+                        >
+                            {order.status.toUpperCase()}
+                        </Text>
+                    </View>
+                    <View style={{ marginLeft: 6 }}>
+                        <ChevronRight size={18} color="#777" />
+                    </View>
+                </View>
+            </View>
+        </Pressable>
+    );
 }
 
 function todayStart() {
@@ -283,38 +410,17 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
                                 No orders yet
                             </Text>
                         ) : (
-                            <View style={CARD}>
+                            <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
                                 {orders.map((order, index) => (
-                                    <Pressable
+                                    <OrderListRow
                                         key={order.id}
+                                        order={order}
+                                        isLast={index === orders.length - 1}
                                         onPress={() => {
                                             if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                             setSelectedOrder(order);
                                         }}
-                                        style={({ pressed }) => ({
-                                            flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-                                            paddingVertical: 14, paddingHorizontal: 16,
-                                            borderBottomWidth: index < orders.length - 1 ? 1 : 0, borderBottomColor: "#252525",
-                                            opacity: pressed ? 0.7 : 1,
-                                        })}
-                                    >
-                                        <View style={{ flex: 1, marginRight: 12 }}>
-                                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5" }} numberOfLines={1}>
-                                                {order.customer_name || `Order #${order.id}`}
-                                            </Text>
-                                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginTop: 2 }}>
-                                                {formatOrderType(order.order_type)} · ${(order.subtotal ?? 0).toFixed(2)}
-                                            </Text>
-                                        </View>
-                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                            <View style={{ backgroundColor: `${statusColor(order.status)}20`, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${statusColor(order.status)}40` }}>
-                                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: statusColor(order.status) }}>
-                                                    {order.status.toUpperCase()}
-                                                </Text>
-                                            </View>
-                                            <ChevronRight size={15} color="#444" />
-                                        </View>
-                                    </Pressable>
+                                    />
                                 ))}
                             </View>
                         )}
@@ -442,9 +548,19 @@ export function OwnerHomeContent({
         setEditingWait(false);
     };
 
+    /** Waitlist cannot be opened while venue is not operating; closing an open waitlist is still allowed */
+    const hoursAllowWaitlist =
+        !statusResult ||
+        statusResult.status === "open" ||
+        statusResult.status === "closing_soon";
+    const waitlistToggleDisabled =
+        togglingWaitlist ||
+        (!!(restaurant && !restaurant.waitlist_open) && !hoursAllowWaitlist);
+
     // ── Waitlist toggle ────────────────────────────────────────────────────
     const requestToggleWaitlist = () => {
         if (!restaurant) return;
+        if (waitlistToggleDisabled) return;
         if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         const willOpen = !restaurant.waitlist_open;
         Alert.alert(
@@ -649,7 +765,7 @@ export function OwnerHomeContent({
                             {/* Toggle */}
                             <Pressable
                                 onPress={requestToggleWaitlist}
-                                disabled={togglingWaitlist}
+                                disabled={waitlistToggleDisabled}
                                 style={{ alignItems: "center", flex: 1 }}
                             >
                                 <View style={{
@@ -657,14 +773,18 @@ export function OwnerHomeContent({
                                     backgroundColor: waitlistOpen ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
                                     borderWidth: 1,
                                     borderColor: waitlistOpen ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
-                                    opacity: togglingWaitlist ? 0.5 : 1,
+                                    opacity: waitlistToggleDisabled ? 0.45 : 1,
                                 }}>
                                     <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 13, color: waitlistOpen ? "#22C55E" : "#EF4444" }}>
                                         {waitlistOpen ? "● OPEN" : "● CLOSED"}
                                     </Text>
                                 </View>
-                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#555", marginTop: 6 }}>
-                                    {waitlistOpen ? "Tap to close" : "Tap to open"}
+                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#555", marginTop: 6, textAlign: "center", paddingHorizontal: 4 }}>
+                                    {waitlistToggleDisabled && !waitlistOpen
+                                        ? "Open when restaurant is open"
+                                        : waitlistOpen
+                                            ? "Tap to close"
+                                            : "Tap to open"}
                                 </Text>
                             </Pressable>
                         </View>
@@ -722,43 +842,21 @@ export function OwnerHomeContent({
                         </Pressable>
                     </View>
 
-                    <View style={CARD}>
+                    <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
                         {recentOrders.length === 0 ? (
                             <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
                                 No orders yet
                             </Text>
                         ) : recentOrders.map((order, index) => (
-                            <Pressable
+                            <OrderListRow
                                 key={order.id}
+                                order={order}
+                                isLast={index === recentOrders.length - 1}
                                 onPress={() => {
                                     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                     setSelectedOrder(order);
                                 }}
-                                style={({ pressed }) => ({
-                                    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-                                    paddingVertical: 15, paddingHorizontal: 16,
-                                    borderBottomWidth: index < recentOrders.length - 1 ? 1 : 0,
-                                    borderBottomColor: "#252525",
-                                    opacity: pressed ? 0.7 : 1,
-                                })}
-                            >
-                                <View style={{ flex: 1, marginRight: 12 }}>
-                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5" }} numberOfLines={1}>
-                                        {order.customer_name || `Order #${order.id}`}
-                                    </Text>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginTop: 2 }}>
-                                        {formatOrderType(order.order_type)} · ${(order.subtotal ?? 0).toFixed(2)}
-                                    </Text>
-                                </View>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                    <View style={{ backgroundColor: `${statusColor(order.status)}20`, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${statusColor(order.status)}40` }}>
-                                        <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: statusColor(order.status) }}>
-                                            {order.status.toUpperCase()}
-                                        </Text>
-                                    </View>
-                                    <ChevronRight size={14} color="#444" />
-                                </View>
-                            </Pressable>
+                            />
                         ))}
                     </View>
                 </View>

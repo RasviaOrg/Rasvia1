@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,10 +11,10 @@ import {
   TextInput,
   KeyboardAvoidingView,
   ActivityIndicator,
-  ScrollView,
   Share,
+  RefreshControl,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -91,8 +91,15 @@ const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 const RESTAURANT_SHARE_WEB_BASE_URL = "https://rasvia.com";
 
 export default function RestaurantDetail() {
-  const { id, reorder } = useLocalSearchParams<{ id: string; reorder?: string }>();
+  const { id, reorder, waitlist_entry } = useLocalSearchParams<{
+    id: string;
+    reorder?: string;
+    waitlist_entry?: string;
+  }>();
+  const waitlistEntryParam =
+    typeof waitlist_entry === "string" && waitlist_entry.length > 0 ? waitlist_entry : undefined;
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { userCoords } = useLocation();
   const userCoordsRef = useRef(userCoords);
   useEffect(() => { userCoordsRef.current = userCoords; }, [userCoords]);
@@ -122,6 +129,7 @@ export default function RestaurantDetail() {
   const [restaurant, setRestaurant] = useState<UIRestaurant | null>(null);
   const [menu, setMenu] = useState<UIMenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [selectedItem, setSelectedItem] = useState<UIMenuItem | null>(null);
   const [showSelectedItemSettings, setShowSelectedItemSettings] = useState(false);
@@ -151,7 +159,17 @@ export default function RestaurantDetail() {
   const [customParty, setCustomParty] = useState("");
   const [joining, setJoining] = useState(false);
   const [partyLeaderName, setPartyLeaderName] = useState("");
-  const [existingEntry, setExistingEntry] = useState<{ id: string; party_size: number } | null>(null);
+  /** User may only have one waiting entry — track it globally so other restaurants can grey out Order. */
+  const [globalWaitlistEntry, setGlobalWaitlistEntry] = useState<{
+    id: string;
+    party_size: number;
+    restaurant_id: number;
+  } | null>(null);
+
+  const existingEntry = useMemo(() => {
+    if (!globalWaitlistEntry || Number(globalWaitlistEntry.restaurant_id) !== Number(id)) return null;
+    return { id: globalWaitlistEntry.id, party_size: globalWaitlistEntry.party_size };
+  }, [globalWaitlistEntry, id]);
 
   // Live queue count from waitlist_entries
   const [liveQueueCount, setLiveQueueCount] = useState<number | null>(null);
@@ -187,7 +205,10 @@ export default function RestaurantDetail() {
 
   // Fetch party leader name + check for existing active entry
   useEffect(() => {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id) {
+      setGlobalWaitlistEntry(null);
+      return;
+    }
 
     supabase
       .from("profiles")
@@ -201,19 +222,25 @@ export default function RestaurantDetail() {
         if ((data as any)?.avatar_url) setUserAvatarUrl((data as any).avatar_url);
       });
 
-    if (id) {
-      supabase
-        .from("waitlist_entries")
-        .select("id, party_size")
-        .eq("restaurant_id", Number(id))
-        .eq("user_id", session.user.id)
-        .eq("status", "waiting")
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data) setExistingEntry({ id: data.id, party_size: data.party_size });
-        });
-    }
-  }, [session?.user?.id, id]);
+    supabase
+      .from("waitlist_entries")
+      .select("id, party_size, restaurant_id")
+      .eq("user_id", session.user.id)
+      .eq("status", "waiting")
+      .limit(1)
+      .then(({ data }) => {
+        const row = data?.[0];
+        if (row) {
+          setGlobalWaitlistEntry({
+            id: row.id,
+            party_size: row.party_size,
+            restaurant_id: row.restaurant_id,
+          });
+        } else {
+          setGlobalWaitlistEntry(null);
+        }
+      });
+  }, [session?.user?.id]);
 
   // Check for an active group session for this restaurant on mount
   useEffect(() => {
@@ -242,19 +269,45 @@ export default function RestaurantDetail() {
   // Re-validate existing entry when screen regains focus (e.g. returning from waitlist)
   useFocusEffect(
     useCallback(() => {
-      if (!existingEntry?.id) return;
+      if (!globalWaitlistEntry?.id) return;
       supabase
         .from("waitlist_entries")
         .select("status")
-        .eq("id", existingEntry.id)
+        .eq("id", globalWaitlistEntry.id)
         .single()
         .then(({ data }) => {
           if (!data || data.status !== "waiting") {
-            setExistingEntry(null);
+            setGlobalWaitlistEntry(null);
           }
         });
-    }, [existingEntry?.id])
+    }, [globalWaitlistEntry?.id])
   );
+
+  // Realtime: waitlist entry no longer active (staff cancel/remove) — clear local state (no system alert)
+  useEffect(() => {
+    if (!globalWaitlistEntry?.id) return;
+    const ch = supabase
+      .channel(`restaurant-wl-entry:${globalWaitlistEntry.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "waitlist_entries",
+          filter: `id=eq.${globalWaitlistEntry.id}`,
+        },
+        (payload) => {
+          const s = (payload.new as { status?: string })?.status;
+          if (s === "cancelled" || s === "removed") {
+            setGlobalWaitlistEntry(null);
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [globalWaitlistEntry?.id]);
 
   // ==================================================
   // FETCH RESTAURANT & MENU FROM SUPABASE
@@ -369,6 +422,22 @@ export default function RestaurantDetail() {
       }
     } catch (error) {
       console.error('Error fetching menu:', error);
+    }
+  }
+
+  async function handleRefresh() {
+    if (!id) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        fetchRestaurantData(),
+        fetchMenu(),
+        fetchQueueCount(),
+        refetchRestaurantHours(),
+      ]);
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -524,13 +593,9 @@ export default function RestaurantDetail() {
       Alert.alert("Not Available", "Restaurant owners can't join customer waitlists.");
       return;
     }
-    if (existingEntry) {
-      router.push(`/waitlist/${restaurant?.id}?entry_id=${existingEntry.id}&party_size=${existingEntry.party_size}` as any);
-      return;
-    }
-    // Show order type picker first (Takeout vs Dine In)
+    // Always show Dine In / Takeout / Group Order — even if already on the waitlist (Dine In handles that path).
     setShowOrderTypePicker(true);
-  }, [existingEntry, restaurant?.id, router, isRestaurantOwner]);
+  }, [isRestaurantOwner]);
 
   const handleConfirmJoin = useCallback(async () => {
     const size = customParty.trim() !== "" ? parseInt(customParty, 10) : partySize;
@@ -558,7 +623,11 @@ export default function RestaurantDetail() {
         .single();
 
       if (error) throw error;
-      setExistingEntry({ id: data.id, party_size: size });
+      setGlobalWaitlistEntry({
+        id: data.id,
+        party_size: size,
+        restaurant_id: Number(restaurant?.id),
+      });
       setShowPartySizePicker(false);
 
       // Record "joined" notification event and refresh active entries
@@ -657,6 +726,34 @@ export default function RestaurantDetail() {
     isClosedByHours;
   const noWait = restaurant?.waitTime != null && restaurant.waitTime < 0;
   const waitlistClosed = restaurant?.waitlistOpen === false;
+
+  /** Grey dine-in-only checkout only when opened from the waitlist screen (or equivalent URL with matching entry). */
+  const checkoutFromWaitlist =
+    !!waitlistEntryParam &&
+    !!existingEntry &&
+    existingEntry.id === waitlistEntryParam &&
+    !isRestaurantOwner &&
+    !ownerOwnsCurrentRestaurant &&
+    !isClosed &&
+    !waitlistClosed;
+
+  const waitlistAtOtherRestaurant =
+    !!globalWaitlistEntry &&
+    Number(globalWaitlistEntry.restaurant_id) !== Number(id);
+
+  const showCheckWaitlistStatus =
+    !checkoutFromWaitlist &&
+    !!existingEntry &&
+    !waitlistAtOtherRestaurant;
+
+  const canSubmitWaitlistCheckout =
+    checkoutFromWaitlist && cartItems.length > 0;
+
+  const footerPrimaryDisabled = checkoutFromWaitlist
+    ? !canSubmitWaitlistCheckout || isRestaurantOwner || ownerOwnsCurrentRestaurant
+    : !ownerRoleResolved ||
+      (isRestaurantOwner ? false : isClosed || noWait || waitlistClosed) ||
+      (!isRestaurantOwner && waitlistAtOtherRestaurant);
 
   // Show loading or error state
   if (!restaurant) {
@@ -836,9 +933,28 @@ export default function RestaurantDetail() {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#FF9933"
+            colors={["#FF9933"]}
+            progressBackgroundColor="#18181b"
+            progressViewOffset={
+              Platform.OS === "ios" ? insets.top + 110 : insets.top + 64
+            }
+          />
+        }
       >
-        {/* Hero — fixed height container, content parallaxes inside */}
-        <View style={{ height: HERO_HEIGHT, overflow: "hidden" }}>
+        {/* Hero — fixed height container, content parallaxes inside; rounded top matches card UI */}
+        <View
+          style={{
+            height: HERO_HEIGHT,
+            overflow: "hidden",
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+          }}
+        >
           <Animated.View
             style={[heroInnerStyle, { position: "absolute", top: 0, left: 0, right: 0, height: HERO_HEIGHT }]}
           >
@@ -1481,7 +1597,10 @@ export default function RestaurantDetail() {
                 return selectedMenuFilters.some((filter) => itemMatchesFilter(m, filter));
               })}
               setMenu={setMenu}
-              onItemPress={(item) => setSelectedItem(item)}
+              onItemPress={(item) => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setSelectedItem(item);
+              }}
               onQuickAdd={(item) => handleAddToCart(item)}
               restaurantId={id}
             />
@@ -1551,57 +1670,157 @@ export default function RestaurantDetail() {
             )}
 
             {!ownerOwnsCurrentRestaurant && (
-              <Animated.View style={[joinBtnStyle, { flex: 1 }]}>
-                <Pressable
-                  onPress={
-                    !ownerRoleResolved
-                      ? undefined
-                      : isRestaurantOwner
-                        ? handleJoinWaitlist
-                        : isClosed || noWait || waitlistClosed
+              <View style={{ flex: 1 }}>
+                <Animated.View style={[joinBtnStyle]}>
+                  <Pressable
+                    onPress={
+                      !ownerRoleResolved
                         ? undefined
-                        : handleJoinWaitlist
-                  }
-                  disabled={
-                    !ownerRoleResolved
-                      ? true
-                      : (isRestaurantOwner ? false : (isClosed || noWait || waitlistClosed))
-                  }
-                  onPressIn={() => {
-                    if (!ownerRoleResolved) return;
-                    if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
-                      joinBtnScale.value = withSpring(0.95);
+                        : isRestaurantOwner
+                          ? handleJoinWaitlist
+                          : footerPrimaryDisabled
+                            ? undefined
+                            : () => {
+                                if (checkoutFromWaitlist && canSubmitWaitlistCheckout) {
+                                  if (Platform.OS !== "web") {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                  }
+                                  setCheckoutOrderType("dine_in");
+                                  setLockCheckoutOrderType(true);
+                                  setShowCheckout(true);
+                                  return;
+                                }
+                                if (showCheckWaitlistStatus && existingEntry) {
+                                  if (Platform.OS !== "web") {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                  }
+                                  router.push(
+                                    `/waitlist/${id}?entry_id=${existingEntry.id}&party_size=${existingEntry.party_size}` as any
+                                  );
+                                  return;
+                                }
+                                handleJoinWaitlist();
+                              }
                     }
-                  }}
-                  onPressOut={() => {
-                    if (!ownerRoleResolved) return;
-                    if (isRestaurantOwner || (!isClosed && !noWait && !waitlistClosed)) {
-                      joinBtnScale.value = withSpring(1);
-                    }
-                  }}
-                  className="rounded-2xl py-4 items-center flex-row justify-center"
-                  style={{
-                    backgroundColor: !ownerRoleResolved ? "#333333" : (isRestaurantOwner ? "#333333" : (isClosed || noWait || waitlistClosed ? "#333333" : "#FF9933")),
-                    shadowColor: !ownerRoleResolved ? "transparent" : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? "transparent" : "#FF9933"),
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: !ownerRoleResolved ? 0 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 0.4),
-                    shadowRadius: 16,
-                    elevation: !ownerRoleResolved ? 0 : (isClosed || noWait || waitlistClosed || isRestaurantOwner ? 0 : 10),
-                  }}
-                >
-                  <Clock size={18} color={!ownerRoleResolved || isClosed || waitlistClosed ? "#999999" : "#0f0f0f"} strokeWidth={2.5} />
-                  <Text
+                    disabled={footerPrimaryDisabled}
+                    onPressIn={() => {
+                      if (!ownerRoleResolved) return;
+                      if (
+                        checkoutFromWaitlist ||
+                        isRestaurantOwner ||
+                        showCheckWaitlistStatus ||
+                        (!isClosed && !noWait && !waitlistClosed)
+                      ) {
+                        joinBtnScale.value = withSpring(0.95);
+                      }
+                    }}
+                    onPressOut={() => {
+                      if (!ownerRoleResolved) return;
+                      if (
+                        checkoutFromWaitlist ||
+                        isRestaurantOwner ||
+                        showCheckWaitlistStatus ||
+                        (!isClosed && !noWait && !waitlistClosed)
+                      ) {
+                        joinBtnScale.value = withSpring(1);
+                      }
+                    }}
+                    className="rounded-2xl py-4 items-center flex-row justify-center"
                     style={{
-                      fontFamily: "BricolageGrotesque_700Bold",
-                      color: !ownerRoleResolved ? "#999999" : (isRestaurantOwner ? "#999999" : (isClosed || waitlistClosed ? "#999999" : "#0f0f0f")),
-                      fontSize: 17,
-                      marginLeft: 8,
+                      backgroundColor: !ownerRoleResolved
+                        ? "#333333"
+                        : isRestaurantOwner
+                          ? "#333333"
+                          : footerPrimaryDisabled
+                            ? "#333333"
+                            : "#FF9933",
+                      shadowColor: !ownerRoleResolved
+                        ? "transparent"
+                        : footerPrimaryDisabled || isRestaurantOwner
+                          ? "transparent"
+                          : "#FF9933",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: !ownerRoleResolved
+                        ? 0
+                        : footerPrimaryDisabled || isRestaurantOwner
+                          ? 0
+                          : 0.4,
+                      shadowRadius: 16,
+                      elevation: !ownerRoleResolved
+                        ? 0
+                        : footerPrimaryDisabled || isRestaurantOwner
+                          ? 0
+                          : 10,
                     }}
                   >
-                    {!ownerRoleResolved ? "Loading..." : (waitlistClosed ? "Waitlist Closed" : isClosed ? "Currently Closed" : "Order")}
+                    {checkoutFromWaitlist ? (
+                      <ShoppingBag
+                        size={18}
+                        color={
+                          !ownerRoleResolved || footerPrimaryDisabled ? "#999999" : "#0f0f0f"
+                        }
+                        strokeWidth={2.5}
+                      />
+                    ) : showCheckWaitlistStatus ? (
+                      <Users
+                        size={18}
+                        color={!ownerRoleResolved || footerPrimaryDisabled ? "#999999" : "#0f0f0f"}
+                        strokeWidth={2.5}
+                      />
+                    ) : (
+                      <Clock
+                        size={18}
+                        color={
+                          !ownerRoleResolved || isClosed || waitlistClosed ? "#999999" : "#0f0f0f"
+                        }
+                        strokeWidth={2.5}
+                      />
+                    )}
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_700Bold",
+                        color: !ownerRoleResolved
+                          ? "#999999"
+                          : isRestaurantOwner
+                            ? "#999999"
+                            : footerPrimaryDisabled
+                              ? "#999999"
+                              : "#0f0f0f",
+                        fontSize: 17,
+                        marginLeft: 8,
+                      }}
+                    >
+                      {!ownerRoleResolved
+                        ? "Loading..."
+                        : checkoutFromWaitlist
+                          ? "Checkout"
+                          : waitlistAtOtherRestaurant
+                            ? "Order"
+                            : showCheckWaitlistStatus
+                              ? "Check waitlist status"
+                              : waitlistClosed
+                                ? "Waitlist Closed"
+                                : isClosed
+                                  ? "Currently Closed"
+                                  : "Order"}
+                    </Text>
+                  </Pressable>
+                </Animated.View>
+                {waitlistAtOtherRestaurant && !isRestaurantOwner && (
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#666666",
+                      fontSize: 11,
+                      textAlign: "center",
+                      marginTop: 6,
+                      lineHeight: 15,
+                    }}
+                  >
+                    You can only join one waitlist at a time
                   </Text>
-                </Pressable>
-              </Animated.View>
+                )}
+              </View>
             )}
           </View>
         </SafeAreaView>
@@ -1649,7 +1868,12 @@ export default function RestaurantDetail() {
           isClosed={isClosed}
           onCheckout={() => {
             setShowCart(false);
-            setLockCheckoutOrderType(false);
+            if (checkoutFromWaitlist) {
+              setCheckoutOrderType("dine_in");
+              setLockCheckoutOrderType(true);
+            } else {
+              setLockCheckoutOrderType(false);
+            }
             setShowCheckout(true);
           }}
           onShare={async () => {
@@ -1689,17 +1913,17 @@ export default function RestaurantDetail() {
         initialOrderType={checkoutOrderType}
         lockOrderType={lockCheckoutOrderType}
         onAddMoreItems={() => setShowCheckout(false)}
-        waitlistEntryId={existingEntry?.id}
+        waitlistEntryId={checkoutFromWaitlist ? existingEntry?.id : undefined}
         onUpdateQuantity={handleUpdateQuantity}
         onClose={() => setShowCheckout(false)}
         initialCustomerName={partyLeaderName}
         onOrderPlaced={(orderId, orderType) => {
           setCartItems([]);
-          setShowCheckout(false);
+          // Keep modal open so CheckoutModal success screen shows; it closes via onClose when user taps Done
           if (orderType === 'dine_in') {
-            if (existingEntry) {
+            if (checkoutFromWaitlist && existingEntry) {
               router.push(`/waitlist/${restaurant?.id}?entry_id=${existingEntry.id}&party_size=${existingEntry.party_size}` as any);
-            } else {
+            } else if (!checkoutFromWaitlist) {
               setCustomParty("");
               setShowPartySizePicker(true);
             }
@@ -1741,7 +1965,14 @@ export default function RestaurantDetail() {
                 }
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 setShowOrderTypePicker(false);
-                // Dine In → join waitlist first
+                // Already on the waitlist → go to status instead of creating another entry
+                if (existingEntry) {
+                  router.push(
+                    `/waitlist/${restaurant?.id}?entry_id=${existingEntry.id}&party_size=${existingEntry.party_size}` as any
+                  );
+                  return;
+                }
+                // Dine In → join waitlist (party size)
                 setCustomParty("");
                 setShowPartySizePicker(true);
               }}
@@ -1773,6 +2004,13 @@ export default function RestaurantDetail() {
               onPress={() => {
                 if (isRestaurantOwner) {
                   Alert.alert("Not Available", "Restaurant owners can't place customer orders.");
+                  return;
+                }
+                if (existingEntry) {
+                  Alert.alert(
+                    "Not available",
+                    "Takeout isn't available while you're on the waitlist. Use Checkout to pre-order for your table (dine-in)."
+                  );
                   return;
                 }
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

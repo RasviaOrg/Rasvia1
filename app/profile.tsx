@@ -1083,7 +1083,7 @@ export default function ProfileSettingsScreen() {
                       if (!granted) {
                         Alert.alert(
                           "Notifications Blocked",
-                          "Please enable notifications in your device Settings.",
+                          "Please enable notifications in your device settings.",
                         );
                       }
                     } else {
@@ -1550,9 +1550,20 @@ export default function ProfileSettingsScreen() {
                   </View>
                   <Switch
                     value={liveLocationEnabled}
-                    onValueChange={(val) => {
-                      setLiveLocationEnabled(val);
+                    onValueChange={async (val) => {
                       if (Platform.OS !== "web") Haptics.selectionAsync();
+                      if (val && Platform.OS !== "web") {
+                        const { status } = await Location.requestForegroundPermissionsAsync();
+                        if (status !== "granted") {
+                          setLiveLocationEnabled(false);
+                          Alert.alert(
+                            "Location Blocked",
+                            "Please enable location access in your device settings to use live location tracking.",
+                          );
+                          return;
+                        }
+                      }
+                      setLiveLocationEnabled(val);
                     }}
                     trackColor={{
                       false: "#333333",

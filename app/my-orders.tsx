@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,9 @@ import {
   Platform,
   ActivityIndicator,
   RefreshControl,
+  Animated as RNAnimated,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
@@ -22,10 +24,12 @@ import {
   Sparkles,
   XCircle,
   Flame,
+  Trash2,
 } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
+  FadeOut,
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
@@ -36,6 +40,7 @@ import Animated, {
   cancelAnimation,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -45,6 +50,91 @@ import {
   mapOrderToUI,
   type UIOrder,
 } from "@/lib/restaurant-types";
+
+const DISMISSED_ORDERS_KEY = "rasvia:my-orders-dismissed:v1";
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Swipe away past orders anytime; hide stale “active” rows after 24h; block swipe on active orders from the last 24h */
+function canSwipeDismiss(order: UIOrder): boolean {
+  if (order.status === "completed" || order.status === "cancelled") return true;
+  const active: OrderStatus[] = ["pending", "preparing", "ready", "served"];
+  if (!active.includes(order.status)) return true;
+  const age = Date.now() - new Date(order.createdAt).getTime();
+  return age >= ONE_DAY_MS;
+}
+
+function SwipeableOrderRow({
+  order,
+  children,
+  onDismiss,
+}: {
+  order: UIOrder;
+  children: React.ReactNode;
+  onDismiss: () => void;
+}) {
+  const swipeableRef = useRef<Swipeable>(null);
+
+  if (!canSwipeDismiss(order)) {
+    return <>{children}</>;
+  }
+
+  const renderRightActions = (
+    _progress: RNAnimated.AnimatedInterpolation<number>,
+    dragX: RNAnimated.AnimatedInterpolation<number>
+  ) => {
+    const scale = dragX.interpolate({
+      inputRange: [-80, 0],
+      outputRange: [1, 0.6],
+      extrapolate: "clamp",
+    });
+    return (
+      <RNAnimated.View
+        style={{
+          width: 72,
+          alignItems: "center",
+          justifyContent: "center",
+          transform: [{ scale }],
+        }}
+      >
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            swipeableRef.current?.close();
+            onDismiss();
+          }}
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: "#EF444420",
+            borderWidth: 1,
+            borderColor: "#EF444440",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Trash2 size={18} color="#EF4444" />
+        </Pressable>
+      </RNAnimated.View>
+    );
+  };
+
+  return (
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      friction={2}
+    >
+      {children}
+    </Swipeable>
+  );
+}
+
+function OrderRowWithExit({ children }: { children: React.ReactNode }) {
+  return <Animated.View exiting={FadeOut.duration(320)}>{children}</Animated.View>;
+}
 
 // ────────────────────────────────── Constants ──────────────────────────────────
 
@@ -714,6 +804,28 @@ export default function MyOrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<UIOrder[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DISMISSED_ORDERS_KEY);
+        if (raw) setDismissedIds(new Set(JSON.parse(raw) as string[]));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
+
+  const dismissOrder = useCallback((id: string) => {
+    setDismissedIds((prev) => {
+      const next = new Set(prev).add(id);
+      void AsyncStorage.setItem(DISMISSED_ORDERS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  const visibleOrders = orders.filter((o) => !dismissedIds.has(o.id));
 
   const fetchOrders = useCallback(async () => {
     if (!session?.user?.id) {
@@ -758,7 +870,12 @@ export default function MyOrdersScreen() {
       .channel("my-orders-live")
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "orders", filter: `created_by=eq.${session.user.id}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `created_by=eq.${session.user.id}`,
+        },
         (payload) => {
           // When an order is updated, refresh the list
           // We could do optimistic updates here, but a full refresh
@@ -796,7 +913,7 @@ export default function MyOrdersScreen() {
   // Keep recently completed/served orders in active so user sees the "Done" step
   const DONE_VISIBLE_MS = 15 * 60 * 1000; // 15 minutes
   const now = Date.now();
-  const activeOrders = orders.filter((o) => {
+  const activeOrders = visibleOrders.filter((o) => {
     if (o.status === "cancelled") return false;
     if (o.status === "completed") {
       // Show completed orders in active section for 15 min so user sees the Done step
@@ -807,7 +924,7 @@ export default function MyOrdersScreen() {
     }
     return true; // active, preparing, ready, served all stay in active
   });
-  const pastOrders = orders.filter(
+  const pastOrders = visibleOrders.filter(
     (o) =>
       (o.status === "completed" && !activeOrders.some((a) => a.id === o.id)) ||
       o.status === "cancelled"
@@ -906,7 +1023,7 @@ export default function MyOrdersScreen() {
               />
             }
           >
-            {orders.length === 0 ? (
+            {visibleOrders.length === 0 ? (
               /* ── Empty State ── */
               <Animated.View
                 entering={FadeInDown.delay(100).duration(500)}
@@ -1015,11 +1132,14 @@ export default function MyOrdersScreen() {
                       </Text>
                     </Animated.View>
                     {activeOrders.map((order, idx) => (
-                      <ActiveOrderCard
-                        key={order.id}
-                        order={order}
-                        index={idx}
-                      />
+                      <OrderRowWithExit key={order.id}>
+                        <SwipeableOrderRow
+                          order={order}
+                          onDismiss={() => dismissOrder(order.id)}
+                        >
+                          <ActiveOrderCard order={order} index={idx} />
+                        </SwipeableOrderRow>
+                      </OrderRowWithExit>
                     ))}
                   </View>
                 )}
@@ -1058,11 +1178,14 @@ export default function MyOrdersScreen() {
                       </Text>
                     </Animated.View>
                     {pastOrders.map((order, idx) => (
-                      <PastOrderCard
-                        key={order.id}
-                        order={order}
-                        index={idx}
-                      />
+                      <OrderRowWithExit key={order.id}>
+                        <SwipeableOrderRow
+                          order={order}
+                          onDismiss={() => dismissOrder(order.id)}
+                        >
+                          <PastOrderCard order={order} index={idx} />
+                        </SwipeableOrderRow>
+                      </OrderRowWithExit>
                     ))}
                   </View>
                 )}
