@@ -39,7 +39,6 @@ import { useNotifications } from "../lib/notifications-context";
 import { useLocation } from "../lib/location-context";
 import { haversineDistance } from "../lib/restaurant-types";
 import { useClosedRestaurantIds } from "../hooks/useClosedRestaurantIds";
-import { useAdminMode } from "../hooks/useAdminMode";
 
 interface Restaurant {
   id: number;
@@ -63,16 +62,6 @@ export default function HostPartyScreen() {
   const { userCoords } = useLocation();
   const closedRestaurantIds = useClosedRestaurantIds();
   const { restaurantId: paramRestaurantId } = useLocalSearchParams<{ restaurantId?: string }>();
-  const { isRestaurantOwner } = useAdminMode();
-
-  // Restaurant owners cannot host or join group orders
-  useEffect(() => {
-    if (isRestaurantOwner) {
-      Alert.alert("Not Available", "Restaurant owners can't participate in group orders.", [
-        { text: "OK", onPress: () => { if (router.canGoBack()) router.back(); else router.replace("/"); } },
-      ]);
-    }
-  }, [isRestaurantOwner]);
 
   const currentUserId = session?.user?.id;
   const activeOrderKey = currentUserId

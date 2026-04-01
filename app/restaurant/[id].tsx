@@ -107,11 +107,6 @@ export default function RestaurantDetail() {
   // owners can manage their own restaurant (same controls as admin, but scoped)
   const canManage = isAdmin || (isRestaurantOwner && ownedRestaurantId === id);
   const { session } = useAuth();
-  const [restaurantOwnerId, setRestaurantOwnerId] = useState<string | null>(null);
-  const ownerOwnsCurrentRestaurant =
-    !!session?.user?.id &&
-    isRestaurantOwner &&
-    restaurantOwnerId === session.user.id;
   const ownerRoleResolved = !roleLoading;
   const { addEvent, refreshActive } = useNotifications();
   const { statusResult: hoursStatus, hours: restaurantHours, refetch: refetchRestaurantHours } = useRestaurantHours(id);
@@ -327,7 +322,6 @@ export default function RestaurantDetail() {
         { event: "UPDATE", schema: "public", table: "restaurants", filter: `id=eq.${id}` },
         (payload) => {
           const next = payload.new as SupabaseRestaurant;
-          setRestaurantOwnerId((next as any)?.owner_id ?? null);
           setRestaurant((prev) => {
             const mapped = mapSupabaseToUI(next, userCoordsRef.current ?? undefined);
             // Preserve computed distance if userCoords unavailable
@@ -380,7 +374,6 @@ export default function RestaurantDetail() {
       if (error) throw error;
       if (data) {
         setRestaurant(mapSupabaseToUI(data as SupabaseRestaurant, userCoords));
-        setRestaurantOwnerId((data as any)?.owner_id ?? null);
         // Fetch live review stats from restaurant_reviews (not the DB rating column)
         const stats = await fetchReviewStats(id);
         setLiveReviewCount(stats.count);
@@ -545,10 +538,6 @@ export default function RestaurantDetail() {
 
   const handleAddToCart = useCallback(
     (item: UIMenuItem) => {
-      if (isRestaurantOwner) {
-        Alert.alert("Not Available", "Restaurant owners can't place customer orders.");
-        return;
-      }
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -566,7 +555,7 @@ export default function RestaurantDetail() {
       });
       setSelectedItem(null);
     },
-    [isRestaurantOwner]
+    []
   );
 
   const handleUpdateQuantity = useCallback(
@@ -588,14 +577,9 @@ export default function RestaurantDetail() {
 
   const handleJoinWaitlist = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    // Restaurant owners don't join waitlists
-    if (isRestaurantOwner) {
-      Alert.alert("Not Available", "Restaurant owners can't join customer waitlists.");
-      return;
-    }
     // Always show Dine In / Takeout / Group Order — even if already on the waitlist (Dine In handles that path).
     setShowOrderTypePicker(true);
-  }, [isRestaurantOwner]);
+  }, []);
 
   const handleConfirmJoin = useCallback(async () => {
     const size = customParty.trim() !== "" ? parseInt(customParty, 10) : partySize;
@@ -732,8 +716,6 @@ export default function RestaurantDetail() {
     !!waitlistEntryParam &&
     !!existingEntry &&
     existingEntry.id === waitlistEntryParam &&
-    !isRestaurantOwner &&
-    !ownerOwnsCurrentRestaurant &&
     !isClosed &&
     !waitlistClosed;
 
@@ -750,10 +732,10 @@ export default function RestaurantDetail() {
     checkoutFromWaitlist && cartItems.length > 0;
 
   const footerPrimaryDisabled = checkoutFromWaitlist
-    ? !canSubmitWaitlistCheckout || isRestaurantOwner || ownerOwnsCurrentRestaurant
+    ? !canSubmitWaitlistCheckout
     : !ownerRoleResolved ||
-      (isRestaurantOwner ? false : isClosed || noWait || waitlistClosed) ||
-      (!isRestaurantOwner && waitlistAtOtherRestaurant);
+      (isClosed || noWait || waitlistClosed) ||
+      waitlistAtOtherRestaurant;
 
   // Show loading or error state
   if (!restaurant) {
@@ -1611,8 +1593,8 @@ export default function RestaurantDetail() {
         </View>
       </Animated.ScrollView>
 
-      {/* Sticky Footer — hidden for owners of this restaurant */}
-      {!ownerOwnsCurrentRestaurant && <View
+      {/* Sticky Footer */}
+      <View
         className="absolute bottom-0 left-0 right-0"
         style={{
           backgroundColor: "rgba(15, 15, 15, 0.97)",
@@ -1672,45 +1654,41 @@ export default function RestaurantDetail() {
               </Pressable>
             )}
 
-            {!ownerOwnsCurrentRestaurant && (
-              <View style={{ flex: 1 }}>
+            <View style={{ flex: 1 }}>
                 <Animated.View style={[joinBtnStyle]}>
                   <Pressable
                     onPress={
                       !ownerRoleResolved
                         ? undefined
-                        : isRestaurantOwner
-                          ? handleJoinWaitlist
-                          : footerPrimaryDisabled
-                            ? undefined
-                            : () => {
-                                if (checkoutFromWaitlist && canSubmitWaitlistCheckout) {
-                                  if (Platform.OS !== "web") {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                  }
-                                  setCheckoutOrderType("dine_in");
-                                  setLockCheckoutOrderType(true);
-                                  setShowCheckout(true);
-                                  return;
+                        : footerPrimaryDisabled
+                          ? undefined
+                          : () => {
+                              if (checkoutFromWaitlist && canSubmitWaitlistCheckout) {
+                                if (Platform.OS !== "web") {
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                 }
-                                if (showCheckWaitlistStatus && existingEntry) {
-                                  if (Platform.OS !== "web") {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                  }
-                                  router.push(
-                                    `/waitlist/${id}?entry_id=${existingEntry.id}&party_size=${existingEntry.party_size}` as any
-                                  );
-                                  return;
-                                }
-                                handleJoinWaitlist();
+                                setCheckoutOrderType("dine_in");
+                                setLockCheckoutOrderType(true);
+                                setShowCheckout(true);
+                                return;
                               }
+                              if (showCheckWaitlistStatus && existingEntry) {
+                                if (Platform.OS !== "web") {
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                }
+                                router.push(
+                                  `/waitlist/${id}?entry_id=${existingEntry.id}&party_size=${existingEntry.party_size}` as any
+                                );
+                                return;
+                              }
+                              handleJoinWaitlist();
+                            }
                     }
                     disabled={footerPrimaryDisabled}
                     onPressIn={() => {
                       if (!ownerRoleResolved) return;
                       if (
                         checkoutFromWaitlist ||
-                        isRestaurantOwner ||
                         showCheckWaitlistStatus ||
                         (!isClosed && !noWait && !waitlistClosed)
                       ) {
@@ -1721,7 +1699,6 @@ export default function RestaurantDetail() {
                       if (!ownerRoleResolved) return;
                       if (
                         checkoutFromWaitlist ||
-                        isRestaurantOwner ||
                         showCheckWaitlistStatus ||
                         (!isClosed && !noWait && !waitlistClosed)
                       ) {
@@ -1732,26 +1709,24 @@ export default function RestaurantDetail() {
                     style={{
                       backgroundColor: !ownerRoleResolved
                         ? "#333333"
-                        : isRestaurantOwner
+                        : footerPrimaryDisabled
                           ? "#333333"
-                          : footerPrimaryDisabled
-                            ? "#333333"
-                            : "#FF9933",
+                          : "#FF9933",
                       shadowColor: !ownerRoleResolved
                         ? "transparent"
-                        : footerPrimaryDisabled || isRestaurantOwner
+                        : footerPrimaryDisabled
                           ? "transparent"
                           : "#FF9933",
                       shadowOffset: { width: 0, height: 4 },
                       shadowOpacity: !ownerRoleResolved
                         ? 0
-                        : footerPrimaryDisabled || isRestaurantOwner
+                        : footerPrimaryDisabled
                           ? 0
                           : 0.4,
                       shadowRadius: 16,
                       elevation: !ownerRoleResolved
                         ? 0
-                        : footerPrimaryDisabled || isRestaurantOwner
+                        : footerPrimaryDisabled
                           ? 0
                           : 10,
                     }}
@@ -1784,11 +1759,9 @@ export default function RestaurantDetail() {
                         fontFamily: "BricolageGrotesque_700Bold",
                         color: !ownerRoleResolved
                           ? "#999999"
-                          : isRestaurantOwner
+                          : footerPrimaryDisabled
                             ? "#999999"
-                            : footerPrimaryDisabled
-                              ? "#999999"
-                              : "#0f0f0f",
+                            : "#0f0f0f",
                         fontSize: 17,
                         marginLeft: 8,
                       }}
@@ -1809,7 +1782,7 @@ export default function RestaurantDetail() {
                     </Text>
                   </Pressable>
                 </Animated.View>
-                {waitlistAtOtherRestaurant && !isRestaurantOwner && (
+                {waitlistAtOtherRestaurant && (
                   <Text
                     style={{
                       fontFamily: "Manrope_500Medium",
@@ -1824,10 +1797,10 @@ export default function RestaurantDetail() {
                   </Text>
                 )}
               </View>
-            )}
+            
           </View>
         </SafeAreaView>
-      </View>}
+      </View>
 
       {selectedItem && (
         <FoodDetailModal
@@ -1962,10 +1935,6 @@ export default function RestaurantDetail() {
             {/* Dine In */}
             <Pressable
               onPress={() => {
-                if (isRestaurantOwner) {
-                  Alert.alert("Not Available", "Restaurant owners can't place customer orders or join waitlists.");
-                  return;
-                }
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 setShowOrderTypePicker(false);
                 // Already on the waitlist → go to status instead of creating another entry
@@ -1980,24 +1949,24 @@ export default function RestaurantDetail() {
                 setShowPartySizePicker(true);
               }}
               style={{
-                backgroundColor: isRestaurantOwner ? "#141414" : "rgba(255,153,51,0.1)",
+                backgroundColor: "rgba(255,153,51,0.1)",
                 borderRadius: 18,
                 padding: 20,
                 marginBottom: 12,
                 flexDirection: "row",
                 alignItems: "center",
                 borderWidth: 1.5,
-                borderColor: isRestaurantOwner ? "#222" : "rgba(255,153,51,0.35)",
-                opacity: isRestaurantOwner ? 0.5 : 1,
+                borderColor: "rgba(255,153,51,0.35)",
+                opacity: 1,
               }}
             >
-              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: isRestaurantOwner ? "#1a1a1a" : "rgba(255,153,51,0.15)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
-                <UtensilsCrossed size={22} color={isRestaurantOwner ? "#555" : "#FF9933"} />
+              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: "rgba(255,153,51,0.15)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
+                <UtensilsCrossed size={22} color="#FF9933" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isRestaurantOwner ? "#555" : "#f5f5f5", fontSize: 18 }}>Dine In</Text>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>Dine In</Text>
                 <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
-                  {isRestaurantOwner ? "Not available for restaurant owners" : `Join the waitlist · ${restaurant?.waitTime != null && restaurant.waitTime > 0 ? `${restaurant.waitTime} min wait` : "No wait"}`}
+                  {`Join the waitlist · ${restaurant?.waitTime != null && restaurant.waitTime > 0 ? `${restaurant.waitTime} min wait` : "No wait"}`}
                 </Text>
               </View>
             </Pressable>
@@ -2005,10 +1974,6 @@ export default function RestaurantDetail() {
             {/* Takeout — Individual */}
             <Pressable
               onPress={() => {
-                if (isRestaurantOwner) {
-                  Alert.alert("Not Available", "Restaurant owners can't place customer orders.");
-                  return;
-                }
                 if (existingEntry) {
                   Alert.alert(
                     "Not available",
@@ -2023,24 +1988,24 @@ export default function RestaurantDetail() {
                 setShowCheckout(true);
               }}
               style={{
-                backgroundColor: isRestaurantOwner ? "#141414" : "rgba(20,184,166,0.08)",
+                backgroundColor: "rgba(20,184,166,0.08)",
                 borderRadius: 18,
                 padding: 20,
                 marginBottom: 12,
                 flexDirection: "row",
                 alignItems: "center",
                 borderWidth: 1.5,
-                borderColor: isRestaurantOwner ? "#222" : "rgba(20,184,166,0.25)",
-                opacity: isRestaurantOwner ? 0.5 : 1,
+                borderColor: "rgba(20,184,166,0.25)",
+                opacity: 1,
               }}
             >
-              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: isRestaurantOwner ? "#1a1a1a" : "rgba(20,184,166,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
-                <Truck size={22} color={isRestaurantOwner ? "#555" : "#14B8A6"} />
+              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: "rgba(20,184,166,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
+                <Truck size={22} color="#14B8A6" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isRestaurantOwner ? "#555" : "#f5f5f5", fontSize: 18 }}>Takeout</Text>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>Takeout</Text>
                 <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
-                  {isRestaurantOwner ? "Not available for restaurant owners" : "Pick up your order when ready"}
+                  Pick up your order when ready
                 </Text>
               </View>
             </Pressable>
@@ -2048,10 +2013,6 @@ export default function RestaurantDetail() {
             {/* Group Order */}
             <Pressable
               onPress={() => {
-                if (isRestaurantOwner) {
-                  Alert.alert("Not Available", "Restaurant owners can't participate in group orders.");
-                  return;
-                }
                 if (isClosed) {
                   Alert.alert("Restaurant Closed", "Group orders are not available while the restaurant is closed.");
                   return;
