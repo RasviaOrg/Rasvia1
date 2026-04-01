@@ -20,34 +20,62 @@ export function useAdminMode() {
       }
 
       try {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", session.user.id)
-          .maybeSingle();
+        const [{ data: profileData, error: profileError }, { data: isPlatformAdmin }, { data: isRestaurantAdmin }, { data: myRestaurantId }] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", session.user.id)
+            .maybeSingle(),
+          supabase.rpc("is_platform_admin"),
+          supabase.rpc("am_i_restaurant_admin"),
+          supabase.rpc("get_my_restaurant_id"),
+        ]);
 
-        if (error) {
-          console.error("Error fetching role:", error.message);
-          setIsAdmin(false);
-          setIsRestaurantOwner(false);
-        } else if (data && data.role === "admin") {
-          setIsAdmin(true);
-          setIsRestaurantOwner(false);
-        } else if (data && data.role === "restaurant_owner") {
-          setIsAdmin(false);
-          setIsRestaurantOwner(true);
-          // Fetch which restaurant this user owns
-          const { data: restData } = await supabase
-            .from("restaurants")
-            .select("id")
-            .eq("owner_id", session.user.id)
-            .maybeSingle();
-          setOwnedRestaurantId(restData ? String(restData.id) : null);
-        } else {
-          setIsAdmin(false);
-          setIsRestaurantOwner(false);
-          setOwnedRestaurantId(null);
+        if (profileError) {
+          console.error("Error fetching role:", profileError.message);
         }
+
+        const profileRole = (profileData as any)?.role as string | undefined;
+        const resolvedIsAdmin = isPlatformAdmin === true || profileRole === "admin";
+        const resolvedIsRestaurantOwner =
+          isRestaurantAdmin === true || profileRole === "restaurant_owner";
+
+        setIsAdmin(resolvedIsAdmin);
+        setIsRestaurantOwner(resolvedIsRestaurantOwner);
+
+        if (myRestaurantId != null) {
+          setOwnedRestaurantId(String(myRestaurantId));
+          return;
+        }
+
+        // Fallback for environments where helper RPCs are unavailable/misconfigured.
+        const { data: fallbackOwned } = await supabase
+          .from("restaurants")
+          .select("id")
+          .eq("owner_id", session.user.id)
+          .limit(1)
+          .maybeSingle();
+        if (fallbackOwned?.id != null) {
+          setOwnedRestaurantId(String(fallbackOwned.id));
+          return;
+        }
+
+        if (resolvedIsRestaurantOwner) {
+          const { data: fallbackStaff } = await supabase
+            .from("restaurant_staff")
+            .select("restaurant_id")
+            .eq("user_id", session.user.id)
+            .limit(1)
+            .maybeSingle();
+          setOwnedRestaurantId(
+            fallbackStaff?.restaurant_id != null
+              ? String(fallbackStaff.restaurant_id)
+              : null
+          );
+          return;
+        }
+
+        setOwnedRestaurantId(null);
       } catch (error) {
         console.error("Caught error checking admin status:", error);
         setIsAdmin(false);

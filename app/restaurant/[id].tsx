@@ -1327,7 +1327,7 @@ export default function RestaurantDetail() {
             const isTodayRestrictedDay = userDietaryType === "Non-Veg" && userRestrictedDays.includes(todayName);
             const shouldShowVeg = isVegUser || isTodayRestrictedDay;
 
-            // Halal indicator – only for users who selected Halal
+            // Halal indicator
             const isHalalUser = userDietaryType === "Halal";
             const hasHalalTag = lowerTags.some((t) => t.includes("halal"));
             const explicitAllHalal = lowerTags.some(
@@ -1341,7 +1341,8 @@ export default function RestaurantDetail() {
             const hasNonHalalHint = lowerTags.some((t) =>
               nonHalalHints.some((hint) => t.includes(hint))
             );
-            const shouldShowHalal = isHalalUser && hasHalalTag;
+            const shouldShowHalal = isHalalUser;
+            const halalSafe = hasHalalTag && !hasNonHalalHint;
 
             if (!shouldShowVeg && !shouldShowHalal) return null;
 
@@ -1395,32 +1396,34 @@ export default function RestaurantDetail() {
                     alignItems: "center",
                     gap: 5,
                     marginTop: shouldShowVeg ? 6 : 8,
-                    backgroundColor: explicitAllHalal && !hasNonHalalHint
-                      ? "rgba(22,163,74,0.10)"
-                      : "rgba(37,99,235,0.10)",
+                    backgroundColor: halalSafe
+                      ? (explicitAllHalal ? "rgba(22,163,74,0.10)" : "rgba(37,99,235,0.10)")
+                      : "rgba(245,158,11,0.10)",
                     borderRadius: 10,
                     paddingHorizontal: 10,
                     paddingVertical: 6,
                     alignSelf: "flex-start",
                     borderWidth: 1,
-                    borderColor: explicitAllHalal && !hasNonHalalHint
-                      ? "rgba(22,163,74,0.35)"
-                      : "rgba(37,99,235,0.35)",
+                    borderColor: halalSafe
+                      ? (explicitAllHalal ? "rgba(22,163,74,0.35)" : "rgba(37,99,235,0.35)")
+                      : "rgba(245,158,11,0.35)",
                   }}>
                     <ShieldCheck
                       size={12}
-                      color={explicitAllHalal && !hasNonHalalHint ? "#22C55E" : "#60A5FA"}
+                      color={halalSafe ? (explicitAllHalal ? "#22C55E" : "#60A5FA") : "#F59E0B"}
                     />
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: explicitAllHalal && !hasNonHalalHint ? "#22C55E" : "#60A5FA",
+                        color: halalSafe ? (explicitAllHalal ? "#22C55E" : "#60A5FA") : "#F59E0B",
                         fontSize: 12,
                       }}
                     >
-                      {explicitAllHalal && !hasNonHalalHint
-                        ? "This restaurant is fully halal"
-                        : "This restaurant has halal options and may contain non-halal items"}
+                      {halalSafe
+                        ? (explicitAllHalal
+                          ? "This restaurant is fully halal"
+                          : "This restaurant has halal options")
+                        : "No halal marker found. Ask staff before ordering."}
                     </Text>
                   </View>
                 )}

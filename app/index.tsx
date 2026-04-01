@@ -10,11 +10,12 @@ import {
   Platform,
   RefreshControl,
   Animated as RNAnimated,
+  ActivityIndicator,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2 } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -222,6 +223,9 @@ export default function DiscoveryFeed() {
   const [refreshing, setRefreshing] = useState(false);
   const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
   const [announcementBanner, setAnnouncementBanner] = useState("");
+  const [userDietaryType, setUserDietaryType] = useState("");
+  const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
+  const [ownerHomeMode, setOwnerHomeMode] = useState<"discover" | "dashboard">("discover");
 
   // Owners see their dashboard inline — no redirect needed
 
@@ -309,6 +313,49 @@ export default function DiscoveryFeed() {
   useEffect(() => {
     fetchFavoriteRestaurantIds();
   }, [fetchFavoriteRestaurantIds]);
+
+  const fetchDietaryPreferences = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setUserDietaryType("");
+      setUserRestrictedDays([]);
+      return;
+    }
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("dietary_type, restricted_days")
+        .eq("id", userId)
+        .single();
+      setUserDietaryType((data as any)?.dietary_type ?? "");
+      setUserRestrictedDays(((data as any)?.restricted_days as string[]) ?? []);
+    } catch {
+      setUserDietaryType("");
+      setUserRestrictedDays([]);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    fetchDietaryPreferences();
+  }, [fetchDietaryPreferences]);
+
+  useEffect(() => {
+    if (!isRestaurantOwner) return;
+    AsyncStorage.getItem("rasvia:owner-home-mode:v1")
+      .then((saved) => {
+        if (saved === "discover" || saved === "dashboard") {
+          setOwnerHomeMode(saved);
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+  }, [isRestaurantOwner]);
+
+  const setOwnerMode = useCallback((mode: "discover" | "dashboard") => {
+    setOwnerHomeMode(mode);
+    void AsyncStorage.setItem("rasvia:owner-home-mode:v1", mode);
+  }, []);
 
 
   async function fetchRestaurants() {
@@ -673,8 +720,52 @@ export default function DiscoveryFeed() {
   });
 
   const parseDist = (d: string) => parseFloat(d) || 9999;
+  const lower = (v: string) => v.trim().toLowerCase();
+  const todayName = new Date().toLocaleDateString("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "short",
+  });
+  const isVegSortMode =
+    userDietaryType === "Vegetarian" ||
+    (userDietaryType === "Non-Veg" && userRestrictedDays.includes(todayName));
+  const isHalalSortMode = userDietaryType === "Halal";
+
+  const dietarySortScore = (restaurant: UIRestaurant) => {
+    const tags = (restaurant.tags ?? []).map(lower);
+    const hasVegetarianTag = tags.some(
+      (t) => t.includes("vegetarian") || t.includes("vegan") || t === "veg"
+    );
+    const hasHalalTag = tags.some((t) => t.includes("halal"));
+    const explicitAllHalal = tags.some(
+      (t) =>
+        t.includes("all halal") ||
+        t.includes("100% halal") ||
+        t.includes("fully halal") ||
+        t.includes("only halal")
+    );
+    const hasNonHalalHint = tags.some(
+      (t) =>
+        t.includes("non-halal") ||
+        t.includes("non halal") ||
+        t.includes("pork") ||
+        t.includes("alcohol") ||
+        t.includes("beer") ||
+        t.includes("wine")
+    );
+
+    if (isVegSortMode) return hasVegetarianTag ? 2 : -2;
+    if (isHalalSortMode) {
+      if (explicitAllHalal && !hasNonHalalHint) return 3;
+      if (hasHalalTag) return 1;
+      if (hasNonHalalHint) return -3;
+      return -1;
+    }
+    return 0;
+  };
 
   const nearbyRestaurants = [...filteredRestaurants].sort((a, b) => {
+    const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
+    if (scoreDelta !== 0) return scoreDelta;
     if (activeFilter !== "all") {
       const aw = a.waitTime ?? 9999;
       const bw = b.waitTime ?? 9999;
@@ -686,11 +777,20 @@ export default function DiscoveryFeed() {
 
   const trendingRestaurants = restaurantsWithHoursStatus
     .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
+    .sort((a, b) => {
+      const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
+      if (scoreDelta !== 0) return scoreDelta;
+      return (a.waitTime ?? 9999) - (b.waitTime ?? 9999);
+    })
     .slice(0, 3);
   
-  const quickBites = restaurantsWithHoursStatus.filter((r) => 
-    (isAdmin || r.isEnabled) && r.waitStatus === "green"
-  );
+  const quickBites = restaurantsWithHoursStatus
+    .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus === "green")
+    .sort((a, b) => {
+      const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
+      if (scoreDelta !== 0) return scoreDelta;
+      return parseDist(a.distance) - parseDist(b.distance);
+    });
 
   const favoritesRestaurants = restaurantsWithHoursStatus
     .filter((r) => (isAdmin || r.isEnabled) && favoriteRestaurantIds.includes(Number(r.id)))
@@ -723,6 +823,21 @@ export default function DiscoveryFeed() {
     }
     setActiveFilter(filter);
   }, []);
+
+  const isOwnerDashboardMode = isRestaurantOwner && ownerHomeMode === "dashboard";
+  const shouldShowFeedLoader =
+    roleLoading || ((!isRestaurantOwner || ownerHomeMode === "discover") && loading);
+
+  if (shouldShowFeedLoader) {
+    return (
+      <View className="flex-1 bg-rasvia-black" style={{ alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" color="#FF9933" />
+        <Text style={{ marginTop: 12, color: "#888", fontFamily: "Manrope_500Medium", fontSize: 13 }}>
+          Loading your feed...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-rasvia-black">
@@ -765,7 +880,7 @@ export default function DiscoveryFeed() {
               className="mr-3"
               onPress={() => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (isRestaurantOwner && ownedRestaurantId) {
+                if (isOwnerDashboardMode && ownedRestaurantId) {
                   router.push(`/restaurant/${ownedRestaurantId}` as any);
                 } else {
                   setShowSearch(true);
@@ -782,7 +897,7 @@ export default function DiscoveryFeed() {
                 borderColor: "#2a2a2a",
               }}
             >
-              {isRestaurantOwner
+              {isOwnerDashboardMode
                 ? <UtensilsCrossed size={20} color="#f5f5f5" />
                 : <Search size={20} color="#f5f5f5" />
               }
@@ -882,8 +997,52 @@ export default function DiscoveryFeed() {
           </View>
         </Animated.View>
 
+        {isRestaurantOwner && (
+          <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 }}>
+            <View style={{
+              backgroundColor: "#141414",
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+              borderRadius: 14,
+              padding: 4,
+              flexDirection: "row",
+              alignItems: "center",
+            }}>
+              {(["discover", "dashboard"] as const).map((mode) => {
+                const active = ownerHomeMode === mode;
+                return (
+                  <Pressable
+                    key={mode}
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      setOwnerMode(mode);
+                    }}
+                    style={{
+                      flex: 1,
+                      borderRadius: 10,
+                      paddingVertical: 10,
+                      alignItems: "center",
+                      backgroundColor: active ? "rgba(255,153,51,0.14)" : "transparent",
+                      borderWidth: active ? 1 : 0,
+                      borderColor: active ? "rgba(255,153,51,0.35)" : "transparent",
+                    }}
+                  >
+                    <Text style={{
+                      fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
+                      fontSize: 12,
+                      color: active ? "#FF9933" : "#888",
+                    }}>
+                      {mode === "discover" ? "Discover Mode" : "Owner Dashboard"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         {/* ── Owner home content (replaces discovery feed) ── */}
-        {isRestaurantOwner ? (
+        {isOwnerDashboardMode ? (
           <OwnerHomeContent
             refreshing={refreshing}
             onRefreshSignal={() => {
@@ -906,6 +1065,7 @@ export default function DiscoveryFeed() {
                 Promise.all([
                   fetchRestaurants(),
                   fetchFavoriteRestaurantIds(),
+                  fetchDietaryPreferences(),
                   fetchAnnouncementBanner(),
                   fetchLiveOrder(),
                   fetchLiveWaitlist(),
@@ -1004,6 +1164,33 @@ export default function DiscoveryFeed() {
                   lineHeight: 20,
                 }}>
                   {announcementBanner}
+                </Text>
+              </View>
+            </Animated.View>
+          )}
+
+          {(isVegSortMode || isHalalSortMode) && (
+            <Animated.View entering={FadeInDown.duration(350)} style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 2 }}>
+              <View style={{
+                backgroundColor: "rgba(26,26,26,0.95)",
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: isVegSortMode ? "rgba(34,197,94,0.3)" : "rgba(96,165,250,0.35)",
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                {isVegSortMode ? (
+                  <Leaf size={14} color="#22C55E" />
+                ) : (
+                  <ShieldCheck size={14} color="#60A5FA" />
+                )}
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12, flex: 1 }}>
+                  {isVegSortMode
+                    ? "Sorted for vegetarian-friendly options first."
+                    : "Sorted for halal-friendly options first."}
                 </Text>
               </View>
             </Animated.View>
@@ -1540,7 +1727,11 @@ export default function DiscoveryFeed() {
                       marginTop: 2,
                     }}
                   >
-                    Filter by wait time
+                    {isVegSortMode
+                      ? "Vegetarian-friendly spots prioritized"
+                      : isHalalSortMode
+                        ? "Halal-friendly spots prioritized"
+                        : "Filter by wait time"}
                   </Text>
                 </View>
                 <FilterBar

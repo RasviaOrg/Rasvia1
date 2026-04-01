@@ -43,6 +43,7 @@ const toHHMM = (value: string | null | undefined, fallback: string) => {
 
 const toDbTime = (hhmm: string) => `${hhmm}:00`;
 const validHHMM = (value: string) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+const normalizeTag = (value: string) => value.trim().toLowerCase();
 
 export function RestaurantEditModal({
   restaurantId,
@@ -58,6 +59,8 @@ export function RestaurantEditModal({
   const [address, setAddress] = useState(initial?.address ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [cuisine, setCuisine] = useState(initial?.cuisine ?? "");
+  const [isHalalTagged, setIsHalalTagged] = useState(true);
+  const [isVegetarianTagged, setIsVegetarianTagged] = useState(false);
 
   const [mode, setMode] = useState<Mode>(openHoursOnMount ? "hours" : "details");
   const [saving, setSaving] = useState(false);
@@ -74,6 +77,17 @@ export function RestaurantEditModal({
     setAddress(initial?.address ?? "");
     setDescription(initial?.description ?? "");
     setCuisine(initial?.cuisine ?? "");
+    const parsedTags = (initial?.cuisine ?? "")
+      .split(",")
+      .map(normalizeTag)
+      .filter(Boolean);
+    const hasHalal = parsedTags.some((t) => t.includes("halal"));
+    const hasVegetarian = parsedTags.some(
+      (t) => t.includes("vegetarian") || t.includes("vegan") || t === "veg"
+    );
+    // Product defaults requested by owner flow.
+    setIsHalalTagged(parsedTags.length === 0 ? true : hasHalal);
+    setIsVegetarianTagged(hasVegetarian);
   }, [initial]);
 
   const fetchHours = async () => {
@@ -152,6 +166,21 @@ export function RestaurantEditModal({
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
+      const filteredCustomTags = cuisineTags.filter((tag) => {
+        const n = normalizeTag(tag);
+        return !(
+          n.includes("halal") ||
+          n.includes("vegetarian") ||
+          n.includes("vegan") ||
+          n === "veg"
+        );
+      });
+      const nextTags = [...filteredCustomTags];
+      if (isHalalTagged) nextTags.push("halal");
+      if (isVegetarianTagged) nextTags.push("vegetarian");
+      const dedupedTags = Array.from(
+        new Map(nextTags.map((tag) => [normalizeTag(tag), tag.trim()])).values()
+      );
 
       const { error } = await supabase
         .from("restaurants")
@@ -159,7 +188,7 @@ export function RestaurantEditModal({
           name: name.trim(),
           address: address.trim() || null,
           description: description.trim() || null,
-          cuisine_tags: cuisineTags.length > 0 ? cuisineTags : null,
+          cuisine_tags: dedupedTags.length > 0 ? dedupedTags : null,
         })
         .eq("id", Number(restaurantId));
 
@@ -169,7 +198,7 @@ export function RestaurantEditModal({
         name: name.trim(),
         address: address.trim(),
         description: description.trim(),
-        cuisine: cuisineTags.join(", "),
+        cuisine: dedupedTags.join(", "),
       });
     } catch (err: any) {
       Alert.alert("Error", err.message || "Failed to save changes.");
@@ -345,6 +374,49 @@ export function RestaurantEditModal({
                   <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11, marginTop: 6, marginLeft: 2 }}>
                     Separate multiple tags with commas
                   </Text>
+                </View>
+                <View style={{ marginBottom: 22 }}>
+                  <Text style={labelStyle}>Dietary Tags</Text>
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <Pressable
+                      onPress={() => {
+                        haptic();
+                        setIsHalalTagged((prev) => !prev);
+                      }}
+                      style={{
+                        flex: 1,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: isHalalTagged ? "rgba(37,99,235,0.45)" : "#2a2a2a",
+                        backgroundColor: isHalalTagged ? "rgba(37,99,235,0.14)" : "#121212",
+                        paddingVertical: 12,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: isHalalTagged ? "#60A5FA" : "#888" }}>
+                        HALAL {isHalalTagged ? "ON" : "OFF"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        haptic();
+                        setIsVegetarianTagged((prev) => !prev);
+                      }}
+                      style={{
+                        flex: 1,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: isVegetarianTagged ? "rgba(34,197,94,0.45)" : "#2a2a2a",
+                        backgroundColor: isVegetarianTagged ? "rgba(34,197,94,0.14)" : "#121212",
+                        paddingVertical: 12,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: isVegetarianTagged ? "#22C55E" : "#888" }}>
+                        VEGETARIAN {isVegetarianTagged ? "ON" : "OFF"}
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
 
                 <Pressable

@@ -197,7 +197,7 @@ function AuthGate() {
       <Stack.Screen name="auth" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="email-verify" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen
         name="restaurant/[id]"
         options={{ headerShown: false, animation: "slide_from_right" }}

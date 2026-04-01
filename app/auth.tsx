@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
     View,
     Text,
@@ -15,6 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Mail, Lock, Eye, EyeOff, Phone, ArrowLeft } from "lucide-react-native";
+import { FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -84,6 +85,21 @@ export default function AuthScreen() {
     const btnStyle = useAnimatedStyle(() => ({
         transform: [{ scale: btnScale.value }],
     }));
+
+    useEffect(() => {
+        // Warm these routes early to reduce post-auth transition hitching.
+        try {
+            router.prefetch("/" as any);
+            router.prefetch("/onboarding" as any);
+        } catch {
+            // no-op on unsupported platforms
+        }
+    }, [router]);
+
+    const clearField = (setter: (v: string) => void) => () => {
+        setter("");
+        if (Platform.OS !== "web") Haptics.selectionAsync();
+    };
 
     function parseOAuthCallback(url: string): {
         accessToken?: string;
@@ -556,7 +572,7 @@ export default function AuthScreen() {
                         >
                             Phone number or email *
                         </Text>
-                        <TextInput
+                        <View
                             style={{
                                 backgroundColor: "#262626",
                                 borderRadius: 16,
@@ -564,23 +580,39 @@ export default function AuthScreen() {
                                 borderColor: "#333333",
                                 paddingHorizontal: 16,
                                 height: 56,
-                                color: "#f5f5f5",
-                                fontFamily: "Manrope_500Medium",
-                                fontSize: 16,
                                 marginBottom: 14,
+                                flexDirection: "row",
+                                alignItems: "center",
                             }}
-                            placeholder="you@email.com or (555) 000-0000"
-                            placeholderTextColor="#666666"
-                            value={identifierInput}
-                            onChangeText={setIdentifierInput}
-                            onFocus={() => {
-                                if (Platform.OS !== "web") Haptics.selectionAsync();
-                            }}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                            autoComplete="email"
-                        />
+                        >
+                            <TextInput
+                                style={{
+                                    flex: 1,
+                                    color: "#f5f5f5",
+                                    fontFamily: "Manrope_500Medium",
+                                    fontSize: 16,
+                                }}
+                                placeholder="you@email.com or (555) 000-0000"
+                                placeholderTextColor="#666666"
+                                value={identifierInput}
+                                onChangeText={setIdentifierInput}
+                                onFocus={() => {
+                                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                                }}
+                                onSubmitEditing={handleIdentifierContinue}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                autoComplete="email"
+                                returnKeyType="continue"
+                                keyboardAppearance="dark"
+                            />
+                            {!!identifierInput && (
+                                <Pressable onPress={clearField(setIdentifierInput)} hitSlop={10}>
+                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 18 }}>×</Text>
+                                </Pressable>
+                            )}
+                        </View>
 
                         <Text
                             style={{
@@ -676,16 +708,12 @@ export default function AuthScreen() {
                                         style={{
                                             width: 24,
                                             height: 24,
-                                            borderRadius: 12,
-                                            backgroundColor: "#ffffff",
                                             alignItems: "center",
                                             justifyContent: "center",
                                             marginRight: 10,
                                         }}
                                     >
-                                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#4285F4", fontSize: 14 }}>
-                                            G
-                                        </Text>
+                                        <FontAwesome5 name="google" size={16} color="#EA4335" />
                                     </View>
                                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 15 }}>
                                         Continue with Google
@@ -762,9 +790,17 @@ export default function AuthScreen() {
                                 onFocus={() => {
                                     if (Platform.OS !== "web") Haptics.selectionAsync();
                                 }}
+                                onSubmitEditing={handleSignInWithPassword}
                                 secureTextEntry={!showPassword}
                                 autoCapitalize="none"
+                                returnKeyType="go"
+                                keyboardAppearance="dark"
                             />
+                            {!!password && (
+                                <Pressable onPress={clearField(setPassword)} hitSlop={10} style={{ marginRight: 10 }}>
+                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 18 }}>×</Text>
+                                </Pressable>
+                            )}
                             <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
                                 {showPassword ? <EyeOff size={18} color="#999999" /> : <Eye size={18} color="#999999" />}
                             </Pressable>
@@ -943,7 +979,13 @@ export default function AuthScreen() {
                                             }}
                                             autoCapitalize="words"
                                             autoCorrect={false}
+                                            keyboardAppearance="dark"
                                         />
+                                        {!!firstName && (
+                                            <Pressable onPress={clearField(setFirstName)} hitSlop={10}>
+                                                <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 18 }}>×</Text>
+                                            </Pressable>
+                                        )}
                                     </View>
                                     <View
                                         style={{
@@ -976,7 +1018,13 @@ export default function AuthScreen() {
                                             maxLength={1}
                                             autoCapitalize="characters"
                                             autoCorrect={false}
+                                            keyboardAppearance="dark"
                                         />
+                                        {!!lastInitial && (
+                                            <Pressable onPress={clearField(setLastInitial)} hitSlop={8}>
+                                                <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 14 }}>×</Text>
+                                            </Pressable>
+                                        )}
                                     </View>
                                 </View>
                                 <Text
@@ -1023,7 +1071,13 @@ export default function AuthScreen() {
                                         keyboardType="phone-pad"
                                         autoCapitalize="none"
                                         autoCorrect={false}
+                                        keyboardAppearance="dark"
                                     />
+                                    {!!phone && (
+                                        <Pressable onPress={clearField(setPhone)} hitSlop={10}>
+                                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 18 }}>×</Text>
+                                        </Pressable>
+                                    )}
                                 </View>
 
                                 <View
@@ -1058,7 +1112,13 @@ export default function AuthScreen() {
                                         keyboardType="email-address"
                                         autoCapitalize="none"
                                         autoCorrect={false}
+                                        keyboardAppearance="dark"
                                     />
+                                    {!!email && (
+                                        <Pressable onPress={clearField(setEmail)} hitSlop={10}>
+                                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 18 }}>×</Text>
+                                        </Pressable>
+                                    )}
                                 </View>
 
                                 <View
@@ -1092,7 +1152,13 @@ export default function AuthScreen() {
                                         }}
                                         secureTextEntry={!showPassword}
                                         autoCapitalize="none"
+                                        keyboardAppearance="dark"
                                     />
+                                    {!!password && (
+                                        <Pressable onPress={clearField(setPassword)} hitSlop={10} style={{ marginRight: 10 }}>
+                                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 18 }}>×</Text>
+                                        </Pressable>
+                                    )}
                                     <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
                                         {showPassword ? (
                                             <EyeOff size={18} color="#999999" />

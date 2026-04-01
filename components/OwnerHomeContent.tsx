@@ -23,9 +23,9 @@ import {
     Minus,
     Plus,
     X,
-    DollarSign,
     BarChart3,
     Settings,
+    SlidersHorizontal,
 } from "lucide-react-native";
 import { RestaurantEditModal } from "@/components/RestaurantEditModal";
 import * as Haptics from "expo-haptics";
@@ -59,6 +59,13 @@ type OrderItem = {
     name: string;
     quantity: number;
     price: number;
+};
+
+type PulseItemBreakdown = {
+    name: string;
+    quantity: number;
+    revenue: number;
+    orderCount: number;
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -432,6 +439,269 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
     );
 }
 
+function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; onClose: () => void }) {
+    const [orders, setOrders] = useState<Order[]>([]);
+    const [items, setItems] = useState<PulseItemBreakdown[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [viewMode, setViewMode] = useState<"items" | "orders">("items");
+    const [itemSort, setItemSort] = useState<"revenue" | "quantity" | "name">("revenue");
+    const [orderSort, setOrderSort] = useState<"amount" | "time">("amount");
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+    useEffect(() => {
+        const fetchBreakdown = async () => {
+            setLoading(true);
+            try {
+                const { data: todayOrdersData } = await supabase
+                    .from("orders")
+                    .select("id, customer_name, status, subtotal, created_at, order_type")
+                    .eq("restaurant_id", restaurantId)
+                    .gte("created_at", todayStart())
+                    .neq("status", "cancelled");
+
+                const parsedOrders = ((todayOrdersData as Order[]) ?? []).filter(
+                    (o) => o.status !== "cancelled"
+                );
+                setOrders(parsedOrders);
+
+                if (parsedOrders.length === 0) {
+                    setItems([]);
+                    return;
+                }
+
+                const { data: orderItemsData } = await supabase
+                    .from("order_items")
+                    .select("order_id, name, quantity, price")
+                    .in("order_id", parsedOrders.map((o) => o.id));
+
+                const agg = new Map<string, PulseItemBreakdown>();
+                const byOrder = new Map<string, Set<number>>();
+
+                for (const row of ((orderItemsData as any[]) ?? [])) {
+                    const rawName = String(row.name ?? "").trim();
+                    if (!rawName) continue;
+                    const key = rawName.toLowerCase();
+                    const quantity = Number(row.quantity ?? 0);
+                    const price = Number(row.price ?? 0);
+                    const orderId = Number(row.order_id);
+
+                    const existing = agg.get(key) ?? {
+                        name: rawName,
+                        quantity: 0,
+                        revenue: 0,
+                        orderCount: 0,
+                    };
+                    existing.quantity += quantity;
+                    existing.revenue += quantity * price;
+                    agg.set(key, existing);
+
+                    const seenOrders = byOrder.get(key) ?? new Set<number>();
+                    seenOrders.add(orderId);
+                    byOrder.set(key, seenOrders);
+                }
+
+                const itemList = Array.from(agg.entries()).map(([key, value]) => ({
+                    ...value,
+                    orderCount: byOrder.get(key)?.size ?? 0,
+                }));
+                setItems(itemList);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchBreakdown();
+    }, [restaurantId]);
+
+    const sortedItems = [...items].sort((a, b) => {
+        if (itemSort === "revenue") return b.revenue - a.revenue;
+        if (itemSort === "quantity") return b.quantity - a.quantity;
+        return a.name.localeCompare(b.name);
+    });
+
+    const sortedOrders = [...orders].sort((a, b) => {
+        if (orderSort === "amount") return (b.subtotal ?? 0) - (a.subtotal ?? 0);
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    const totalRevenue = orders.reduce((sum, order) => sum + (order.subtotal ?? 0), 0);
+    const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+
+    return (
+        <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top", "bottom"]}>
+                <View style={{
+                    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                    paddingHorizontal: 20, paddingVertical: 16,
+                    borderBottomWidth: 1, borderBottomColor: "#2a2a2a",
+                }}>
+                    <View>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                            Today's Breakdown
+                        </Text>
+                        <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#777", marginTop: 3 }}>
+                            Excludes cancelled orders
+                        </Text>
+                    </View>
+                    <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
+                        <X size={22} color="#aaa" />
+                    </Pressable>
+                </View>
+
+                {loading ? (
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                        <ActivityIndicator size="large" color={ORANGE} />
+                    </View>
+                ) : (
+                    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }}>
+                        <View style={{ ...CARD, padding: 16, marginBottom: 14 }}>
+                            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                                <View>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#666" }}>Orders</Text>
+                                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 28, color: ORANGE }}>{orders.length}</Text>
+                                </View>
+                                <View>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#666", textAlign: "right" }}>Revenue</Text>
+                                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 28, color: "#22C55E" }}>
+                                        ${totalRevenue.toFixed(0)}
+                                    </Text>
+                                </View>
+                            </View>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#888", marginTop: 6 }}>
+                                {totalItems} items sold today
+                            </Text>
+                        </View>
+
+                        <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                            {(["items", "orders"] as const).map((mode) => {
+                                const active = viewMode === mode;
+                                return (
+                                    <Pressable
+                                        key={mode}
+                                        onPress={() => {
+                                            if (Platform.OS !== "web") Haptics.selectionAsync();
+                                            setViewMode(mode);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            borderRadius: 12,
+                                            borderWidth: 1,
+                                            borderColor: active ? "#FF9933" : "#2a2a2a",
+                                            backgroundColor: active ? "rgba(255,153,51,0.14)" : "#141414",
+                                            paddingVertical: 10,
+                                            alignItems: "center",
+                                        }}
+                                    >
+                                        <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? "#FF9933" : "#888" }}>
+                                            {mode === "items" ? "BY ITEM" : "BY ORDER"}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                            <SlidersHorizontal size={14} color="#777" />
+                            {viewMode === "items" ? (
+                                (["revenue", "quantity", "name"] as const).map((key) => {
+                                    const active = itemSort === key;
+                                    return (
+                                        <Pressable
+                                            key={key}
+                                            onPress={() => setItemSort(key)}
+                                            style={{
+                                                borderRadius: 999,
+                                                borderWidth: 1,
+                                                borderColor: active ? "#FF9933" : "#2a2a2a",
+                                                backgroundColor: active ? "rgba(255,153,51,0.12)" : "#141414",
+                                                paddingHorizontal: 10,
+                                                paddingVertical: 6,
+                                            }}
+                                        >
+                                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: active ? "#FF9933" : "#888" }}>
+                                                {key === "revenue" ? "Revenue" : key === "quantity" ? "Qty" : "Name"}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })
+                            ) : (
+                                (["amount", "time"] as const).map((key) => {
+                                    const active = orderSort === key;
+                                    return (
+                                        <Pressable
+                                            key={key}
+                                            onPress={() => setOrderSort(key)}
+                                            style={{
+                                                borderRadius: 999,
+                                                borderWidth: 1,
+                                                borderColor: active ? "#FF9933" : "#2a2a2a",
+                                                backgroundColor: active ? "rgba(255,153,51,0.12)" : "#141414",
+                                                paddingHorizontal: 10,
+                                                paddingVertical: 6,
+                                            }}
+                                        >
+                                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: active ? "#FF9933" : "#888" }}>
+                                                {key === "amount" ? "Amount" : "Newest"}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })
+                            )}
+                        </View>
+
+                        {viewMode === "items" ? (
+                            <View style={{ ...CARD, overflow: "hidden", paddingVertical: 2 }}>
+                                {sortedItems.length === 0 ? (
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
+                                        No sold items yet today
+                                    </Text>
+                                ) : sortedItems.map((item, index) => (
+                                    <View
+                                        key={`${item.name}-${index}`}
+                                        style={{
+                                            paddingHorizontal: 16,
+                                            paddingVertical: 12,
+                                            borderBottomWidth: index < sortedItems.length - 1 ? 1 : 0,
+                                            borderBottomColor: "#252525",
+                                        }}
+                                    >
+                                        <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14 }}>{item.name}</Text>
+                                        <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 5 }}>
+                                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12 }}>
+                                                {item.quantity} sold · {item.orderCount} orders
+                                            </Text>
+                                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#22C55E", fontSize: 13 }}>
+                                                ${item.revenue.toFixed(2)}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={{ ...CARD, overflow: "hidden", paddingVertical: 2 }}>
+                                {sortedOrders.length === 0 ? (
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
+                                        No qualifying orders yet today
+                                    </Text>
+                                ) : sortedOrders.map((order, index) => (
+                                    <OrderListRow
+                                        key={order.id}
+                                        order={order}
+                                        isLast={index === sortedOrders.length - 1}
+                                        onPress={() => setSelectedOrder(order)}
+                                    />
+                                ))}
+                            </View>
+                        )}
+                    </ScrollView>
+                )}
+
+                {selectedOrder && <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />}
+            </SafeAreaView>
+        </Modal>
+    );
+}
+
 // ── Main Export ──────────────────────────────────────────────────────────────
 export function OwnerHomeContent({
     refreshing,
@@ -464,6 +734,7 @@ export function OwnerHomeContent({
     const [showAllOrders, setShowAllOrders] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [showHoursSettings, setShowHoursSettings] = useState(false);
+    const [showPulseBreakdown, setShowPulseBreakdown] = useState(false);
 
     const fetchData = useCallback(async () => {
         if (!ownedRestaurantId) return;
@@ -490,7 +761,8 @@ export function OwnerHomeContent({
                     .from("orders")
                     .select("id, subtotal")
                     .eq("restaurant_id", ownedRestaurantId)
-                    .gte("created_at", todayStart()),
+                    .gte("created_at", todayStart())
+                    .neq("status", "cancelled"),
                 supabase
                     .from("restaurant_hours")
                     .select("day_of_week, open_time, close_time")
@@ -619,16 +891,86 @@ export function OwnerHomeContent({
                     />
                 }
             >
-                {/* ── Restaurant Name ── */}
-                <Text style={{
-                    fontFamily: "BricolageGrotesque_800ExtraBold",
-                    fontSize: 26,
-                    color: ORANGE,
-                    letterSpacing: -0.3,
-                    marginBottom: 16,
-                }} numberOfLines={1}>
-                    {restaurant?.name ?? ""}
-                </Text>
+                {/* ── Owner Hub Hero ── */}
+                <View style={{
+                    backgroundColor: "#161616",
+                    borderWidth: 1,
+                    borderColor: "#2d2d2d",
+                    borderRadius: 18,
+                    padding: 16,
+                    marginBottom: 14,
+                }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                        <View style={{ flex: 1, marginRight: 10 }}>
+                            <Text style={{
+                                fontFamily: "BricolageGrotesque_800ExtraBold",
+                                fontSize: 26,
+                                color: ORANGE,
+                                letterSpacing: -0.3,
+                            }} numberOfLines={1}>
+                                {restaurant?.name ?? ""}
+                            </Text>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#888", marginTop: 3 }}>
+                                Owner Hub
+                            </Text>
+                        </View>
+                        <View style={{
+                            backgroundColor: "rgba(255,153,51,0.14)",
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: "rgba(255,153,51,0.35)",
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                        }}>
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 10, color: ORANGE, letterSpacing: 0.4 }}>
+                                LIVE
+                            </Text>
+                        </View>
+                    </View>
+
+                    <View style={{ flexDirection: "row", gap: 10 }}>
+                        <Pressable
+                            onPress={() => {
+                                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setShowHoursSettings(true);
+                            }}
+                            style={({ pressed }) => ({
+                                flex: 1,
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                borderColor: "rgba(255,153,51,0.30)",
+                                backgroundColor: "rgba(255,153,51,0.12)",
+                                paddingVertical: 11,
+                                alignItems: "center",
+                                opacity: pressed ? 0.85 : 1,
+                            })}
+                        >
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: ORANGE }}>
+                                Manage Timings
+                            </Text>
+                        </Pressable>
+                        <Pressable
+                            onPress={() => {
+                                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setShowPulseBreakdown(true);
+                            }}
+                            style={({ pressed }) => ({
+                                flex: 1,
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                borderColor: "rgba(34,197,94,0.30)",
+                                backgroundColor: "rgba(34,197,94,0.10)",
+                                paddingVertical: 11,
+                                alignItems: "center",
+                                opacity: pressed ? 0.85 : 1,
+                            })}
+                        >
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: "#22C55E" }}>
+                                View Breakdown
+                            </Text>
+                        </Pressable>
+                    </View>
+                </View>
 
                 {/* ── Timings Banner ── */}
                 <TimingsBanner
@@ -793,32 +1135,113 @@ export function OwnerHomeContent({
 
                 {/* ── Section 2: Today's Pulse ── */}
                 <View style={{ marginBottom: 20 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                        <BarChart3 size={18} color={ORANGE} />
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
-                            Today's Pulse
-                        </Text>
-                    </View>
-                    <View style={{ flexDirection: "row", gap: 10 }}>
-                        <View style={{ ...CARD, flex: 1, padding: 16, alignItems: "center" }}>
-                            <ShoppingBag size={17} color={ORANGE} style={{ marginBottom: 8 }} />
-                            <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 28, color: ORANGE }}>
-                                {todayOrderCount ?? "—"}
-                            </Text>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#666", marginTop: 4, textAlign: "center" }}>
-                                Orders
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <BarChart3 size={18} color={ORANGE} />
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                Today's Pulse
                             </Text>
                         </View>
-                        <View style={{ ...CARD, flex: 1, padding: 16, alignItems: "center" }}>
-                            <DollarSign size={17} color="#22C55E" style={{ marginBottom: 8 }} />
-                            <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 28, color: "#22C55E" }}>
-                                {todayRevenue != null ? `$${todayRevenue.toFixed(0)}` : "—"}
+                        <Pressable
+                            onPress={() => {
+                                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setShowPulseBreakdown(true);
+                            }}
+                            hitSlop={10}
+                            style={({ pressed }) => ({
+                                opacity: pressed ? 0.65 : 1,
+                                backgroundColor: "rgba(255,153,51,0.15)",
+                                borderColor: "rgba(255,153,51,0.35)",
+                                borderWidth: 1,
+                                borderRadius: 999,
+                                paddingHorizontal: 12,
+                                paddingVertical: 7,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 6,
+                            })}
+                        >
+                            <BarChart3 size={13} color={ORANGE} />
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: ORANGE }}>
+                                Breakdown
                             </Text>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#666", marginTop: 4, textAlign: "center" }}>
-                                Revenue
-                            </Text>
-                        </View>
+                        </Pressable>
                     </View>
+                    <Pressable
+                        onPress={() => {
+                            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setShowPulseBreakdown(true);
+                        }}
+                        style={({ pressed }) => ({
+                            backgroundColor: "#171717",
+                            borderWidth: 1,
+                            borderColor: "#303030",
+                            borderRadius: 18,
+                            padding: 16,
+                            opacity: pressed ? 0.94 : 1,
+                        })}
+                    >
+                        <View style={{ flexDirection: "row", gap: 10 }}>
+                            <View style={{
+                                flex: 1,
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                borderColor: "rgba(255,153,51,0.26)",
+                                backgroundColor: "rgba(255,153,51,0.08)",
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                            }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                                    <ShoppingBag size={14} color={ORANGE} />
+                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: "#aaa" }}>
+                                        Orders
+                                    </Text>
+                                </View>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 24, color: "#f5f5f5" }}>
+                                    {todayOrderCount ?? "—"}
+                                </Text>
+                            </View>
+                            <View style={{
+                                flex: 1,
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                borderColor: "rgba(34,197,94,0.26)",
+                                backgroundColor: "rgba(34,197,94,0.08)",
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                alignItems: "flex-end",
+                            }}>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: "#8ad9b0", marginBottom: 2 }}>
+                                    Revenue
+                                </Text>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 24, color: "#22C55E" }}>
+                                    {todayRevenue != null ? `$${todayRevenue.toFixed(0)}` : "—"}
+                                </Text>
+                            </View>
+                        </View>
+                        <View style={{
+                            marginTop: 12,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: "#2f2f2f",
+                            backgroundColor: "#131313",
+                            paddingHorizontal: 12,
+                            paddingVertical: 10,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                        }}>
+                            <View style={{ flex: 1, marginRight: 10 }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: "#f5f5f5" }}>
+                                    Open combined breakdown
+                                </Text>
+                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+                                    Item + order insights in one place
+                                </Text>
+                            </View>
+                            <ChevronRight size={18} color="#999" />
+                        </View>
+                    </Pressable>
                 </View>
 
                 {/* ── Section 3: Recent Orders ── */}
@@ -876,6 +1299,12 @@ export function OwnerHomeContent({
                     onClose={() => setShowHoursSettings(false)}
                     openHoursOnMount
                     onHoursSaved={fetchData}
+                />
+            )}
+            {showPulseBreakdown && ownedRestaurantId && (
+                <TodayBreakdownModal
+                    restaurantId={ownedRestaurantId}
+                    onClose={() => setShowPulseBreakdown(false)}
                 />
             )}
         </>
