@@ -992,30 +992,28 @@ export default function ProfileSettingsScreen() {
                 overflow: "hidden",
               }}
             >
-              {!isRestaurantOwner && (
-                <>
-                  <SettingsRow
-                    icon={<Heart size={20} color="#EF4444" />}
-                    label="Favorites"
-                    hasChevron
-                    onPress={() => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/favorites" as any);
-                    }}
-                  />
-                  <Divider />
-                  <SettingsRow
-                    icon={<ShoppingBag size={20} color="#FF9933" />}
-                    label="My Orders"
-                    hasChevron
-                    onPress={() => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/my-orders" as any);
-                    }}
-                  />
-                  <Divider />
-                </>
-              )}
+              <>
+                <SettingsRow
+                  icon={<Heart size={20} color="#EF4444" />}
+                  label="Favorites"
+                  hasChevron
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    router.push("/favorites" as any);
+                  }}
+                />
+                <Divider />
+                <SettingsRow
+                  icon={<ShoppingBag size={20} color="#FF9933" />}
+                  label="My Orders"
+                  hasChevron
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    router.push("/my-orders" as any);
+                  }}
+                />
+                <Divider />
+              </>
               {isRestaurantOwner && (
                 <>
                   <SettingsRow
@@ -1101,7 +1099,7 @@ export default function ProfileSettingsScreen() {
           {/* ==========================================
                         DINING PREFERENCES SECTION
                     ========================================== */}
-          {(!isAdmin || activeTab === 'preferences') && !isRestaurantOwner && (
+          {(!isAdmin || activeTab === 'preferences') && (
 
             <Animated.View
               entering={FadeInDown.delay(150).duration(500)}
@@ -1977,7 +1975,7 @@ export default function ProfileSettingsScreen() {
                       DANGER ZONE — Delete Account
                       + Legal Links (bottom of page)
               ========================================== */}
-          {(!isAdmin && !isRestaurantOwner) && (
+          {(!isAdmin) && (
             <Animated.View
               entering={FadeInDown.delay(300).duration(500)}
               className="mx-5 mb-8"
