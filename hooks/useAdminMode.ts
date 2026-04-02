@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
+
+const ADMIN_OWNER_RESTAURANT_KEY = "rasvia:admin-owner-restaurant:v1";
 
 export function useAdminMode() {
   const { session } = useAuth();
@@ -8,6 +11,7 @@ export function useAdminMode() {
   const [isRestaurantOwner, setIsRestaurantOwner] = useState(false);
   const [ownedRestaurantId, setOwnedRestaurantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [adminOwnerRestaurantId, setAdminOwnerRestaurantIdState] = useState<string | null>(null);
 
   useEffect(() => {
     async function checkAdminStatus() {
@@ -48,7 +52,6 @@ export function useAdminMode() {
           return;
         }
 
-        // Fallback for environments where helper RPCs are unavailable/misconfigured.
         const { data: fallbackOwned } = await supabase
           .from("restaurants")
           .select("id")
@@ -68,9 +71,7 @@ export function useAdminMode() {
             .limit(1)
             .maybeSingle();
           setOwnedRestaurantId(
-            fallbackStaff?.restaurant_id != null
-              ? String(fallbackStaff.restaurant_id)
-              : null
+            fallbackStaff?.restaurant_id != null ? String(fallbackStaff.restaurant_id) : null,
           );
           return;
         }
@@ -89,5 +90,54 @@ export function useAdminMode() {
     checkAdminStatus();
   }, [session?.user?.id]);
 
-  return { isAdmin, isRestaurantOwner, ownedRestaurantId, loading };
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setAdminOwnerRestaurantIdState(null);
+      return;
+    }
+    if (!isAdmin) {
+      setAdminOwnerRestaurantIdState(null);
+      return;
+    }
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(ADMIN_OWNER_RESTAURANT_KEY);
+        if (raw === null || raw === "") {
+          setAdminOwnerRestaurantIdState(null);
+        } else {
+          setAdminOwnerRestaurantIdState(raw);
+        }
+      } catch {
+        setAdminOwnerRestaurantIdState(null);
+      }
+    })();
+  }, [session?.user?.id, isAdmin]);
+
+  const setAdminOwnerRestaurantId = useCallback((id: string | null) => {
+    setAdminOwnerRestaurantIdState(id);
+    void (async () => {
+      try {
+        if (id == null) {
+          await AsyncStorage.removeItem(ADMIN_OWNER_RESTAURANT_KEY);
+        } else {
+          await AsyncStorage.setItem(ADMIN_OWNER_RESTAURANT_KEY, id);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
+
+  /** Restaurant whose owner dashboard to show: admins pick explicitly; owners use their linked venue. */
+  const effectiveOwnerRestaurantId = isAdmin ? adminOwnerRestaurantId : ownedRestaurantId;
+
+  return {
+    isAdmin,
+    isRestaurantOwner,
+    ownedRestaurantId,
+    loading,
+    adminOwnerRestaurantId,
+    setAdminOwnerRestaurantId,
+    effectiveOwnerRestaurantId,
+  };
 }

@@ -224,3 +224,54 @@ export function getRestaurantStatus(
   // No shifts found at all
   return { status: "closed", label: "Closed", minutesUntilChange: null };
 }
+
+/**
+ * True when current time is within [first_open_today - earlyMinutes, first_open_today)
+ * for the venue's first shift that hasn't opened yet (Central time).
+ * Used so owners can open the waitlist before doors open, when enabled.
+ */
+export function isInWaitlistEarlyWindow(
+  hours: RestaurantHour[],
+  earlyEnabled: boolean,
+  earlyMinutes: number,
+): boolean {
+  if (!earlyEnabled || earlyMinutes <= 0 || !hours?.length) return false;
+
+  const { dayOfWeek, minutesSinceMidnight } = getCentralTime();
+
+  const sorted = [...hours].sort((a, b) => {
+    if (a.day_of_week !== b.day_of_week) return a.day_of_week - b.day_of_week;
+    return parseTimeToMinutes(a.open_time) - parseTimeToMinutes(b.open_time);
+  });
+
+  const todayShifts = sorted.filter((h) => h.day_of_week === dayOfWeek);
+  for (const shift of todayShifts) {
+    const openMin = parseTimeToMinutes(shift.open_time);
+    if (minutesSinceMidnight >= openMin) continue;
+    const windowStart = Math.max(0, openMin - earlyMinutes);
+    return minutesSinceMidnight >= windowStart && minutesSinceMidnight < openMin;
+  }
+
+  return false;
+}
+
+/** Whether schedule allows waitlist join (open, soon, or optional early window). */
+export function waitlistAllowedBySchedule(
+  status: RestaurantStatusResult | null,
+  hours: RestaurantHour[],
+  earlyEnabled: boolean,
+  earlyMinutes: number,
+): boolean {
+  if (!status) return true;
+  if (
+    status.status === "open" ||
+    status.status === "closing_soon" ||
+    status.status === "opening_soon"
+  ) {
+    return true;
+  }
+  if (status.status === "closed" && isInWaitlistEarlyWindow(hours, earlyEnabled, earlyMinutes)) {
+    return true;
+  }
+  return false;
+}

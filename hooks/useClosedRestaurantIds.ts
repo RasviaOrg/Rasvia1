@@ -3,36 +3,42 @@ import { supabase } from '@/lib/supabase';
 import {
     getRestaurantStatus,
     subscribeDebugTimeChanges,
+    isInWaitlistEarlyWindow,
     type RestaurantHour,
 } from '@/lib/restaurant-hours';
 
+type RestaurantRow = {
+    id: number;
+    waitlist_open: boolean | null;
+    waitlist_early_open_enabled?: boolean | null;
+    waitlist_early_open_minutes?: number | null;
+};
+
 /**
- * Fetches all restaurant_hours and returns a Set of restaurant IDs
- * that are currently CLOSED based on their hours.
- * Restaurants with NO hours rows are also treated as closed (hours unavailable).
- * Re-evaluates every 60 s so the UI stays live.
+ * Restaurant IDs that should appear "closed" on discovery, map, and search.
+ * - Waitlist off → closed.
+ * - No hours → closed.
+ * - Hours say closed or opening_soon → closed, except during optional pre-open
+ *   waitlist window (when enabled) so those venues still look active on the map.
+ * Re-evaluates every 60s and when admin debug time changes.
  */
 export function useClosedRestaurantIds(): Set<string> {
     const [closedIds, setClosedIds] = useState<Set<string>>(new Set());
 
     async function fetchAndCompute() {
         try {
-            // Fetch all restaurant IDs and all hours rows in parallel.
-            // IMPORTANT: match the same set the main feed shows — is_enabled = true OR null
-            // (null is treated as enabled in mapSupabaseToUI).
-            // NOTE: PostgREST .neq('is_enabled', false) uses SQL != which EXCLUDES nulls.
-            // Must use .or() to explicitly include nulls.
             const [restaurantsRes, hoursRes] = await Promise.all([
-                supabase.from('restaurants')
-                    .select('id, waitlist_open')
+                supabase
+                    .from('restaurants')
+                    .select(
+                        'id, waitlist_open, waitlist_early_open_enabled, waitlist_early_open_minutes',
+                    )
                     .or('is_enabled.eq.true,is_enabled.is.null'),
                 supabase.from('restaurant_hours').select('restaurant_id, day_of_week, open_time, close_time'),
             ]);
 
-            const restaurantsList = restaurantsRes.data ?? [];
-            const allIds: string[] = restaurantsList.map((r: any) => String(r.id));
+            const restaurantsList = (restaurantsRes.data ?? []) as RestaurantRow[];
 
-            // Group hours by restaurant_id
             const grouped: Record<number, RestaurantHour[]> = {};
             for (const row of hoursRes.data ?? []) {
                 if (!grouped[row.restaurant_id]) grouped[row.restaurant_id] = [];
@@ -43,22 +49,39 @@ export function useClosedRestaurantIds(): Set<string> {
 
             for (const r of restaurantsList) {
                 const id = String(r.id);
-                // Manually closed via waitlist toggle
                 if (r.waitlist_open === false) {
                     closed.add(id);
                     continue;
                 }
 
                 const hours = grouped[Number(id)];
-                // No hours rows → treat as closed (hours unavailable)
                 if (!hours || hours.length === 0) {
                     closed.add(id);
                     continue;
                 }
-                const status = getRestaurantStatus(hours).status;
-                if (status === 'closed' || status === 'opening_soon') {
-                    closed.add(id);
+
+                const statusResult = getRestaurantStatus(hours);
+                if (statusResult.status !== 'closed' && statusResult.status !== 'opening_soon') {
+                    continue;
                 }
+
+                if (statusResult.status === 'closed') {
+                    const earlyMins = Math.max(
+                        0,
+                        Math.min(24 * 60, Number(r.waitlist_early_open_minutes) || 30),
+                    );
+                    if (
+                        isInWaitlistEarlyWindow(
+                            hours,
+                            r.waitlist_early_open_enabled === true,
+                            earlyMins,
+                        )
+                    ) {
+                        continue;
+                    }
+                }
+
+                closed.add(id);
             }
 
             setClosedIds(closed);

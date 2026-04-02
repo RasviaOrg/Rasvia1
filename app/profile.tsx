@@ -48,6 +48,7 @@ import {
   Camera,
   Store,
   Users,
+  Building2,
 } from "lucide-react-native";
 import { RolesModal } from "@/components/RolesModal";
 import Animated, {
@@ -141,7 +142,7 @@ export default function ProfileSettingsScreen() {
   const [createdAt, setCreatedAt] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [tempFirstName, setTempFirstName] = useState("");
-  const [tempLastInitial, setTempLastInitial] = useState("");
+  const [tempLastName, setTempLastName] = useState("");
   const [tempPhone, setTempPhone] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
@@ -151,7 +152,7 @@ export default function ProfileSettingsScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Admin tab state (only used when isAdmin)
-  const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug' | 'orders'>('preferences');
+  const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug'>('preferences');
 
   // Debug time override state
   const [debugDay, setDebugDay] = useState(0);     // 0=Sun..6=Sat
@@ -363,10 +364,13 @@ export default function ProfileSettingsScreen() {
         updated_at: new Date().toISOString(),
       };
 
-      // Name — only update if first name is filled in
       if (tempFirstName.trim()) {
-        const newFullName = `${tempFirstName.trim()} ${tempLastInitial.trim().toUpperCase()}.`;
-        updates.full_name = newFullName;
+        const last = tempLastName.trim();
+        if (last.length < 2) {
+          Alert.alert("Name", "Please enter your full last name (at least 2 characters).");
+          return;
+        }
+        updates.full_name = `${tempFirstName.trim()} ${last}`;
       }
 
       // Phone — optional
@@ -392,7 +396,7 @@ export default function ProfileSettingsScreen() {
     } catch (err: any) {
       Alert.alert("Error", err.message || "Could not update profile.");
     }
-  }, [session, tempFirstName, tempLastInitial, tempPhone, phoneNumber]);
+  }, [session, tempFirstName, tempLastName, tempPhone, phoneNumber]);
 
 
   function formatPhoneNumber(raw: string): string {
@@ -774,41 +778,36 @@ export default function ProfileSettingsScreen() {
           </Pressable>
         </Animated.View>
 
-        {/* ── Admin Tab Bar ── */}
+        {/* ── Admin tab pills (in-profile sections) ── */}
         {isAdmin && (
           <View style={{
             flexDirection: 'row',
+            flexWrap: 'wrap',
             marginHorizontal: 20,
-            marginBottom: 8,
-            backgroundColor: '#1a1a1a',
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: '#2a2a2a',
-            padding: 4,
+            marginBottom: 10,
+            gap: 8,
           }}>
-            {(['preferences', 'location', 'debug', 'orders'] as const).map((tab) => {
+            {(['preferences', 'location', 'debug'] as const).map((tab) => {
               const isActive = activeTab === tab;
-              const label = tab === 'preferences' ? 'Preferences' : tab === 'location' ? 'Location' : tab === 'debug' ? 'Debug' : 'Orders';
+              const label = tab === 'preferences' ? 'Preferences' : tab === 'location' ? 'Location' : 'Debug';
               return (
                 <Pressable
                   key={tab}
                   onPress={() => {
                     if (Platform.OS !== 'web') Haptics.selectionAsync();
-                    if (tab === 'orders') {
-                      router.push('/admin-orders' as any);
-                    } else {
-                      setActiveTab(tab);
-                    }
+                    setActiveTab(tab);
                   }}
                   style={{
-                    flex: 1,
-                    paddingVertical: 9,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: 11,
+                    paddingVertical: 8,
+                    paddingHorizontal: 14,
+                    borderRadius: 999,
                     backgroundColor: isActive
-                      ? tab === 'debug' ? 'rgba(245,158,11,0.18)' : tab === 'orders' ? 'rgba(34,197,94,0.18)' : 'rgba(255,153,51,0.18)'
-                      : 'transparent',
+                      ? tab === 'debug' ? 'rgba(245,158,11,0.2)' : 'rgba(255,153,51,0.2)'
+                      : 'rgba(255,255,255,0.06)',
+                    borderWidth: 1,
+                    borderColor: isActive
+                      ? tab === 'debug' ? 'rgba(245,158,11,0.45)' : 'rgba(255,153,51,0.4)'
+                      : 'rgba(255,255,255,0.08)',
                   }}
                 >
                   <Text style={{
@@ -816,10 +815,10 @@ export default function ProfileSettingsScreen() {
                     fontSize: 12,
                     lineHeight: 18,
                     color: isActive
-                      ? tab === 'debug' ? '#F59E0B' : tab === 'orders' ? '#22C55E' : '#FF9933'
-                      : '#666666',
+                      ? tab === 'debug' ? '#F59E0B' : '#FF9933'
+                      : '#888888',
                   }}>
-                    {tab === 'debug' ? '🐞 ' + label : label}
+                    {label}
                   </Text>
                 </Pressable>
               );
@@ -849,13 +848,11 @@ export default function ProfileSettingsScreen() {
                 if (Platform.OS !== "web") {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }
-                // Parse full_name to get first name and last initial
-                const parts = fullName.split(" ");
-                const first = parts.slice(0, -1).join(" ");
-                const lastInit =
-                  parts[parts.length - 1]?.replace(".", "") || "";
+                const parts = fullName.trim().split(/\s+/).filter(Boolean);
+                const first = parts[0] ?? "";
+                const last = parts.length > 1 ? parts.slice(1).join(" ") : "";
                 setTempFirstName(first);
-                setTempLastInitial(lastInit);
+                setTempLastName(last);
                 setTempPhone(phoneNumber);
                 setEditingProfile(true);
               }}
@@ -1093,6 +1090,20 @@ export default function ProfileSettingsScreen() {
                   thumbColor={notificationsEnabled ? "#FF9933" : "#666666"}
                 />
               </View>
+              {isAdmin && (
+                <>
+                  <Divider />
+                  <SettingsRow
+                    icon={<Building2 size={20} color="#EAB308" />}
+                    label="Admin portal"
+                    hasChevron
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      router.push("/admin-portal" as any);
+                    }}
+                  />
+                </>
+              )}
             </Animated.View>
           )}
 
@@ -1942,6 +1953,7 @@ export default function ProfileSettingsScreen() {
             <Animated.View
               entering={FadeInDown.delay(280).duration(500)}
               className="mx-5 mb-4"
+              style={{ gap: 10 }}
             >
               <Pressable
                 onPress={() => {
@@ -1967,6 +1979,31 @@ export default function ProfileSettingsScreen() {
                   </Text>
                 </View>
                 <ChevronRight size={18} color="#FF9933" />
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/admin-users" as any);
+                }}
+                style={{
+                  backgroundColor: "rgba(96,165,250,0.08)",
+                  borderWidth: 1,
+                  borderColor: "rgba(96,165,250,0.25)",
+                  borderRadius: 16,
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Shield size={18} color="#60A5FA" />
+                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#60A5FA", fontSize: 16, marginLeft: 10 }}>
+                    User management
+                  </Text>
+                </View>
+                <ChevronRight size={18} color="#60A5FA" />
               </Pressable>
             </Animated.View>
           )}
@@ -2156,26 +2193,25 @@ export default function ProfileSettingsScreen() {
                           autoCapitalize="words"
                         />
                       </View>
-                      <View style={{ width: 80 }}>
-                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 11, marginBottom: 6 }}>Last Initial</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 11, marginBottom: 6 }}>Last Name</Text>
                         <TextInput
-                          value={tempLastInitial}
-                          onChangeText={(text) => setTempLastInitial(text.slice(0, 1))}
-                          maxLength={1}
+                          value={tempLastName}
+                          onChangeText={setTempLastName}
                           style={{
                             backgroundColor: "#262626",
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: tempLastInitial ? "#FF9933" : "#333",
+                            borderColor: tempLastName ? "#FF9933" : "#333",
                             paddingHorizontal: 14,
                             height: 48,
                             color: "#f5f5f5",
                             fontFamily: "Manrope_500Medium",
                             fontSize: 15,
-                            textAlign: "center",
                           }}
                           placeholderTextColor="#666"
-                          autoCapitalize="characters"
+                          placeholder="Full last name"
+                          autoCapitalize="words"
                         />
                       </View>
                     </View>

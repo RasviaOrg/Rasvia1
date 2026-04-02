@@ -12,6 +12,7 @@ import {
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
+    FlatList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -19,6 +20,7 @@ import {
     Users,
     ShoppingBag,
     ChevronRight,
+    ChevronDown,
     TrendingUp,
     Minus,
     Plus,
@@ -32,7 +34,11 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
-import { getRestaurantStatus, subscribeDebugTimeChanges } from "@/lib/restaurant-hours";
+import {
+    getRestaurantStatus,
+    subscribeDebugTimeChanges,
+    waitlistAllowedBySchedule,
+} from "@/lib/restaurant-hours";
 import type { RestaurantStatusResult, RestaurantHour } from "@/lib/restaurant-hours";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -42,6 +48,8 @@ type RestaurantInfo = {
     current_wait_time: number;
     waitlist_open: boolean;
     is_enabled: boolean;
+    waitlist_early_open_enabled?: boolean;
+    waitlist_early_open_minutes?: number;
 };
 
 type Order = {
@@ -702,6 +710,103 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
     );
 }
 
+function AdminRestaurantPickerModal({
+    visible,
+    restaurants,
+    onClose,
+    onSelect,
+}: {
+    visible: boolean;
+    restaurants: { id: number; name: string }[];
+    onClose: () => void;
+    onSelect: (id: string | null) => void;
+}) {
+    return (
+        <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+            <View style={{ flex: 1, justifyContent: "flex-end" }}>
+                <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }} onPress={onClose} />
+                <View
+                    style={{
+                        backgroundColor: "#141414",
+                        borderTopLeftRadius: 18,
+                        borderTopRightRadius: 18,
+                        borderWidth: 1,
+                        borderColor: "#2a2a2a",
+                        maxHeight: "78%",
+                        paddingBottom: Platform.OS === "ios" ? 28 : 16,
+                    }}
+                >
+                    <Text
+                        style={{
+                            paddingHorizontal: 18,
+                            paddingTop: 16,
+                            paddingBottom: 8,
+                            fontFamily: "Manrope_700Bold",
+                            color: "#f5f5f5",
+                            fontSize: 17,
+                        }}
+                    >
+                        Select restaurant
+                    </Text>
+                    <FlatList
+                        data={restaurants}
+                        keyExtractor={(item) => String(item.id)}
+                        keyboardShouldPersistTaps="handled"
+                        renderItem={({ item }) => (
+                            <Pressable
+                                onPress={() => {
+                                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                                    onSelect(String(item.id));
+                                }}
+                                style={{
+                                    paddingHorizontal: 18,
+                                    paddingVertical: 14,
+                                    borderBottomWidth: 1,
+                                    borderBottomColor: "#252525",
+                                }}
+                            >
+                                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 15 }}>
+                                    {item.name}
+                                </Text>
+                                <Text
+                                    style={{
+                                        color: "#666",
+                                        fontSize: 11,
+                                        marginTop: 3,
+                                        fontFamily: "Manrope_500Medium",
+                                    }}
+                                >
+                                    ID {item.id}
+                                </Text>
+                            </Pressable>
+                        )}
+                    />
+                    <Pressable
+                        onPress={() => {
+                            if (Platform.OS !== "web") Haptics.selectionAsync();
+                            onSelect(null);
+                        }}
+                        style={{
+                            marginHorizontal: 18,
+                            marginTop: 8,
+                            paddingVertical: 14,
+                            alignItems: "center",
+                            borderRadius: 12,
+                            backgroundColor: "rgba(239,68,68,0.12)",
+                            borderWidth: 1,
+                            borderColor: "rgba(239,68,68,0.35)",
+                        }}
+                    >
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#F87171", fontSize: 14 }}>
+                            Clear selection
+                        </Text>
+                    </Pressable>
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
 // ── Main Export ──────────────────────────────────────────────────────────────
 export function OwnerHomeContent({
     refreshing,
@@ -711,15 +816,24 @@ export function OwnerHomeContent({
     onRefreshSignal: () => void;
 }) {
     const router = useRouter();
-    const { ownedRestaurantId } = useAdminMode();
+    const {
+        isAdmin,
+        effectiveOwnerRestaurantId,
+        setAdminOwnerRestaurantId,
+    } = useAdminMode();
 
     const [restaurant, setRestaurant] = useState<RestaurantInfo | null>(null);
+    const [adminRestaurants, setAdminRestaurants] = useState<{ id: number; name: string }[]>([]);
+    const [restaurantPickerOpen, setRestaurantPickerOpen] = useState(false);
     const [recentOrders, setRecentOrders] = useState<Order[]>([]);
     const [queueCount, setQueueCount] = useState<number | null>(null);
     const [todayOrderCount, setTodayOrderCount] = useState<number | null>(null);
     const [todayRevenue, setTodayRevenue] = useState<number | null>(null);
     const [statusResult, setStatusResult] = useState<RestaurantStatusResult | null>(null);
+    const [restaurantHoursRows, setRestaurantHoursRows] = useState<RestaurantHour[]>([]);
     const [loading, setLoading] = useState(true);
+    /** Skip full-screen spinner when re-fetching the same venue (e.g. returning from Discover). */
+    const lastLoadedRestaurantIdRef = useRef<string | null>(null);
 
     // Wait time editing
     const [editingWait, setEditingWait] = useState(false);
@@ -736,37 +850,62 @@ export function OwnerHomeContent({
     const [showHoursSettings, setShowHoursSettings] = useState(false);
     const [showPulseBreakdown, setShowPulseBreakdown] = useState(false);
 
+    useEffect(() => {
+        if (!isAdmin) return;
+        void supabase
+            .from("restaurants")
+            .select("id, name")
+            .order("name")
+            .then(({ data }) => {
+                setAdminRestaurants((data as { id: number; name: string }[]) ?? []);
+            });
+    }, [isAdmin]);
+
     const fetchData = useCallback(async () => {
-        if (!ownedRestaurantId) return;
+        if (!effectiveOwnerRestaurantId) {
+            setRestaurant(null);
+            setQueueCount(null);
+            setRecentOrders([]);
+            setTodayOrderCount(null);
+            setTodayRevenue(null);
+            setRestaurantHoursRows([]);
+            setStatusResult(null);
+            lastLoadedRestaurantIdRef.current = null;
+            setLoading(false);
+            return;
+        }
+        const blockingLoader = lastLoadedRestaurantIdRef.current !== effectiveOwnerRestaurantId;
+        if (blockingLoader) setLoading(true);
         try {
-            const todayDow = new Date().getDay();
             const [restRes, queueRes, recentRes, todayRes, hoursRes] = await Promise.all([
                 supabase
                     .from("restaurants")
-                    .select("id, name, current_wait_time, waitlist_open, is_enabled")
-                    .eq("id", ownedRestaurantId)
+                    .select(
+                        "id, name, current_wait_time, waitlist_open, is_enabled, waitlist_early_open_enabled, waitlist_early_open_minutes",
+                    )
+                    .eq("id", effectiveOwnerRestaurantId)
                     .single(),
                 supabase
                     .from("waitlist_entries")
                     .select("*", { count: "exact", head: true })
-                    .eq("restaurant_id", ownedRestaurantId)
+                    .eq("restaurant_id", effectiveOwnerRestaurantId)
                     .eq("status", "waiting"),
                 supabase
                     .from("orders")
                     .select("id, customer_name, status, subtotal, created_at, order_type")
-                    .eq("restaurant_id", ownedRestaurantId)
+                    .eq("restaurant_id", effectiveOwnerRestaurantId)
                     .order("created_at", { ascending: false })
                     .limit(2),
                 supabase
                     .from("orders")
                     .select("id, subtotal")
-                    .eq("restaurant_id", ownedRestaurantId)
+                    .eq("restaurant_id", effectiveOwnerRestaurantId)
                     .gte("created_at", todayStart())
                     .neq("status", "cancelled"),
                 supabase
                     .from("restaurant_hours")
                     .select("day_of_week, open_time, close_time")
-                    .eq("restaurant_id", ownedRestaurantId),
+                    .eq("restaurant_id", effectiveOwnerRestaurantId),
             ]);
 
             if (restRes.data) setRestaurant(restRes.data as RestaurantInfo);
@@ -778,13 +917,15 @@ export function OwnerHomeContent({
             setTodayRevenue(todayOrders.reduce((sum, o) => sum + (o.subtotal ?? 0), 0));
 
             const fetchedHours = (hoursRes.data as RestaurantHour[]) ?? [];
+            setRestaurantHoursRows(fetchedHours);
             setStatusResult(getRestaurantStatus(fetchedHours));
+            lastLoadedRestaurantIdRef.current = effectiveOwnerRestaurantId;
         } catch (err: any) {
             console.error("OwnerHomeContent fetch error:", err);
         } finally {
             setLoading(false);
         }
-    }, [ownedRestaurantId]);
+    }, [effectiveOwnerRestaurantId]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -802,17 +943,17 @@ export function OwnerHomeContent({
 
     // ── Wait time ──────────────────────────────────────────────────────────
     const updateWaitTime = useCallback(async (newTime: number) => {
-        if (!ownedRestaurantId || !restaurant) return;
+        if (!effectiveOwnerRestaurantId || !restaurant) return;
         const clamped = Math.max(0, Math.round(newTime));
         setSavingWait(true);
         setRestaurant((prev) => prev ? { ...prev, current_wait_time: clamped } : prev);
         const { error } = await supabase
             .from("restaurants")
             .update({ current_wait_time: clamped })
-            .eq("id", ownedRestaurantId);
+            .eq("id", effectiveOwnerRestaurantId);
         if (error) { console.error("Failed to update wait time:", error.message); fetchData(); }
         setSavingWait(false);
-    }, [ownedRestaurantId, restaurant, fetchData]);
+    }, [effectiveOwnerRestaurantId, restaurant, fetchData]);
 
     const commitWaitEdit = () => {
         const parsed = parseInt(waitInputVal, 10);
@@ -820,11 +961,15 @@ export function OwnerHomeContent({
         setEditingWait(false);
     };
 
-    /** Waitlist cannot be opened while venue is not operating; closing an open waitlist is still allowed */
+    /** Waitlist can open when operating, soon, or optional pre-open window */
     const hoursAllowWaitlist =
         !statusResult ||
-        statusResult.status === "open" ||
-        statusResult.status === "closing_soon";
+        waitlistAllowedBySchedule(
+            statusResult,
+            restaurantHoursRows,
+            restaurant?.waitlist_early_open_enabled === true,
+            Math.max(0, Math.min(24 * 60, Number(restaurant?.waitlist_early_open_minutes) || 30)),
+        );
     const waitlistToggleDisabled =
         togglingWaitlist ||
         (!!(restaurant && !restaurant.waitlist_open) && !hoursAllowWaitlist);
@@ -846,13 +991,13 @@ export function OwnerHomeContent({
                     text: willOpen ? "Open" : "Close",
                     style: willOpen ? "default" : "destructive",
                     onPress: async () => {
-                        if (!ownedRestaurantId) return;
+                        if (!effectiveOwnerRestaurantId) return;
                         setTogglingWaitlist(true);
                         setRestaurant((prev) => prev ? { ...prev, waitlist_open: willOpen } : prev);
                         const { error } = await supabase
                             .from("restaurants")
                             .update({ waitlist_open: willOpen })
-                            .eq("id", ownedRestaurantId);
+                            .eq("id", effectiveOwnerRestaurantId);
                         if (error) { console.error("Failed to toggle waitlist:", error.message); fetchData(); }
                         setTogglingWaitlist(false);
                         if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -862,7 +1007,85 @@ export function OwnerHomeContent({
         );
     };
 
-    // ── Loading state ──────────────────────────────────────────────────────
+    const selectedAdminLabel =
+        effectiveOwnerRestaurantId &&
+        adminRestaurants.find((r) => String(r.id) === effectiveOwnerRestaurantId)?.name;
+
+    // ── Loading / empty (admin must pick a restaurant) ─────────────────────
+    if (isAdmin && !effectiveOwnerRestaurantId) {
+        return (
+            <>
+                <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}>
+                    <Pressable
+                        onPress={() => {
+                            if (Platform.OS !== "web") Haptics.selectionAsync();
+                            setRestaurantPickerOpen(true);
+                        }}
+                        style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            backgroundColor: "#161616",
+                            borderWidth: 1,
+                            borderColor: "#2d2d2d",
+                            borderRadius: 14,
+                            paddingHorizontal: 16,
+                            paddingVertical: 14,
+                        }}
+                    >
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 11, color: "#888", fontFamily: "Manrope_600SemiBold" }}>
+                                Restaurant
+                            </Text>
+                            <Text
+                                style={{
+                                    fontSize: 17,
+                                    color: "#f5f5f5",
+                                    marginTop: 4,
+                                    fontFamily: "Manrope_700Bold",
+                                }}
+                            >
+                                None selected
+                            </Text>
+                        </View>
+                        <ChevronDown size={22} color="#888" />
+                    </Pressable>
+                    <Text
+                        style={{
+                            marginTop: 18,
+                            textAlign: "center",
+                            color: "#666",
+                            fontSize: 13,
+                            fontFamily: "Manrope_500Medium",
+                            lineHeight: 20,
+                        }}
+                    >
+                        Choose a restaurant to load its owner dashboard.
+                    </Text>
+                </View>
+                <AdminRestaurantPickerModal
+                    visible={restaurantPickerOpen}
+                    restaurants={adminRestaurants}
+                    onClose={() => setRestaurantPickerOpen(false)}
+                    onSelect={(id) => {
+                        setAdminOwnerRestaurantId(id);
+                        setRestaurantPickerOpen(false);
+                    }}
+                />
+            </>
+        );
+    }
+
+    if (!isAdmin && !effectiveOwnerRestaurantId) {
+        return (
+            <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 24 }}>
+                <Text style={{ color: "#888", textAlign: "center", fontFamily: "Manrope_500Medium", fontSize: 14 }}>
+                    No restaurant is linked to your account.
+                </Text>
+            </View>
+        );
+    }
+
     if (loading) {
         return (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -891,6 +1114,44 @@ export function OwnerHomeContent({
                     />
                 }
             >
+                {isAdmin && (
+                    <Pressable
+                        onPress={() => {
+                            if (Platform.OS !== "web") Haptics.selectionAsync();
+                            setRestaurantPickerOpen(true);
+                        }}
+                        style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            backgroundColor: "#161616",
+                            borderWidth: 1,
+                            borderColor: "#2d2d2d",
+                            borderRadius: 14,
+                            paddingHorizontal: 14,
+                            paddingVertical: 12,
+                            marginBottom: 14,
+                        }}
+                    >
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 10, color: "#888", fontFamily: "Manrope_600SemiBold" }}>
+                                Admin · Owner Dashboard
+                            </Text>
+                            <Text
+                                style={{
+                                    fontSize: 15,
+                                    color: "#f5f5f5",
+                                    marginTop: 3,
+                                    fontFamily: "Manrope_700Bold",
+                                }}
+                                numberOfLines={1}
+                            >
+                                {selectedAdminLabel ?? "None selected"}
+                            </Text>
+                        </View>
+                        <ChevronDown size={20} color="#888" />
+                    </Pressable>
+                )}
                 {/* ── Owner Hub Hero ── */}
                 <View style={{
                     backgroundColor: "#161616",
@@ -1167,21 +1428,16 @@ export function OwnerHomeContent({
                             </Text>
                         </Pressable>
                     </View>
-                    <Pressable
-                        onPress={() => {
-                            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            setShowPulseBreakdown(true);
-                        }}
-                        style={({ pressed }) => ({
+                    <View
+                        style={{
                             backgroundColor: "#171717",
                             borderWidth: 1,
                             borderColor: "#303030",
                             borderRadius: 18,
                             padding: 16,
-                            opacity: pressed ? 0.94 : 1,
-                        })}
+                        }}
                     >
-                        <View style={{ flexDirection: "row", gap: 10 }}>
+                        <View style={{ flexDirection: "row", gap: 10, marginBottom: 6 }}>
                             <View style={{
                                 flex: 1,
                                 borderRadius: 12,
@@ -1219,29 +1475,36 @@ export function OwnerHomeContent({
                                 </Text>
                             </View>
                         </View>
-                        <View style={{
-                            marginTop: 12,
-                            borderRadius: 12,
-                            borderWidth: 1,
-                            borderColor: "#2f2f2f",
-                            backgroundColor: "#131313",
-                            paddingHorizontal: 12,
-                            paddingVertical: 10,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                        }}>
+                        <Pressable
+                            onPress={() => {
+                                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setShowPulseBreakdown(true);
+                            }}
+                            style={({ pressed }) => ({
+                                marginTop: 18,
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                borderColor: "#2f2f2f",
+                                backgroundColor: "#131313",
+                                paddingHorizontal: 12,
+                                paddingVertical: 12,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                opacity: pressed ? 0.85 : 1,
+                            })}
+                        >
                             <View style={{ flex: 1, marginRight: 10 }}>
                                 <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: "#f5f5f5" }}>
                                     Open combined breakdown
                                 </Text>
-                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 4 }}>
                                     Item + order insights in one place
                                 </Text>
                             </View>
                             <ChevronRight size={18} color="#999" />
-                        </View>
-                    </Pressable>
+                        </Pressable>
+                    </View>
                 </View>
 
                 {/* ── Section 3: Recent Orders ── */}
@@ -1286,25 +1549,36 @@ export function OwnerHomeContent({
             </ScrollView>
 
             {/* Modals */}
-            {showAllOrders && ownedRestaurantId && (
-                <AllOrdersModal restaurantId={ownedRestaurantId} onClose={() => setShowAllOrders(false)} />
+            {showAllOrders && effectiveOwnerRestaurantId && (
+                <AllOrdersModal restaurantId={effectiveOwnerRestaurantId} onClose={() => setShowAllOrders(false)} />
             )}
             {selectedOrder && (
                 <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
             )}
-            {showHoursSettings && ownedRestaurantId && (
+            {showHoursSettings && effectiveOwnerRestaurantId && (
                 <RestaurantEditModal
-                    restaurantId={ownedRestaurantId}
+                    restaurantId={effectiveOwnerRestaurantId}
                     visible={showHoursSettings}
                     onClose={() => setShowHoursSettings(false)}
                     openHoursOnMount
                     onHoursSaved={fetchData}
                 />
             )}
-            {showPulseBreakdown && ownedRestaurantId && (
+            {showPulseBreakdown && effectiveOwnerRestaurantId && (
                 <TodayBreakdownModal
-                    restaurantId={ownedRestaurantId}
+                    restaurantId={effectiveOwnerRestaurantId}
                     onClose={() => setShowPulseBreakdown(false)}
+                />
+            )}
+            {isAdmin && (
+                <AdminRestaurantPickerModal
+                    visible={restaurantPickerOpen}
+                    restaurants={adminRestaurants}
+                    onClose={() => setRestaurantPickerOpen(false)}
+                    onSelect={(id) => {
+                        setAdminOwnerRestaurantId(id);
+                        setRestaurantPickerOpen(false);
+                    }}
                 />
             )}
         </>

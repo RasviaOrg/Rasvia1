@@ -186,7 +186,8 @@ function haversineDistance(
 export default function MapScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
-  const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
+  const { isAdmin, isRestaurantOwner, ownedRestaurantId, effectiveOwnerRestaurantId } =
+    useAdminMode();
 
   // State
   const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
@@ -656,7 +657,9 @@ export default function MapScreen() {
         {mappableRestaurants.map((restaurant) => {
           const isClosed = closedRestaurantIds.has(restaurant.id);
           const isOwnedVenue =
-            isRestaurantOwner && ownedRestaurantId != null && restaurant.id === ownedRestaurantId;
+            (isRestaurantOwner || isAdmin) &&
+            effectiveOwnerRestaurantId != null &&
+            restaurant.id === effectiveOwnerRestaurantId;
           /** iOS: past ZOOM_THRESHOLD, everyone (including owners) sees the zoomed mini-card; zoomed out, owners see the Store pin */
           const showZoomedInCard = Platform.OS !== "android" && isZoomedIn;
           return (
@@ -843,7 +846,10 @@ export default function MapScreen() {
         )}
 
         {/* Change location pill — owner tapped their own restaurant */}
-        {!isSettingLocation && selectedRestaurant && isRestaurantOwner && ownedRestaurantId === selectedRestaurant.id && (
+        {!isSettingLocation &&
+          selectedRestaurant &&
+          (isRestaurantOwner || isAdmin) &&
+          effectiveOwnerRestaurantId === selectedRestaurant.id && (
           <View style={{ alignItems: "center", paddingTop: 8 }}>
             <Pressable
               onPress={() => {

@@ -227,6 +227,10 @@ function AuthGate() {
         options={{ headerShown: false, animation: "slide_from_bottom" }}
       />
       <Stack.Screen
+        name="admin-portal"
+        options={{ headerShown: false, animation: "slide_from_right" }}
+      />
+      <Stack.Screen
         name="join/[id]"
         options={{ headerShown: false, animation: "slide_from_bottom" }}
       />

@@ -59,6 +59,7 @@ import { ReviewsModal } from "@/components/ReviewsModal";
 import { fetchReviewStats } from "@/lib/review-stats";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useRestaurantHours } from "@/hooks/useRestaurantHours";
+import { waitlistAllowedBySchedule } from "@/lib/restaurant-hours";
 import { supabase } from "@/lib/supabase";
 import {
   type SupabaseRestaurant,
@@ -711,6 +712,17 @@ export default function RestaurantDetail() {
   const noWait = restaurant?.waitTime != null && restaurant.waitTime < 0;
   const waitlistClosed = restaurant?.waitlistOpen === false;
 
+  const venueEmergencyClosed = restaurant?.waitStatus === "darkgrey";
+  const scheduleAllowsWaitlist = waitlistAllowedBySchedule(
+    hoursStatus,
+    restaurantHours,
+    restaurant?.waitlistEarlyOpenEnabled ?? false,
+    restaurant?.waitlistEarlyOpenMinutes ?? 30,
+  );
+  /** Blocks the primary footer action when hours/emergency would block ordering or waitlist join */
+  const footerClosedForWaitlistFlow =
+    venueEmergencyClosed || (isClosedByHours && !scheduleAllowsWaitlist);
+
   /** Grey dine-in-only checkout only when opened from the waitlist screen (or equivalent URL with matching entry). */
   const checkoutFromWaitlist =
     !!waitlistEntryParam &&
@@ -734,7 +746,7 @@ export default function RestaurantDetail() {
   const footerPrimaryDisabled = checkoutFromWaitlist
     ? !canSubmitWaitlistCheckout
     : !ownerRoleResolved ||
-      (isClosed || noWait || waitlistClosed) ||
+      (footerClosedForWaitlistFlow || noWait || waitlistClosed) ||
       waitlistAtOtherRestaurant;
 
   // Show loading or error state
@@ -1291,6 +1303,35 @@ export default function RestaurantDetail() {
             </View>
           )}
 
+          {!waitlistClosed && isClosedByHours && (
+              <View
+                style={{
+                  marginTop: 8,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  alignSelf: "flex-start",
+                  backgroundColor: "rgba(255,153,51,0.10)",
+                  borderRadius: 10,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,153,51,0.35)",
+                }}
+              >
+                <Clock size={12} color="#FF9933" />
+                <Text
+                  style={{
+                    fontFamily: "Manrope_600SemiBold",
+                    color: "#FF9933",
+                    fontSize: 12,
+                  }}
+                >
+                  Opens soon · Waitlist open
+                </Text>
+              </View>
+            )}
+
           {/* Veg / Non-Veg + Halal indicators */}
           {(() => {
             const tags = (restaurant?.tags ?? []);
@@ -1690,7 +1731,7 @@ export default function RestaurantDetail() {
                       if (
                         checkoutFromWaitlist ||
                         showCheckWaitlistStatus ||
-                        (!isClosed && !noWait && !waitlistClosed)
+                        (!footerClosedForWaitlistFlow && !noWait && !waitlistClosed)
                       ) {
                         joinBtnScale.value = withSpring(0.95);
                       }
@@ -1700,7 +1741,7 @@ export default function RestaurantDetail() {
                       if (
                         checkoutFromWaitlist ||
                         showCheckWaitlistStatus ||
-                        (!isClosed && !noWait && !waitlistClosed)
+                        (!footerClosedForWaitlistFlow && !noWait && !waitlistClosed)
                       ) {
                         joinBtnScale.value = withSpring(1);
                       }
@@ -1749,7 +1790,7 @@ export default function RestaurantDetail() {
                       <Clock
                         size={18}
                         color={
-                          !ownerRoleResolved || isClosed || waitlistClosed ? "#999999" : "#0f0f0f"
+                          !ownerRoleResolved || footerClosedForWaitlistFlow || waitlistClosed ? "#999999" : "#0f0f0f"
                         }
                         strokeWidth={2.5}
                       />
@@ -1776,7 +1817,7 @@ export default function RestaurantDetail() {
                               ? "Check waitlist status"
                               : waitlistClosed
                                 ? "Waitlist Closed"
-                                : isClosed
+                                : footerClosedForWaitlistFlow
                                   ? "Currently Closed"
                                   : "Order"}
                     </Text>

@@ -10,6 +10,7 @@ import {
   ScrollView,
   TextInput,
   KeyboardAvoidingView,
+  Switch,
 } from "react-native";
 import { X, Check, MapPin, ChevronLeft, Clock3 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -67,6 +68,8 @@ export function RestaurantEditModal({
   const [hoursLoading, setHoursLoading] = useState(false);
   const [hoursSaving, setHoursSaving] = useState(false);
   const [hoursRows, setHoursRows] = useState<HourRow[]>([]);
+  const [waitlistEarlyEnabled, setWaitlistEarlyEnabled] = useState(false);
+  const [waitlistEarlyMinutes, setWaitlistEarlyMinutes] = useState("30");
 
   const haptic = () => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -101,6 +104,18 @@ export function RestaurantEditModal({
         .order("open_time");
 
       if (error) throw error;
+
+      const { data: restEarly } = await supabase
+        .from("restaurants")
+        .select("waitlist_early_open_enabled, waitlist_early_open_minutes")
+        .eq("id", Number(restaurantId))
+        .maybeSingle();
+      setWaitlistEarlyEnabled(restEarly?.waitlist_early_open_enabled === true);
+      setWaitlistEarlyMinutes(
+        String(
+          Math.max(0, Math.min(24 * 60, Number(restEarly?.waitlist_early_open_minutes) || 30)),
+        ),
+      );
 
       const next: HourRow[] = Array.from({ length: 7 }).map((_, day) => {
         const row = (data ?? []).find((r: any) => r.day_of_week === day);
@@ -237,6 +252,16 @@ export function RestaurantEditModal({
         const { error: insError } = await supabase.from("restaurant_hours").insert(toInsert);
         if (insError) throw insError;
       }
+
+      const earlyM = Math.max(0, Math.min(24 * 60, parseInt(waitlistEarlyMinutes.replace(/\D/g, ""), 10) || 0));
+      const { error: earlyErr } = await supabase
+        .from("restaurants")
+        .update({
+          waitlist_early_open_enabled: waitlistEarlyEnabled,
+          waitlist_early_open_minutes: earlyM,
+        })
+        .eq("id", Number(restaurantId));
+      if (earlyErr) throw earlyErr;
 
       Alert.alert("Saved", "Restaurant timings updated.");
       onHoursSaved?.();
@@ -497,6 +522,48 @@ export function RestaurantEditModal({
                 <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 13, marginBottom: 12 }}>
                   Set opening and closing hours (24-hour format).
                 </Text>
+                {!hoursLoading && (
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#2a2a2a",
+                      borderRadius: 14,
+                      padding: 14,
+                      marginBottom: 14,
+                      backgroundColor: "#111",
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#e5e5e5", fontSize: 14 }}>
+                          Early waitlist window
+                        </Text>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 4 }}>
+                          Allow opening the waitlist this many minutes before the first scheduled open (same day).
+                        </Text>
+                      </View>
+                      <Switch
+                        value={waitlistEarlyEnabled}
+                        onValueChange={setWaitlistEarlyEnabled}
+                        trackColor={{ false: "#333", true: "rgba(255,153,51,0.45)" }}
+                        thumbColor={waitlistEarlyEnabled ? "#FF9933" : "#888"}
+                      />
+                    </View>
+                    {waitlistEarlyEnabled && (
+                      <View style={{ marginTop: 12 }}>
+                        <Text style={labelStyle}>Minutes before open</Text>
+                        <TextInput
+                          value={waitlistEarlyMinutes}
+                          onChangeText={setWaitlistEarlyMinutes}
+                          keyboardType="number-pad"
+                          style={inputStyle}
+                          placeholder="30"
+                          placeholderTextColor="#555"
+                        />
+                      </View>
+                    )}
+                  </View>
+                )}
                 {hoursLoading ? (
                   <View style={{ paddingVertical: 48, alignItems: "center" }}>
                     <ActivityIndicator size="large" color="#FF9933" />

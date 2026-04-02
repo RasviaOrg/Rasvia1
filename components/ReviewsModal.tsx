@@ -1167,9 +1167,12 @@ export function ReviewsModal({
   onReviewsChanged,
 }: Props) {
   const { session } = useAuth();
-  const { isRestaurantOwner, ownedRestaurantId } = useAdminMode();
+  const { isRestaurantOwner, isAdmin, effectiveOwnerRestaurantId } = useAdminMode();
   /** Signed-in user owns this restaurant page — reply only, no new review on own venue */
-  const isOwnerHere = isRestaurantOwner && ownedRestaurantId === restaurantId;
+  const isOwnerHere =
+    (isRestaurantOwner || isAdmin) &&
+    effectiveOwnerRestaurantId != null &&
+    String(effectiveOwnerRestaurantId) === String(restaurantId);
   const [restaurantOwnerId, setRestaurantOwnerId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);

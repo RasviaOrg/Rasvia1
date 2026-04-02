@@ -115,7 +115,12 @@ const LIVE_ORDER_ACCENT_SOLID = ["#F97316", "#3B82F6", "#14B8A6", "#22C55E"];
 export default function DiscoveryFeed() {
   const router = useRouter();
   const { userCoords, locationLabel } = useLocation();
-  const { isAdmin, isRestaurantOwner, ownedRestaurantId, loading: roleLoading } = useAdminMode();
+  const {
+    isAdmin,
+    isRestaurantOwner,
+    effectiveOwnerRestaurantId,
+    loading: roleLoading,
+  } = useAdminMode();
   const { session } = useAuth();
   const { notificationBadgeCount } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
@@ -225,7 +230,7 @@ export default function DiscoveryFeed() {
   const [announcementBanner, setAnnouncementBanner] = useState("");
   const [userDietaryType, setUserDietaryType] = useState("");
   const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
-  const [ownerHomeMode, setOwnerHomeMode] = useState<"discover" | "dashboard">("discover");
+  const [ownerHomeMode, setOwnerHomeMode] = useState<"discover" | "dashboard">("dashboard");
 
   // Owners see their dashboard inline — no redirect needed
 
@@ -340,7 +345,7 @@ export default function DiscoveryFeed() {
   }, [fetchDietaryPreferences]);
 
   useEffect(() => {
-    if (!isRestaurantOwner) return;
+    if (!isRestaurantOwner && !isAdmin) return;
     AsyncStorage.getItem("rasvia:owner-home-mode:v1")
       .then((saved) => {
         if (saved === "discover" || saved === "dashboard") {
@@ -350,7 +355,7 @@ export default function DiscoveryFeed() {
       .catch(() => {
         // ignore
       });
-  }, [isRestaurantOwner]);
+  }, [isRestaurantOwner, isAdmin]);
 
   const setOwnerMode = useCallback((mode: "discover" | "dashboard") => {
     setOwnerHomeMode(mode);
@@ -824,9 +829,11 @@ export default function DiscoveryFeed() {
     setActiveFilter(filter);
   }, []);
 
-  const isOwnerDashboardMode = isRestaurantOwner && ownerHomeMode === "dashboard";
+  const isOwnerDashboardMode =
+    (isRestaurantOwner || isAdmin) && ownerHomeMode === "dashboard";
   const shouldShowFeedLoader =
-    roleLoading || ((!isRestaurantOwner || ownerHomeMode === "discover") && loading);
+    roleLoading ||
+    (((!isRestaurantOwner && !isAdmin) || ownerHomeMode === "discover") && loading);
 
   if (shouldShowFeedLoader) {
     return (
@@ -880,8 +887,8 @@ export default function DiscoveryFeed() {
               className="mr-3"
               onPress={() => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (isOwnerDashboardMode && ownedRestaurantId) {
-                  router.push(`/restaurant/${ownedRestaurantId}` as any);
+                if (isOwnerDashboardMode && effectiveOwnerRestaurantId) {
+                  router.push(`/restaurant/${effectiveOwnerRestaurantId}` as any);
                 } else {
                   setShowSearch(true);
                 }
@@ -997,7 +1004,7 @@ export default function DiscoveryFeed() {
           </View>
         </Animated.View>
 
-        {isRestaurantOwner && (
+        {(isRestaurantOwner || isAdmin) && (
           <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 }}>
             <View style={{
               backgroundColor: "#141414",
@@ -1008,7 +1015,7 @@ export default function DiscoveryFeed() {
               flexDirection: "row",
               alignItems: "center",
             }}>
-              {(["discover", "dashboard"] as const).map((mode) => {
+              {(["dashboard", "discover"] as const).map((mode) => {
                 const active = ownerHomeMode === mode;
                 return (
                   <Pressable
@@ -1032,7 +1039,7 @@ export default function DiscoveryFeed() {
                       fontSize: 12,
                       color: active ? "#FF9933" : "#888",
                     }}>
-                      {mode === "discover" ? "Discover Mode" : "Owner Dashboard"}
+                      {mode === "discover" ? "Discover" : "Owner Dashboard"}
                     </Text>
                   </Pressable>
                 );
@@ -1041,18 +1048,25 @@ export default function DiscoveryFeed() {
           </View>
         )}
 
-        {/* ── Owner home content (replaces discovery feed) ── */}
-        {isOwnerDashboardMode ? (
-          <OwnerHomeContent
-            refreshing={refreshing}
-            onRefreshSignal={() => {
-              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setRefreshing(true);
-              setTimeout(() => setRefreshing(false), 1500);
-            }}
-          />
-        ) : (
+        <View style={{ flex: 1 }}>
+          {(isRestaurantOwner || isAdmin) && (
+            <View
+              style={isOwnerDashboardMode ? { flex: 1 } : { height: 0, opacity: 0 }}
+              pointerEvents={isOwnerDashboardMode ? "auto" : "none"}
+            >
+              <OwnerHomeContent
+                refreshing={refreshing}
+                onRefreshSignal={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setRefreshing(true);
+                  setTimeout(() => setRefreshing(false), 1500);
+                }}
+              />
+            </View>
+          )}
+          {(!isOwnerDashboardMode || (!isRestaurantOwner && !isAdmin)) && (
         <ScrollView
+          style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
@@ -1187,11 +1201,26 @@ export default function DiscoveryFeed() {
                 ) : (
                   <ShieldCheck size={14} color="#60A5FA" />
                 )}
-                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12, flex: 1 }}>
-                  {isVegSortMode
-                    ? "Sorted for vegetarian-friendly options first."
-                    : "Sorted for halal-friendly options first."}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12 }}>
+                    {isVegSortMode
+                      ? "Sorted for vegetarian-friendly options first."
+                      : "Sorted for halal-friendly options first."}
+                  </Text>
+                  {isHalalSortMode && (
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_500Medium",
+                        color: "#a3a3a3",
+                        fontSize: 11,
+                        marginTop: 4,
+                        lineHeight: 15,
+                      }}
+                    >
+                      Opens soon — waitlist may already be open before dining hours.
+                    </Text>
+                  )}
+                </View>
               </View>
             </Animated.View>
           )}
@@ -2011,7 +2040,8 @@ export default function DiscoveryFeed() {
             </View>
           </Animated.View>
         </ScrollView>
-        )}
+          )}
+        </View>
 
         {/* Search Overlay */}
         {showSearch && <SearchOverlay onClose={() => setShowSearch(false)} />}

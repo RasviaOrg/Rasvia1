@@ -64,7 +64,7 @@ export default function AuthScreen() {
     const [phoneSignIn, setPhoneSignIn] = useState("");
     const [password, setPassword] = useState("");
     const [firstName, setFirstName] = useState("");
-    const [lastInitial, setLastInitial] = useState("");
+    const [lastName, setLastName] = useState("");
     const router = useRouter();
     const insets = useSafeAreaInsets();
     /** Reserve space so scroll content clears the sticky signup footer (absolute bottom bar). */
@@ -325,10 +325,11 @@ export default function AuthScreen() {
             });
             return;
         }
-        if (!firstName || !lastInitial) {
+        const ln = lastName.trim();
+        if (!firstName?.trim() || !ln || ln.length < 2) {
             setNotification({
                 visible: true,
-                message: "Please enter your first name and last initial.",
+                message: "Please enter your first and last name (last name at least 2 letters).",
                 type: "error",
             });
             return;
@@ -344,7 +345,7 @@ export default function AuthScreen() {
 
         setLoading(true);
         try {
-            const fullName = `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`;
+            const fullName = `${firstName.trim()} ${ln}`;
             const normalizedPhone = phone.replace(/\D/g, "").trim();
             const { data, error } = await supabase.auth.signUp({
                 email: email.trim(),
@@ -354,7 +355,7 @@ export default function AuthScreen() {
                     data: {
                         full_name: fullName,
                         first_name: firstName.trim(),
-                        last_name: `${lastInitial.trim().toUpperCase()}.`,
+                        last_name: ln,
                         phone_number: normalizedPhone,
                     },
                 },
@@ -604,7 +605,7 @@ export default function AuthScreen() {
                                 autoCapitalize="none"
                                 autoCorrect={false}
                                 autoComplete="email"
-                                returnKeyType="continue"
+                                returnKeyType="next"
                                 keyboardAppearance="dark"
                             />
                             {!!identifierInput && (
@@ -913,7 +914,7 @@ export default function AuthScreen() {
                                         setAuthPhase("identifier");
                                         setPassword("");
                                         setFirstName("");
-                                        setLastInitial("");
+                                        setLastName("");
                                     }}
                                     style={{ flexDirection: "row", alignItems: "center", marginBottom: 16, gap: 8 }}
                                 >
@@ -989,7 +990,7 @@ export default function AuthScreen() {
                                     </View>
                                     <View
                                         style={{
-                                            width: 80,
+                                            flex: 1,
                                             flexDirection: "row",
                                             alignItems: "center",
                                             backgroundColor: "#262626",
@@ -1006,22 +1007,20 @@ export default function AuthScreen() {
                                                 color: "#f5f5f5",
                                                 fontFamily: "Manrope_500Medium",
                                                 fontSize: 15,
-                                                textAlign: "center",
                                             }}
-                                            placeholder="L"
+                                            placeholder="Last name"
                                             placeholderTextColor="#666666"
-                                            value={lastInitial}
-                                            onChangeText={(text) => setLastInitial(text.slice(0, 1))}
+                                            value={lastName}
+                                            onChangeText={setLastName}
                                             onFocus={() => {
                                                 if (Platform.OS !== "web") Haptics.selectionAsync();
                                             }}
-                                            maxLength={1}
-                                            autoCapitalize="characters"
+                                            autoCapitalize="words"
                                             autoCorrect={false}
                                             keyboardAppearance="dark"
                                         />
-                                        {!!lastInitial && (
-                                            <Pressable onPress={clearField(setLastInitial)} hitSlop={8}>
+                                        {!!lastName && (
+                                            <Pressable onPress={clearField(setLastName)} hitSlop={8}>
                                                 <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 14 }}>×</Text>
                                             </Pressable>
                                         )}
@@ -1036,7 +1035,7 @@ export default function AuthScreen() {
                                         marginLeft: 4,
                                     }}
                                 >
-                                    First name, last initial
+                                    First and last name
                                 </Text>
 
                                 <View

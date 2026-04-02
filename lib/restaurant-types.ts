@@ -23,6 +23,8 @@ export interface SupabaseRestaurant {
     long: number | null;
     owner_id: string | null;
     created_at: string;
+    waitlist_early_open_enabled?: boolean;
+    waitlist_early_open_minutes?: number;
 }
 
 // ==========================================
@@ -51,6 +53,8 @@ export interface UIRestaurant {
     long: number | null;
     isEnabled: boolean;
     waitlistOpen: boolean;
+    waitlistEarlyOpenEnabled: boolean;
+    waitlistEarlyOpenMinutes: number;
 }
 
 // ==========================================
@@ -180,6 +184,11 @@ export function mapSupabaseToUI(
         long: hasValidCoords ? lng : null,
         isEnabled: restaurant.is_enabled !== false, // default true if column missing
         waitlistOpen: restaurant.waitlist_open !== false, // default true if column missing
+        waitlistEarlyOpenEnabled: restaurant.waitlist_early_open_enabled === true,
+        waitlistEarlyOpenMinutes: Math.max(
+            0,
+            Math.min(24 * 60, Number(restaurant.waitlist_early_open_minutes) || 30),
+        ),
     };
 }
 
