@@ -61,7 +61,8 @@
           "photosPermission": "Rasvia needs access to your photos to set your profile picture.",
           "cameraPermission": "Rasvia needs camera access to take a profile photo."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

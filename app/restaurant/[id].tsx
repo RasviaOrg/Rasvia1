@@ -345,9 +345,20 @@ export default function RestaurantDetail() {
       )
       .subscribe();
 
+    // Real-time: menu_items changes → refresh menu
+    const menuSub = supabase
+      .channel(`restaurant-menu:${id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${id}` },
+        () => { fetchMenu(); }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(restSub);
       supabase.removeChannel(queueSub);
+      supabase.removeChannel(menuSub);
     };
   }, [id]);
 
@@ -406,8 +417,7 @@ export default function RestaurantDetail() {
       const { data, error } = await supabase
         .from('menu_items')
         .select('*')
-        .eq('restaurant_id', id)
-        .eq('is_available', true); // Only show available items
+        .eq('restaurant_id', id);
 
       if (error) throw error;
       if (data) {

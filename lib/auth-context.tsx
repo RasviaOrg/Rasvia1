@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { supabase } from './supabase';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { upsertProfileFromAuthUser } from './profile-sync';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface AuthContextType {
     session: Session | null;
@@ -60,10 +61,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }, AUTH_TIMEOUT_MS);
 
+        // ── Handle invalid refresh token errors on listener errors ──
+        // Supabase fires onAuthStateChange with event='SIGNED_OUT' when a
+        // refresh token is invalid/expired.  The AuthApiError is emitted as
+        // a console error by the Supabase client.  We additionally handle it
+        // at the app level by subscribing to the refreshed-session error path.
+        const handleInvalidToken = async (err: any) => {
+            const msg: string = err?.message ?? '';
+            if (
+                msg.toLowerCase().includes('refresh token') ||
+                msg.toLowerCase().includes('invalid_grant')
+            ) {
+                // Clear all persisted auth keys so AsyncStorage is clean
+                const keys = await AsyncStorage.getAllKeys();
+                const authKeys = keys.filter(k => k.startsWith('sb-'));
+                if (authKeys.length) await AsyncStorage.multiRemove(authKeys);
+                await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+                if (!cancelled) {
+                    setSession(null);
+                    setNeedsOnboarding(false);
+                    initialised.current = true;
+                    setLoading(false);
+                }
+            }
+        };
+
         const {
             data: { subscription },
         } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, newSession) => {
             if (cancelled) return;
+
+            // If Supabase fires SIGNED_OUT due to token errors, just clear state
+            if (event === 'SIGNED_OUT' && !newSession) {
+                setSession(null);
+                setNeedsOnboarding(false);
+                if (!cancelled) {
+                    initialised.current = true;
+                    setLoading(false);
+                }
+                return;
+            }
 
             setSession(newSession);
 
@@ -71,6 +108,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 try {
                     await upsertProfileFromAuthUser(newSession.user);
                 } catch (error: any) {
+                    // Check if this is an invalid refresh token error
+                    await handleInvalidToken(error);
+                    if (!newSession) return; // was cleared
                     console.log('Profile sync skipped:', error?.message ?? 'unknown');
                 }
 
@@ -89,6 +129,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setLoading(false);
             }
         });
+
+        // Also listen for Supabase global errors via the client fetch interceptor
+        // by wrapping getSession at startup – if the stored session is dead, sign out
+        (async () => {
+            try {
+                const { data, error } = await supabase.auth.getSession();
+                if (error) {
+                    await handleInvalidToken(error);
+                }
+            } catch (err) {
+                await handleInvalidToken(err);
+            }
+        })();
 
         return () => {
             cancelled = true;

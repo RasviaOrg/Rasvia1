@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Save, Plus, Building2, Users, X } from "lucide-react-native";
+import { ArrowLeft, Save, Plus, Building2, Users, X, Shield, Store, User as UserIcon } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -66,9 +66,18 @@ function emptyForm(): Partial<RestaurantRow> {
 
 function profileLabel(p: ProfileOption) {
   const bits = [p.full_name?.trim(), p.email?.trim()].filter(Boolean);
-  const label = bits.length ? bits.join(" · ") : p.id.slice(0, 8);
-  const role = p.role && p.role !== "user" ? ` (${p.role})` : "";
-  return `${label}${role}`;
+  return bits.length ? bits.join(" · ") : p.id.slice(0, 8);
+}
+
+function getRoleBadge(role: string | null | undefined) {
+  switch (role) {
+    case 'admin':
+      return { label: 'Admin', color: '#FF9933', bg: 'rgba(255,153,51,0.15)', Icon: Shield };
+    case 'restaurant_owner':
+      return { label: 'Owner', color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', Icon: Store };
+    default:
+      return { label: 'User', color: '#60A5FA', bg: 'rgba(96,165,250,0.15)', Icon: UserIcon };
+  }
 }
 
 async function syncRolesAfterOwnerChange(previousOwnerId: string | null, newOwnerId: string | null) {
@@ -315,7 +324,7 @@ export default function AdminPortalScreen() {
         </Pressable>
         <Building2 size={20} color="#EAB308" />
         <Text style={{ marginLeft: 8, fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5", flex: 1 }}>
-          Admin portal
+          Admin Portal
         </Text>
       </View>
 
@@ -399,9 +408,21 @@ export default function AdminPortalScreen() {
                   backgroundColor: "#141414",
                   borderWidth: 1,
                   borderColor: "#2a2a2a",
+                  position: "relative",
                 }}
               >
-                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 14 }}>{profileLabel(p)}</Text>
+                {/* Role badge */}
+                {(() => {
+                  const badge = getRoleBadge(p.role);
+                  const BadgeIcon = badge.Icon;
+                  return (
+                    <View style={{ position: "absolute", top: 10, right: 10, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: badge.bg, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3 }}>
+                      <BadgeIcon size={10} color={badge.color} />
+                      <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: badge.color }}>{badge.label}</Text>
+                    </View>
+                  );
+                })()}
+                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 14, paddingRight: 56 }}>{profileLabel(p)}</Text>
                 <Text style={{ color: "#666", fontSize: 10, fontFamily: "Manrope_500Medium", marginTop: 2 }}>{p.id}</Text>
               </Pressable>
             )}

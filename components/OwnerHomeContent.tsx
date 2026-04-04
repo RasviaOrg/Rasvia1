@@ -1097,7 +1097,9 @@ export function OwnerHomeContent({
     const waitTime = restaurant?.current_wait_time ?? 0;
     const waitlistOpen = restaurant?.waitlist_open ?? false;
     const waitColor = getWaitColor(waitTime);
-    const queueDisabled = !waitlistOpen;
+    // If the restaurant is closed by schedule, treat queue as disabled too
+    const restaurantClosed = statusResult?.status === 'closed';
+    const queueDisabled = !waitlistOpen || restaurantClosed;
 
     return (
         <>
@@ -1350,10 +1352,10 @@ export function OwnerHomeContent({
                         {/* Queue count + Waitlist toggle */}
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                             {/* In Queue */}
-                            <View style={{ alignItems: "center", flex: 1 }}>
+                            <View style={{ alignItems: "center", flex: 1, opacity: restaurantClosed ? 0.4 : 1 }}>
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                    <Users size={16} color={ORANGE} />
-                                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 34, color: ORANGE }}>
+                                    <Users size={16} color={restaurantClosed ? "#555" : ORANGE} />
+                                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 34, color: restaurantClosed ? "#444" : ORANGE }}>
                                         {queueCount ?? "—"}
                                     </Text>
                                 </View>
@@ -1368,26 +1370,28 @@ export function OwnerHomeContent({
                             {/* Toggle */}
                             <Pressable
                                 onPress={requestToggleWaitlist}
-                                disabled={waitlistToggleDisabled}
-                                style={{ alignItems: "center", flex: 1 }}
+                                disabled={waitlistToggleDisabled || restaurantClosed}
+                                style={{ alignItems: "center", flex: 1, opacity: restaurantClosed ? 0.4 : 1 }}
                             >
                                 <View style={{
                                     paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
-                                    backgroundColor: waitlistOpen ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                                    backgroundColor: (waitlistOpen && !restaurantClosed) ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
                                     borderWidth: 1,
-                                    borderColor: waitlistOpen ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
+                                    borderColor: (waitlistOpen && !restaurantClosed) ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
                                     opacity: waitlistToggleDisabled ? 0.45 : 1,
                                 }}>
-                                    <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 13, color: waitlistOpen ? "#22C55E" : "#EF4444" }}>
-                                        {waitlistOpen ? "● OPEN" : "● CLOSED"}
+                                    <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 13, color: (waitlistOpen && !restaurantClosed) ? "#22C55E" : "#EF4444" }}>
+                                        {(waitlistOpen && !restaurantClosed) ? "● OPEN" : "● CLOSED"}
                                     </Text>
                                 </View>
                                 <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#555", marginTop: 6, textAlign: "center", paddingHorizontal: 4 }}>
-                                    {waitlistToggleDisabled && !waitlistOpen
-                                        ? "Open when restaurant is open"
-                                        : waitlistOpen
-                                            ? "Tap to close"
-                                            : "Tap to open"}
+                                    {restaurantClosed
+                                        ? "Restaurant is closed"
+                                        : waitlistToggleDisabled && !waitlistOpen
+                                            ? "Open when restaurant is open"
+                                            : waitlistOpen
+                                                ? "Tap to close"
+                                                : "Tap to open"}
                                 </Text>
                             </Pressable>
                         </View>
@@ -1481,20 +1485,19 @@ export function OwnerHomeContent({
                                 setShowPulseBreakdown(true);
                             }}
                             style={({ pressed }) => ({
-                                marginTop: 18,
+                                marginTop: 24,
                                 borderRadius: 12,
                                 borderWidth: 1,
-                                borderColor: "#2f2f2f",
-                                backgroundColor: "#131313",
-                                paddingHorizontal: 12,
-                                paddingVertical: 12,
+                                borderColor: pressed ? "#3f3f3f" : "#2f2f2f",
+                                backgroundColor: pressed ? "#1a1a1a" : "#131313",
+                                paddingHorizontal: 16,
+                                paddingVertical: 14,
                                 flexDirection: "row",
                                 alignItems: "center",
                                 justifyContent: "space-between",
-                                opacity: pressed ? 0.85 : 1,
                             })}
                         >
-                            <View style={{ flex: 1, marginRight: 10 }}>
+                            <View>
                                 <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: "#f5f5f5" }}>
                                     Open combined breakdown
                                 </Text>
@@ -1502,7 +1505,7 @@ export function OwnerHomeContent({
                                     Item + order insights in one place
                                 </Text>
                             </View>
-                            <ChevronRight size={18} color="#999" />
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 18, color: "#555", lineHeight: 20 }}>›</Text>
                         </Pressable>
                     </View>
                 </View>

@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Plus, Leaf, Flame } from "lucide-react-native";
-import type { MenuItem } from "@/data/mockData";
+import type { UIMenuItem } from "@/lib/restaurant-types";
 import Animated, {
   FadeInUp,
   useAnimatedStyle,
@@ -18,7 +18,7 @@ const PADDING = 16;
 const COLUMN_WIDTH = (SCREEN_WIDTH - PADDING * 2 - COLUMN_GAP) / 2;
 
 interface MenuGridItemProps {
-  item: MenuItem;
+  item: UIMenuItem;
   index: number;
   onPress: () => void;
   onQuickAdd: () => void;
@@ -50,19 +50,21 @@ export function MenuGridItem({
     >
       <Animated.View style={animatedStyle}>
         <Pressable
-          onPress={onPress}
+          onPress={item.isAvailable === false ? undefined : onPress}
+          disabled={item.isAvailable === false}
           onPressIn={() => {
-            pressScale.value = withSpring(0.96);
+            if (item.isAvailable !== false) pressScale.value = withSpring(0.96);
           }}
           onPressOut={() => {
-            pressScale.value = withSpring(1);
+            if (item.isAvailable !== false) pressScale.value = withSpring(1);
           }}
           className="rounded-xl overflow-hidden bg-rasvia-card"
+          style={{ opacity: item.isAvailable === false ? 0.45 : 1 }}
         >
           <View style={{ height: imageHeight, position: "relative" }}>
             <Image
               source={{ uri: item.image }}
-              style={{ width: "100%", height: "100%" }}
+              style={{ width: "100%", height: "100%", opacity: item.isAvailable === false ? 0.8 : 1 }}
               resizeMode="cover"
             />
             <LinearGradient
@@ -79,8 +81,10 @@ export function MenuGridItem({
             {/* Quick Add Button */}
             {showQuickAdd && (
               <Pressable
+                disabled={item.isAvailable === false}
                 onPress={(e) => {
                   e.stopPropagation?.();
+                  if (item.isAvailable === false) return;
                   if (Platform.OS !== "web") {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   }
@@ -88,13 +92,13 @@ export function MenuGridItem({
                 }}
                 className="absolute bottom-2 right-2"
                 style={{
-                  backgroundColor: "#FF9933",
+                  backgroundColor: item.isAvailable === false ? "#444444" : "#FF9933",
                   width: 32,
                   height: 32,
                   borderRadius: 16,
                   alignItems: "center",
                   justifyContent: "center",
-                  shadowColor: "#FF9933",
+                  shadowColor: item.isAvailable === false ? "transparent" : "#FF9933",
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: 0.4,
                   shadowRadius: 6,
@@ -188,15 +192,29 @@ export function MenuGridItem({
                 );
               })}
             </View>
-            <Text
-              style={{
-                fontFamily: "JetBrainsMono_600SemiBold",
-                color: "#FF9933",
-                fontSize: 14,
-              }}
-            >
-              ${item.price.toFixed(2)}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text
+                style={{
+                  fontFamily: "JetBrainsMono_600SemiBold",
+                  color: item.isAvailable === false ? "#888888" : "#FF9933",
+                  fontSize: 14,
+                }}
+              >
+                ${item.price.toFixed(2)}
+              </Text>
+              {item.isAvailable === false && (
+                <Text
+                  style={{
+                    fontFamily: "Manrope_700Bold",
+                    color: "#EF4444",
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  (Out of Stock)
+                </Text>
+              )}
+            </View>
           </View>
         </Pressable>
       </Animated.View>

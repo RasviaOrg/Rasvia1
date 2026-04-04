@@ -11,10 +11,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Save } from "lucide-react-native";
+import { ArrowLeft, Save, Shield, Store, User as UserIcon } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { useAuth } from "@/lib/auth-context";
 
 type ProfileRow = {
   id: string;
@@ -24,9 +25,21 @@ type ProfileRow = {
   phone_number: string | null;
 };
 
+function getRoleBadge(role: string | null) {
+  switch (role) {
+    case 'admin':
+      return { label: 'Admin', color: '#FF9933', bg: 'rgba(255,153,51,0.15)', icon: Shield };
+    case 'restaurant_owner':
+      return { label: 'Owner', color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', icon: Store };
+    default:
+      return { label: 'User', color: '#60A5FA', bg: 'rgba(96,165,250,0.15)', icon: UserIcon };
+  }
+}
+
 export default function AdminUsersScreen() {
   const router = useRouter();
   const { isAdmin, loading: roleLoading } = useAdminMode();
+  const { session } = useAuth();
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -239,13 +252,24 @@ export default function AdminUsersScreen() {
                     padding: 16,
                     borderRadius: 14,
                     backgroundColor: "#1a1a1a",
-                    borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderWidth: p.id === session?.user?.id ? 1.5 : 1,
+                    borderColor: p.id === session?.user?.id ? "#FF9933" : "#2a2a2a",
                     marginBottom: 10,
                   }}
                 >
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 15, color: "#f5f5f5" }}>
-                    {p.full_name?.trim() || p.email || "—"}
+                  {/* Role badge in top right */}
+                  {(() => {
+                    const badge = getRoleBadge(p.role);
+                    const BadgeIcon = badge.icon;
+                    return (
+                      <View style={{ position: 'absolute', top: 10, right: 10, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: badge.bg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <BadgeIcon size={11} color={badge.color} />
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 10, color: badge.color }}>{badge.label}</Text>
+                      </View>
+                    );
+                  })()}
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 15, color: p.id === session?.user?.id ? "#FF9933" : "#f5f5f5", paddingRight: 60 }}>
+                    {p.full_name?.trim() || p.email || "—"}{p.id === session?.user?.id ? " (you)" : ""}
                   </Text>
                   <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginTop: 4 }}>{p.email}</Text>
                   <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#444", marginTop: 2 }}>{p.id}</Text>

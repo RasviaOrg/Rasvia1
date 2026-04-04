@@ -267,8 +267,36 @@ export default function AdminPulseScreen() {
           />
         }
       >
+        {/* Orders Navigation Card */}
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("/admin-orders" as any);
+          }}
+          style={({ pressed }) => ({
+            ...CARD_STYLE,
+            padding: 16,
+            marginBottom: 20,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,153,51,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,153,51,0.3)" }}>
+              <ShoppingBag size={20} color="#FF9933" />
+            </View>
+            <View>
+              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: "#f5f5f5" }}>Order Management</Text>
+              <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#777", marginTop: 2 }}>View, filter &amp; manage all orders</Text>
+            </View>
+          </View>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#FF9933" }} />
+        </Pressable>
+
         {/* Pulse Stats */}
-        <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
+        <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
           <View style={{ ...CARD_STYLE, flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
             <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: "#f5f5f5" }}>
               {stats.total}
@@ -295,33 +323,6 @@ export default function AdminPulseScreen() {
           </View>
         </View>
 
-        {/* Orders Navigation Card */}
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push("/admin-orders" as any);
-          }}
-          style={({ pressed }) => ({
-            ...CARD_STYLE,
-            padding: 16,
-            marginBottom: 24,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,153,51,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,153,51,0.3)" }}>
-              <ShoppingBag size={20} color="#FF9933" />
-            </View>
-            <View>
-              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: "#f5f5f5" }}>Order Management</Text>
-              <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#777", marginTop: 2 }}>View, filter &amp; manage all orders</Text>
-            </View>
-          </View>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#FF9933" }} />
-        </Pressable>
 
         {/* Queue Health Card */}
         <View style={{ marginBottom: 24 }}>

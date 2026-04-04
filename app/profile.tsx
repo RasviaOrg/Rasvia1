@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import * as SecureStore from 'expo-secure-store';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
@@ -49,8 +50,11 @@ import {
   Store,
   Users,
   Building2,
+  X,
+  Plus
 } from "lucide-react-native";
 import { RolesModal } from "@/components/RolesModal";
+import { isolatedSupabase } from "@/lib/isolated-supabase";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -131,6 +135,14 @@ function formatDebugDisplay(iso: string | null): string {
   } catch { return 'Invalid time'; }
 }
 
+export type SavedAccount = {
+  email: string;
+  passwordPlain: string;
+  fullName: string;
+  role: string | null;
+  id: string;
+};
+
 export default function ProfileSettingsScreen() {
   const router = useRouter();
   const { session } = useAuth();
@@ -152,7 +164,14 @@ export default function ProfileSettingsScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Admin tab state (only used when isAdmin)
-  const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug'>('preferences');
+  const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug' | 'accounts'>('preferences');
+
+  // Accounts state
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
+  const [showAddAccountModal, setShowAddAccountModal] = useState(false);
+  const [addAccountEmail, setAddAccountEmail] = useState('');
+  const [addAccountPassword, setAddAccountPassword] = useState('');
+  const [validatingAccount, setValidatingAccount] = useState(false);
 
   // Debug time override state
   const [debugDay, setDebugDay] = useState(0);     // 0=Sun..6=Sat
@@ -194,6 +213,123 @@ export default function ProfileSettingsScreen() {
       setUserEmail(session.user.email);
     }
   }, [session]);
+
+  // Load saved accounts
+  useEffect(() => {
+    async function loadSavedAccounts() {
+      try {
+        const data = await SecureStore.getItemAsync('rasvia.saved_accounts');
+        if (data) {
+          setSavedAccounts(JSON.parse(data));
+        }
+      } catch (err) {
+        console.error("Error loading saved accounts", err);
+      }
+    }
+    loadSavedAccounts();
+  }, []);
+
+  const saveAccountToStore = async (newAccount: SavedAccount) => {
+    const updated = savedAccounts.filter(a => a.id !== newAccount.id);
+    updated.push(newAccount);
+    setSavedAccounts(updated);
+    await SecureStore.setItemAsync('rasvia.saved_accounts', JSON.stringify(updated));
+  };
+
+  const removeAccountFromStore = async (id: string) => {
+    Alert.alert(
+      "Remove Account",
+      "Are you sure you want to remove this saved account?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Remove", 
+          style: "destructive",
+          onPress: async () => {
+            const updated = savedAccounts.filter(a => a.id !== id);
+            setSavedAccounts(updated);
+            await SecureStore.setItemAsync('rasvia.saved_accounts', JSON.stringify(updated));
+          }
+        }
+      ]
+    );
+  };
+
+  const switchAccount = async (account: SavedAccount) => {
+    Alert.alert(
+      "Switch Account",
+      `You will be signed out of your admin account.\n\nSwitch to ${account.fullName || account.email}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Switch", 
+          style: "destructive",
+          onPress: async () => {
+            setLoggingOut(true);
+            try {
+              await supabase.auth.signOut();
+              await supabase.auth.signInWithPassword({
+                email: account.email,
+                password: account.passwordPlain,
+              });
+              // Session state listener will automatically redirect to home
+            } catch (err) {
+              console.error("Switch account error", err);
+              Alert.alert("Error", "Failed to switch accounts.");
+            } finally {
+              setLoggingOut(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleAddAccount = async () => {
+    if (!addAccountEmail || !addAccountPassword) {
+      Alert.alert("Validation", "Please enter email and password.");
+      return;
+    }
+    if (session?.user?.email && addAccountEmail.trim().toLowerCase() === session.user.email.toLowerCase()) {
+      Alert.alert("Validation", "You cannot save your current account.");
+      return;
+    }
+    setValidatingAccount(true);
+    try {
+      const { data, error } = await isolatedSupabase.auth.signInWithPassword({
+        email: addAccountEmail.trim(),
+        password: addAccountPassword,
+      });
+
+      if (error || !data.user) {
+        Alert.alert("Invalid Credentials", "Could not sign in with these credentials.");
+        return;
+      }
+
+      // Fetch profile data
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, role')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      await saveAccountToStore({
+        email: addAccountEmail.trim(),
+        passwordPlain: addAccountPassword, // stored plainly inside secure keystore
+        fullName: profile?.full_name || 'Unknown',
+        role: profile?.role || 'user',
+        id: data.user.id
+      });
+
+      setShowAddAccountModal(false);
+      setAddAccountEmail('');
+      setAddAccountPassword('');
+    } catch (e) {
+      Alert.alert("Error", "An unexpected error occurred.");
+    } finally {
+      setValidatingAccount(false);
+    }
+  };
 
   // Load preferences from profiles table
   useEffect(() => {
@@ -787,9 +923,9 @@ export default function ProfileSettingsScreen() {
             marginBottom: 10,
             gap: 8,
           }}>
-            {(['preferences', 'location', 'debug'] as const).map((tab) => {
+            {(['preferences', 'location', 'debug', 'accounts'] as const).map((tab) => {
               const isActive = activeTab === tab;
-              const label = tab === 'preferences' ? 'Preferences' : tab === 'location' ? 'Location' : 'Debug';
+              const label = tab === 'preferences' ? 'Preferences' : tab === 'location' ? 'Location' : tab === 'accounts' ? 'Accounts' : 'Debug';
               return (
                 <Pressable
                   key={tab}
@@ -976,6 +1112,66 @@ export default function ProfileSettingsScreen() {
             </Text>
           </Animated.View>
 
+          {/* Admin Pulse + Admin Portal — only on preferences tab */}
+          {isAdmin && activeTab === 'preferences' && (
+            <Animated.View
+              entering={FadeInDown.delay(0).duration(400)}
+              className="mx-5 mb-4"
+              style={{ gap: 10 }}
+            >
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/admin-pulse" as any);
+                }}
+                style={{
+                  backgroundColor: "rgba(255,153,51,0.08)",
+                  borderWidth: 1,
+                  borderColor: "rgba(255,153,51,0.25)",
+                  borderRadius: 16,
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Shield size={18} color="#FF9933" />
+                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 16, marginLeft: 10 }}>
+                    Admin Pulse
+                  </Text>
+                </View>
+                <ChevronRight size={18} color="#FF9933" />
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/admin-portal" as any);
+                }}
+                style={{
+                  backgroundColor: "rgba(234,179,8,0.08)",
+                  borderWidth: 1,
+                  borderColor: "rgba(234,179,8,0.25)",
+                  borderRadius: 16,
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Building2 size={18} color="#EAB308" />
+                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#EAB308", fontSize: 16, marginLeft: 10 }}>
+                    Admin Portal
+                  </Text>
+                </View>
+                <ChevronRight size={18} color="#EAB308" />
+              </Pressable>
+            </Animated.View>
+          )}
+
           {/* Settings List — My Orders / Roles, Notifications */}
           {(!isAdmin || activeTab === 'preferences') && (
             <Animated.View
@@ -1090,22 +1286,9 @@ export default function ProfileSettingsScreen() {
                   thumbColor={notificationsEnabled ? "#FF9933" : "#666666"}
                 />
               </View>
-              {isAdmin && (
-                <>
-                  <Divider />
-                  <SettingsRow
-                    icon={<Building2 size={20} color="#EAB308" />}
-                    label="Admin portal"
-                    hasChevron
-                    onPress={() => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/admin-portal" as any);
-                    }}
-                  />
-                </>
-              )}
             </Animated.View>
           )}
+
 
           {/* ==========================================
                         DINING PREFERENCES SECTION
@@ -1948,65 +2131,6 @@ export default function ProfileSettingsScreen() {
             </Animated.View>
           )}
 
-          {/* Admin Pulse — only visible to admins */}
-          {isAdmin && (
-            <Animated.View
-              entering={FadeInDown.delay(280).duration(500)}
-              className="mx-5 mb-4"
-              style={{ gap: 10 }}
-            >
-              <Pressable
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push("/admin-pulse" as any);
-                }}
-                style={{
-                  backgroundColor: "rgba(255,153,51,0.08)",
-                  borderWidth: 1,
-                  borderColor: "rgba(255,153,51,0.25)",
-                  borderRadius: 16,
-                  paddingVertical: 16,
-                  paddingHorizontal: 20,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Shield size={18} color="#FF9933" />
-                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 16, marginLeft: 10 }}>
-                    Admin Pulse
-                  </Text>
-                </View>
-                <ChevronRight size={18} color="#FF9933" />
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push("/admin-users" as any);
-                }}
-                style={{
-                  backgroundColor: "rgba(96,165,250,0.08)",
-                  borderWidth: 1,
-                  borderColor: "rgba(96,165,250,0.25)",
-                  borderRadius: 16,
-                  paddingVertical: 16,
-                  paddingHorizontal: 20,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Shield size={18} color="#60A5FA" />
-                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#60A5FA", fontSize: 16, marginLeft: 10 }}>
-                    User management
-                  </Text>
-                </View>
-                <ChevronRight size={18} color="#60A5FA" />
-              </Pressable>
-            </Animated.View>
-          )}
 
           {/* ==========================================
                       DANGER ZONE — Delete Account
@@ -2084,41 +2208,120 @@ export default function ProfileSettingsScreen() {
             </Animated.View>
           )}
 
-          {/* Legal Links — visible to all users */}
-          <Animated.View
-            entering={FadeInDown.delay(350).duration(500)}
-            className="mx-5 mb-8"
-          >
-            <View
-              style={{
-                backgroundColor: "#1a1a1a",
-                borderRadius: 16,
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-                overflow: "hidden",
-              }}
+          {/* ==========================================
+                        ACCOUNTS TAB (Admin only)
+          ========================================== */}
+          {isAdmin && activeTab === 'accounts' && (
+            <Animated.View entering={FadeIn.duration(200)}>
+              <View style={{ marginHorizontal: 20, marginBottom: 24, padding: 20, backgroundColor: "#141414", borderRadius: 20, borderWidth: 1, borderColor: "#2a2a2a" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                  <Users size={20} color="#60A5FA" />
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>Saved Accounts</Text>
+                </View>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+                  Save credentials for quick switching between testing accounts. Validated securely.
+                </Text>
+
+                {savedAccounts.length === 0 ? (
+                  <View style={{ alignItems: "center", paddingVertical: 20, backgroundColor: "#1a1a1a", borderRadius: 12, marginBottom: 16 }}>
+                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#555", fontSize: 13 }}>No accounts saved yet.</Text>
+                  </View>
+                ) : (
+                  savedAccounts.map((acc) => (
+                    <View key={acc.id} style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#1a1a1a", borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: "#2a2a2a" }}>
+                      <View style={{ flex: 1, paddingRight: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontFamily: "BricolageGrotesque_600SemiBold", color: "#f5f5f5", fontSize: 15 }}>
+                            {acc.fullName}
+                          </Text>
+                          <View style={{ backgroundColor: acc.role === 'admin' ? "rgba(255,153,51,0.15)" : acc.role === 'restaurant_owner' ? "rgba(167,139,250,0.15)" : "rgba(96,165,250,0.15)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2 }}>
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 9, color: acc.role === 'admin' ? "#FF9933" : acc.role === 'restaurant_owner' ? "#A78BFA" : "#60A5FA" }}>
+                              {acc.role === 'admin' ? 'Admin' : acc.role === 'restaurant_owner' ? 'Owner' : 'User'}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 4 }}>
+                          {acc.email}
+                        </Text>
+                      </View>
+                      
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <Pressable
+                          onPress={() => removeAccountFromStore(acc.id)}
+                          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(239,68,68,0.1)", alignItems: "center", justifyContent: "center" }}
+                        >
+                          <X size={16} color="#EF4444" />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => switchAccount(acc)}
+                          style={{ height: 36, paddingHorizontal: 16, borderRadius: 18, backgroundColor: "#60A5FA", alignItems: "center", justifyContent: "center" }}
+                        >
+                          <Text style={{ fontFamily: "Manrope_700Bold", color: "#000", fontSize: 13 }}>Switch</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))
+                )}
+
+                <Pressable
+                  onPress={() => setShowAddAccountModal(true)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    height: 48,
+                    backgroundColor: "rgba(96,165,250,0.1)",
+                    borderWidth: 1,
+                    borderColor: "rgba(96,165,250,0.3)",
+                    borderRadius: 14,
+                    marginTop: 8,
+                  }}
+                >
+                  <Plus size={18} color="#60A5FA" />
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#60A5FA", fontSize: 15 }}>Add Account</Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+          )}
+
+          {/* Legal Links — visible only on preferences tab (not location/debug) */}
+          {(!isAdmin || activeTab === 'preferences') && (
+            <Animated.View
+              entering={FadeInDown.delay(350).duration(500)}
+              className="mx-5 mb-8"
             >
-              <SettingsRow
-                icon={<Shield size={20} color="#888888" />}
-                label="Privacy Policy"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/privacy" as any);
+              <View
+                style={{
+                  backgroundColor: "#1a1a1a",
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: "#2a2a2a",
+                  overflow: "hidden",
                 }}
-              />
-              <Divider />
-              <SettingsRow
-                icon={<FileText size={20} color="#888888" />}
-                label="Terms of Service"
-                hasChevron
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  router.push("/terms" as any);
-                }}
-              />
-            </View>
-          </Animated.View>
+              >
+                <SettingsRow
+                  icon={<Shield size={20} color="#888888" />}
+                  label="Privacy Policy"
+                  hasChevron
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    router.push("/privacy" as any);
+                  }}
+                />
+                <Divider />
+                <SettingsRow
+                  icon={<FileText size={20} color="#888888" />}
+                  label="Terms of Service"
+                  hasChevron
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    router.push("/terms" as any);
+                  }}
+                />
+              </View>
+            </Animated.View>
+          )}
 
         </ScrollView>
 
@@ -2308,6 +2511,95 @@ export default function ProfileSettingsScreen() {
                     </View>
                   </View>
                 </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* ==========================================
+                      ADD ACCOUNT MODAL
+        ========================================== */}
+        <Modal
+          visible={showAddAccountModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowAddAccountModal(false)}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 20 }}
+          >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={{ backgroundColor: "#141414", borderRadius: 20, padding: 24, borderWidth: 1, borderColor: "#2a2a2a" }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>Add Saved Account</Text>
+                  <Pressable onPress={() => setShowAddAccountModal(false)} hitSlop={10}>
+                    <X size={20} color="#888" />
+                  </Pressable>
+                </View>
+
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 13, marginBottom: 8 }}>Email Address</Text>
+                  <TextInput
+                    style={{
+                      height: 48,
+                      backgroundColor: "#1a1a1a",
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: "#333",
+                      paddingHorizontal: 16,
+                      color: "#f5f5f5",
+                      fontFamily: "Manrope_500Medium"
+                    }}
+                    value={addAccountEmail}
+                    onChangeText={setAddAccountEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    placeholder="name@example.com"
+                    placeholderTextColor="#555"
+                  />
+                </View>
+
+                <View style={{ marginBottom: 24 }}>
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 13, marginBottom: 8 }}>Password</Text>
+                  <TextInput
+                    style={{
+                      height: 48,
+                      backgroundColor: "#1a1a1a",
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: "#333",
+                      paddingHorizontal: 16,
+                      color: "#f5f5f5",
+                      fontFamily: "Manrope_500Medium"
+                    }}
+                    value={addAccountPassword}
+                    onChangeText={setAddAccountPassword}
+                    secureTextEntry
+                    placeholder="••••••••"
+                    placeholderTextColor="#555"
+                  />
+                </View>
+
+                <Pressable
+                  onPress={handleAddAccount}
+                  disabled={validatingAccount || !addAccountEmail || !addAccountPassword}
+                  style={{
+                    height: 48,
+                    backgroundColor: "#60A5FA",
+                    borderRadius: 14,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "row",
+                    opacity: validatingAccount || !addAccountEmail || !addAccountPassword ? 0.6 : 1
+                  }}
+                >
+                  {validatingAccount ? (
+                    <ActivityIndicator color="#000" />
+                  ) : (
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#000", fontSize: 16 }}>Validate & Save</Text>
+                  )}
+                </Pressable>
               </View>
             </TouchableWithoutFeedback>
           </KeyboardAvoidingView>

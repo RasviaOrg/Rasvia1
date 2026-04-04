@@ -208,7 +208,7 @@ export interface SupabaseMenuItem {
     description: string | null;
     price: number;
     image_url: string | null;
-    is_available: boolean;
+    in_stock: boolean;
     is_vegetarian: boolean;
     is_spicy: boolean;
     meal_times?: string[] | null;    // e.g. ["breakfast", "lunch", "dinner", "special"]
@@ -226,6 +226,7 @@ export interface UIMenuItem {
     category: string;
     isPopular: boolean;
     isVegetarian: boolean;
+    isAvailable: boolean;
     spiceLevel: number;
     mealTimes: string[];            // e.g. ["breakfast", "lunch"]
 }
@@ -264,6 +265,7 @@ export function mapMenuItemToUI(item: SupabaseMenuItem): UIMenuItem {
         category: item.category || 'Menu Item',
         isPopular: false,
         isVegetarian: item.is_vegetarian,
+        isAvailable: item.in_stock !== false, // Defaults to true if missing/null
         spiceLevel: item.is_spicy ? 2 : 0,
         mealTimes: item.meal_times || [],
     };
