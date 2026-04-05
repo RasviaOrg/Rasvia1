@@ -53,3 +53,9 @@ ngrok.exe
 **/tempobook/storyboards/
 **/tempobook/**
 node_modules
+
+# build artifacts
+*.ipa
+*.apk
+*.aab
+*.log
