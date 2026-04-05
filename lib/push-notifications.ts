@@ -6,27 +6,46 @@
  */
 
 import { Platform } from "react-native";
-import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
+import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const PUSH_ENABLED_KEY = "rasvia:push-notifications-enabled";
+const isExpoGo = Constants.executionEnvironment === "storeClient";
+let notificationsImportPromise: Promise<typeof import("expo-notifications") | null> | null = null;
+let notificationHandlerConfigured = false;
 
-// Configure how notifications appear when the app is in the foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+async function getNotificationsModule(): Promise<typeof import("expo-notifications") | null> {
+  if (isExpoGo) return null;
+  if (!notificationsImportPromise) {
+    notificationsImportPromise = import("expo-notifications").catch(() => null);
+  }
+  return notificationsImportPromise;
+}
+
+async function ensureNotificationHandlerConfigured(): Promise<void> {
+  if (notificationHandlerConfigured) return;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
+  // Configure how notifications appear when the app is in the foreground
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+  notificationHandlerConfigured = true;
+}
 
 /**
  * Check if push notifications are currently enabled (permission granted + user toggle on).
  */
 export async function isPushEnabled(): Promise<boolean> {
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
   if (!Device.isDevice) return false;
   const { status } = await Notifications.getPermissionsAsync();
   if (status !== "granted") return false;
@@ -38,6 +57,8 @@ export async function isPushEnabled(): Promise<boolean> {
  * Get the current OS-level permission status.
  */
 export async function getPushPermissionStatus(): Promise<"granted" | "denied" | "undetermined"> {
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return "denied";
   if (!Device.isDevice) return "denied";
   const { status } = await Notifications.getPermissionsAsync();
   return status;
@@ -48,10 +69,13 @@ export async function getPushPermissionStatus(): Promise<"granted" | "denied" | 
  * Returns true if permission was granted.
  */
 export async function registerForPushNotifications(): Promise<boolean> {
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
   if (!Device.isDevice) {
     console.log("Push notifications require a physical device");
     return false;
   }
+  await ensureNotificationHandlerConfigured();
 
   const { status: existing } = await Notifications.getPermissionsAsync();
   let finalStatus = existing;
@@ -108,8 +132,11 @@ export async function enablePushNotifications(): Promise<boolean> {
 export async function schedulePushNotification(
   title: string,
   body: string,
-  data?: Record<string, any>,
+  data?: Record<string, unknown>,
 ): Promise<void> {
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
+  await ensureNotificationHandlerConfigured();
   const enabled = await isPushEnabled();
   if (!enabled) return;
 
