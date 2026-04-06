@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Image } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Star, Clock } from "lucide-react-native";
+import { Star, Clock, Heart } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
 import Animated, {
   FadeIn,
@@ -15,12 +15,16 @@ interface RestaurantListCardProps {
   restaurant: UIRestaurant;
   index: number;
   onPress: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: (e: any) => void;
 }
 
 export function RestaurantListCard({
   restaurant,
   index,
   onPress,
+  isFavorite,
+  onToggleFavorite,
 }: RestaurantListCardProps) {
   const pressScale = useSharedValue(1);
 
@@ -67,6 +71,22 @@ export function RestaurantListCard({
               height: "50%",
             }}
           />
+          {(isFavorite !== undefined && onToggleFavorite !== undefined) && (
+            <Pressable
+              onPress={onToggleFavorite}
+              hitSlop={15}
+              style={{
+                position: "absolute",
+                top: 8,
+                right: 8,
+                backgroundColor: "rgba(0,0,0,0.7)",
+                borderRadius: 20,
+                padding: 6,
+              }}
+            >
+              <Heart size={16} color={isFavorite ? "#EF4444" : "#fff"} fill={isFavorite ? "#EF4444" : "transparent"} />
+            </Pressable>
+          )}
         </View>
         <View className="p-3">
           <Text

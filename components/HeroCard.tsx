@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Image, Dimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Star, MapPin, Clock } from "lucide-react-native";
+import { Star, MapPin, Clock, Heart } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
 import Animated, {
   FadeInDown,
@@ -18,9 +18,11 @@ interface HeroCardProps {
   restaurant: UIRestaurant;
   index: number;
   onPress: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: (e: any) => void;
 }
 
-export function HeroCard({ restaurant, index, onPress }: HeroCardProps) {
+export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavorite }: HeroCardProps) {
   const pressScale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -59,6 +61,23 @@ export function HeroCard({ restaurant, index, onPress }: HeroCardProps) {
             height: "70%",
           }}
         />
+
+        {(isFavorite !== undefined && onToggleFavorite !== undefined) && (
+          <Pressable
+            onPress={onToggleFavorite}
+            hitSlop={15}
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              backgroundColor: "rgba(0,0,0,0.7)",
+              borderRadius: 20,
+              padding: 8,
+            }}
+          >
+            <Heart size={16} color={isFavorite ? "#EF4444" : "#fff"} fill={isFavorite ? "#EF4444" : "transparent"} />
+          </Pressable>
+        )}
 
         {/* Content */}
         <View className="absolute bottom-0 left-0 right-0 p-5">

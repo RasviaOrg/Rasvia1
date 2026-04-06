@@ -14,8 +14,11 @@ import {
     StyleSheet,
     FlatList,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { getStartDate, getEndDate } from "../dateTools";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+    Calendar,
     Clock,
     Users,
     ShoppingBag,
@@ -74,6 +77,7 @@ type PulseItemBreakdown = {
     quantity: number;
     revenue: number;
     orderCount: number;
+    dateOfOrder?: string;
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -447,7 +451,10 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
     );
 }
 
-function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; onClose: () => void }) {
+function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" }: { restaurantId: string; onClose: () => void; initialPeriod?: "All" | "Last Month" | "Last Week" | "Today" | "Custom" }) {
+    const [period, setPeriod] = useState<"All" | "Last Month" | "Last Week" | "Today" | "Custom">(initialPeriod);
+    const [customDate, setCustomDate] = useState<Date>(new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
     const [orders, setOrders] = useState<Order[]>([]);
     const [items, setItems] = useState<PulseItemBreakdown[]>([]);
     const [loading, setLoading] = useState(true);
@@ -460,16 +467,20 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
         const fetchBreakdown = async () => {
             setLoading(true);
             try {
-                const { data: todayOrdersData } = await supabase
+                let query = supabase
                     .from("orders")
                     .select("id, customer_name, status, subtotal, created_at, order_type")
-                    .eq("restaurant_id", restaurantId)
-                    .gte("created_at", todayStart())
-                    .neq("status", "cancelled");
+                    .eq("restaurant_id", restaurantId);
 
-                const parsedOrders = ((todayOrdersData as Order[]) ?? []).filter(
-                    (o) => o.status !== "cancelled"
-                );
+                const start = getStartDate(period, customDate);
+                const end = getEndDate(period, customDate);
+
+                if (start) query = query.gte("created_at", start);
+                if (end) query = query.lte("created_at", end);
+
+                const { data: todayOrdersData } = await query;
+
+                const parsedOrders = ((todayOrdersData as Order[]) ?? []);
                 setOrders(parsedOrders);
 
                 if (parsedOrders.length === 0) {
@@ -485,6 +496,18 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
                 const agg = new Map<string, PulseItemBreakdown>();
                 const byOrder = new Map<string, Set<number>>();
 
+                const shouldGroupByDay = period !== "Today" && period !== "Custom";
+                const orderDates = new Map<number, string>();
+                parsedOrders.forEach((o) => {
+                    const d = new Date(o.created_at);
+                    if (isNaN(d.getTime())) return;
+                    // Provide a nice long date format. Fallbacks for hermes lacking Intl.
+                    const month = d.toLocaleString('en-US', { month: 'short' });
+                    const day = d.getDate();
+                    const year = d.getFullYear();
+                    orderDates.set(o.id, `${month} ${day}, ${year}`);
+                });
+
                 for (const row of ((orderItemsData as any[]) ?? [])) {
                     const rawName = String(row.name ?? "").trim();
                     if (!rawName) continue;
@@ -493,19 +516,23 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
                     const price = Number(row.price ?? 0);
                     const orderId = Number(row.order_id);
 
-                    const existing = agg.get(key) ?? {
+                    const dateStr = orderDates.get(orderId) || "";
+                    const loopKey = shouldGroupByDay && dateStr ? `${key}|||${dateStr}` : key;
+
+                    const existing = agg.get(loopKey) ?? {
                         name: rawName,
                         quantity: 0,
                         revenue: 0,
                         orderCount: 0,
+                        ...(shouldGroupByDay && dateStr ? { dateOfOrder: dateStr } : {}),
                     };
                     existing.quantity += quantity;
                     existing.revenue += quantity * price;
-                    agg.set(key, existing);
+                    agg.set(loopKey, existing);
 
-                    const seenOrders = byOrder.get(key) ?? new Set<number>();
+                    const seenOrders = byOrder.get(loopKey) ?? new Set<number>();
                     seenOrders.add(orderId);
-                    byOrder.set(key, seenOrders);
+                    byOrder.set(loopKey, seenOrders);
                 }
 
                 const itemList = Array.from(agg.entries()).map(([key, value]) => ({
@@ -519,7 +546,7 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
         };
 
         fetchBreakdown();
-    }, [restaurantId]);
+    }, [restaurantId, period, customDate]);
 
     const sortedItems = [...items].sort((a, b) => {
         if (itemSort === "revenue") return b.revenue - a.revenue;
@@ -545,10 +572,88 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
                 }}>
                     <View>
                         <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
-                            Today's Breakdown
+                            Overall Breakdown
                         </Text>
-                        <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#777", marginTop: 3 }}>
-                            Excludes cancelled orders
+                    </View>
+                    <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
+                        <X size={22} color="#aaa" />
+                    </Pressable>
+                </View>
+
+                {/* Period Selector Tabs */}
+                <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6 }}>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                        {(["All", "Last Month", "Last Week", "Today", "Custom"] as const).map((p) => {
+                            const isSelected = period === p;
+                            return (
+                                <Pressable
+                                    key={p}
+                                    onPress={() => {
+                                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                                        if (p === "Custom") {
+                                            setShowDatePicker(true);
+                                        } else {
+                                            setShowDatePicker(false);
+                                        }
+                                        setPeriod(p);
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 16,
+                                        paddingVertical: 8,
+                                        borderRadius: 999,
+                                        backgroundColor: isSelected ? "rgba(255,153,51,0.15)" : "#1a1a1a",
+                                        borderWidth: 1,
+                                        borderColor: isSelected ? ORANGE : "#2a2a2a",
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        gap: 6,
+                                    }}
+                                >
+                                    {p === "Custom" && <Calendar size={14} color={isSelected ? ORANGE : "#888"} />}
+                                    <Text style={{
+                                        fontFamily: "Manrope_600SemiBold",
+                                        fontSize: 13,
+                                        color: isSelected ? ORANGE : "#aaa"
+                                    }}>
+                                        {p === "Custom" && period === "Custom" ? customDate.toLocaleDateString() : p}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                </View>
+
+                {showDatePicker && (
+                    <View style={{ alignItems: "center", marginVertical: 10 }}>
+                        <DateTimePicker
+                            value={customDate}
+                            mode="date"
+                            display={Platform.OS === "ios" ? "inline" : "default"}
+                            themeVariant="dark"
+                            onChange={(event, date) => {
+                                if (Platform.OS === "android") setShowDatePicker(false);
+                                if (date) {
+                                    setCustomDate(date);
+                                    setPeriod("Custom");
+                                }
+                            }}
+                        />
+                    </View>
+                )}
+
+                {Platform.OS === "ios" && showDatePicker && (
+                    <Pressable
+                        onPress={() => setShowDatePicker(false)}
+                        style={{ alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, backgroundColor: "#2a2a2a", borderRadius: 8, marginBottom: 10 }}
+                    >
+                        <Text style={{ color: "#fff", fontFamily: "Manrope_600SemiBold" }}>Done</Text>
+                    </Pressable>
+                )}
+                
+                <View style={{ display: "none" }}>
+                    <View>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                            Overall Breakdown
                         </Text>
                     </View>
                     <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
@@ -576,7 +681,7 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
                                 </View>
                             </View>
                             <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#888", marginTop: 6 }}>
-                                {totalItems} items sold today
+                                {totalItems} items sold
                             </Text>
                         </View>
 
@@ -675,9 +780,16 @@ function TodayBreakdownModal({ restaurantId, onClose }: { restaurantId: string; 
                                     >
                                         <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14 }}>{item.name}</Text>
                                         <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 5 }}>
-                                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12 }}>
-                                                {item.quantity} sold · {item.orderCount} orders
-                                            </Text>
+                                            <View>
+                                                <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12 }}>
+                                                    {item.quantity} sold · {item.orderCount} orders
+                                                </Text>
+                                                {item.dateOfOrder && (
+                                                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 2 }}>
+                                                        {item.dateOfOrder}
+                                                    </Text>
+                                                )}
+                                            </View>
                                             <Text style={{ fontFamily: "Manrope_700Bold", color: "#22C55E", fontSize: 13 }}>
                                                 ${item.revenue.toFixed(2)}
                                             </Text>
@@ -848,7 +960,7 @@ export function OwnerHomeContent({
     const [showAllOrders, setShowAllOrders] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [showHoursSettings, setShowHoursSettings] = useState(false);
-    const [showPulseBreakdown, setShowPulseBreakdown] = useState(false);
+    const [showPulseBreakdown, setShowPulseBreakdown] = useState<false | "All" | "Today">(false);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -1215,7 +1327,7 @@ export function OwnerHomeContent({
                         <Pressable
                             onPress={() => {
                                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                setShowPulseBreakdown(true);
+                                setShowPulseBreakdown("All");
                             }}
                             style={({ pressed }) => ({
                                 flex: 1,
@@ -1410,7 +1522,7 @@ export function OwnerHomeContent({
                         <Pressable
                             onPress={() => {
                                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                setShowPulseBreakdown(true);
+                                setShowPulseBreakdown("Today");
                             }}
                             hitSlop={10}
                             style={({ pressed }) => ({
@@ -1482,7 +1594,7 @@ export function OwnerHomeContent({
                         <Pressable
                             onPress={() => {
                                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                setShowPulseBreakdown(true);
+                                setShowPulseBreakdown("Today");
                             }}
                             style={({ pressed }) => ({
                                 marginTop: 24,
@@ -1568,7 +1680,8 @@ export function OwnerHomeContent({
                 />
             )}
             {showPulseBreakdown && effectiveOwnerRestaurantId && (
-                <TodayBreakdownModal
+                <OverallBreakdownModal
+                    initialPeriod={showPulseBreakdown === "All" ? "All" : "Today"}
                     restaurantId={effectiveOwnerRestaurantId}
                     onClose={() => setShowPulseBreakdown(false)}
                 />

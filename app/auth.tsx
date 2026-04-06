@@ -593,7 +593,36 @@ export default function AuthScreen() {
                                 placeholder="you@email.com or (555) 000-0000"
                                 placeholderTextColor="#666666"
                                 value={identifierInput}
-                                onChangeText={setIdentifierInput}
+                                onChangeText={(text) => {
+                                    // Make formatting adaptable: if letters are typed, it's an email/username -> plain string
+                                    // If only digits/phone characters exist, auto-format like (XXX) XXX-XXXX
+                                    if (/[a-zA-Z@]/.test(text)) {
+                                        // User typed a letter, strip brackets/dashes and keep formatting as plain email
+                                        setIdentifierInput(text.replace(/[()\- ]/g, ""));
+                                    } else {
+                                        const rawDigits = text.replace(/\D/g, "");
+                                        if (rawDigits.length === 0) {
+                                            setIdentifierInput(text); // allowing clearing
+                                        } else {
+                                            const formatPhone = (r: string) => {
+                                                const d = r.slice(0, 10);
+                                                if (d.length <= 3) return d.length ? `(${d}` : "";
+                                                if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+                                                return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+                                            };
+                                            // Handle backspace gracefully by comparing previous text
+                                            if (
+                                                identifierInput.length > text.length &&
+                                                (identifierInput.endsWith(" ") || identifierInput.endsWith("-") || identifierInput.endsWith(")"))
+                                            ) {
+                                                // Used backspace on a formatting character
+                                                setIdentifierInput(formatPhone(rawDigits.slice(0, -1)));
+                                            } else {
+                                                setIdentifierInput(formatPhone(rawDigits));
+                                            }
+                                        }
+                                    }
+                                }}
                                 onFocus={() => {
                                     if (Platform.OS !== "web") Haptics.selectionAsync();
                                 }}

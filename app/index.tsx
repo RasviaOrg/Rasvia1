@@ -319,6 +319,33 @@ export default function DiscoveryFeed() {
     fetchFavoriteRestaurantIds();
   }, [fetchFavoriteRestaurantIds]);
 
+  const handleToggleFavorite = useCallback(async (restaurantId: number) => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const isFav = favoriteRestaurantIds.includes(restaurantId);
+    let nextFavs: number[];
+    if (isFav) {
+      nextFavs = favoriteRestaurantIds.filter((id) => id !== restaurantId);
+    } else {
+      nextFavs = [...favoriteRestaurantIds, restaurantId];
+    }
+    
+    // Optimistic UI update
+    setFavoriteRestaurantIds(nextFavs);
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ favorite_restaurants: nextFavs })
+        .eq("id", userId);
+      if (error) throw error;
+    } catch (e) {
+      // Revert if error
+      setFavoriteRestaurantIds(favoriteRestaurantIds);
+    }
+  }, [session?.user?.id, favoriteRestaurantIds]);
+
   const fetchDietaryPreferences = useCallback(async () => {
     const userId = session?.user?.id;
     if (!userId) {
@@ -1676,6 +1703,8 @@ export default function DiscoveryFeed() {
                     restaurant={restaurant}
                     index={index}
                     onPress={() => handleRestaurantPress(restaurant.id)}
+                    isFavorite={favoriteRestaurantIds.includes(Number(restaurant.id))}
+                    onToggleFavorite={(e) => handleToggleFavorite(Number(restaurant.id))}
                   />
                 )}
               />
@@ -1728,6 +1757,8 @@ export default function DiscoveryFeed() {
                     restaurant={restaurant}
                     index={index}
                     onPress={() => handleRestaurantPress(restaurant.id)}
+                    isFavorite={favoriteRestaurantIds.includes(Number(restaurant.id))}
+                    onToggleFavorite={(e) => handleToggleFavorite(Number(restaurant.id))}
                   />
                 )}
               />
@@ -1784,6 +1815,8 @@ export default function DiscoveryFeed() {
                     restaurant={restaurant}
                     index={index}
                     onPress={() => handleRestaurantPress(restaurant.id)}
+                    isFavorite={favoriteRestaurantIds.includes(Number(restaurant.id))}
+                    onToggleFavorite={(e) => handleToggleFavorite(Number(restaurant.id))}
                   />
                 )}
               />
@@ -1836,6 +1869,8 @@ export default function DiscoveryFeed() {
                     restaurant={restaurant}
                     index={index}
                     onPress={() => handleRestaurantPress(restaurant.id)}
+                    isFavorite={favoriteRestaurantIds.includes(Number(restaurant.id))}
+                    onToggleFavorite={(e) => handleToggleFavorite(Number(restaurant.id))}
                   />
                 )}
               />
@@ -2001,6 +2036,8 @@ export default function DiscoveryFeed() {
                       restaurant={restaurant}
                       index={index}
                       onPress={() => handleRestaurantPress(restaurant.id)}
+                      isFavorite={favoriteRestaurantIds.includes(Number(restaurant.id))}
+                      onToggleFavorite={(e) => handleToggleFavorite(Number(restaurant.id))}
                     />
                   )}
                 />
