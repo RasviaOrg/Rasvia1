@@ -207,6 +207,10 @@ function AuthGate() {
         options={{ headerShown: false, animation: "slide_from_right" }}
       />
       <Stack.Screen
+        name="discover/[section]"
+        options={{ headerShown: false, animation: "slide_from_right" }}
+      />
+      <Stack.Screen
         name="waitlist/[id]"
         options={{ headerShown: false, animation: "slide_from_bottom" }}
       />

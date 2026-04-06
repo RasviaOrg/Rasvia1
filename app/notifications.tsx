@@ -168,6 +168,26 @@ const EVENT_CONFIG: Record<
     color: "#EF4444",
     icon: XCircle,
   },
+  review_report_submitted: {
+    label: () => "Review report submitted",
+    color: "#3B82F6",
+    icon: CheckCheck,
+  },
+  review_report_new: {
+    label: () => "New review report",
+    color: "#FF9933",
+    icon: AlertCircle,
+  },
+  review_report_declined: {
+    label: () => "Review report declined",
+    color: "#EF4444",
+    icon: XCircle,
+  },
+  review_report_deleted: {
+    label: () => "Review report closed",
+    color: "#22C55E",
+    icon: Trash2,
+  },
 };
 
 // ==========================================
@@ -556,6 +576,7 @@ function NotificationRow({
   const cfg = EVENT_CONFIG[event.type];
   if (!cfg) return null;
   const Icon = cfg.icon;
+  const primaryText = event.message?.trim() ? event.message.trim() : cfg.label(event.restaurantName);
 
   const renderRightActions = (
     _progress: RNAnimated.AnimatedInterpolation<number>,
@@ -641,6 +662,20 @@ function NotificationRow({
 
           {/* Text */}
           <View style={{ flex: 1 }}>
+            {event.title ? (
+              <Text
+                style={{
+                  fontFamily: "Manrope_700Bold",
+                  color: "#888",
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.45,
+                  marginBottom: 4,
+                }}
+              >
+                {event.title}
+              </Text>
+            ) : null}
             <Text
               style={{
                 fontFamily: "Manrope_600SemiBold",
@@ -650,7 +685,7 @@ function NotificationRow({
                 marginBottom: 4,
               }}
             >
-              {cfg.label(event.restaurantName)}
+              {primaryText}
             </Text>
             {event.partySize > 0 && (
               <View

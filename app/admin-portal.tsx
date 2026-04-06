@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Save, Plus, Building2, Users, X, Shield, Store, User as UserIcon } from "lucide-react-native";
+import { ArrowLeft, Save, Plus, Building2, Users, X, Shield, Store, User as UserIcon, Settings2, Flag, Trash2 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -43,6 +43,30 @@ type ProfileOption = {
   full_name: string | null;
   role: string | null;
   phone_number: string | null;
+};
+
+type ReviewReportView = {
+  id: number;
+  review_id: number;
+  restaurant_id: number;
+  owner_user_id: string;
+  status: "pending" | "declined";
+  reason: string | null;
+  admin_message: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  review: {
+    id: number;
+    rating: number;
+    body: string | null;
+    reviewer_name: string;
+    created_at: string;
+  } | null;
+  restaurant: {
+    id: number;
+    name: string;
+  } | null;
+  ownerLabel: string;
 };
 
 function emptyForm(): Partial<RestaurantRow> {
@@ -108,9 +132,10 @@ export default function AdminPortalScreen() {
   const { isAdmin, loading: roleLoading } = useAdminMode();
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileOption[]>([]);
+  const [reviewReports, setReviewReports] = useState<ReviewReportView[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [adminMode, setAdminMode] = useState<"restaurants" | "users">("restaurants");
+  const [adminMode, setAdminMode] = useState<"restaurants" | "users" | "settings">("restaurants");
   const [selectedId, setSelectedId] = useState<number | "new" | null>(null);
   const [draft, setDraft] = useState<Partial<RestaurantRow>>(emptyForm());
   const [cuisineTagsText, setCuisineTagsText] = useState("");
@@ -121,18 +146,83 @@ export default function AdminPortalScreen() {
   const [userDraft, setUserDraft] = useState({ full_name: "", phone_number: "", role: "user" });
   const [userSaving, setUserSaving] = useState(false);
   const [ownerPickerOpen, setOwnerPickerOpen] = useState(false);
+  const [reportActionLoadingId, setReportActionLoadingId] = useState<number | null>(null);
+  const [declineTarget, setDeclineTarget] = useState<ReviewReportView | null>(null);
+  const [declineMessage, setDeclineMessage] = useState("");
+  const [declineSaving, setDeclineSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [rRes, pRes] = await Promise.all([
+      const [rRes, pRes, rrRes] = await Promise.all([
         supabase.from("restaurants").select("*").order("name", { ascending: true }),
         supabase.from("profiles").select("id, email, full_name, role, phone_number").order("email", { ascending: true }),
+        supabase
+          .from("review_reports")
+          .select(`
+            id,
+            review_id,
+            restaurant_id,
+            owner_user_id,
+            status,
+            reason,
+            admin_message,
+            created_at,
+            reviewed_at,
+            restaurant_reviews (
+              id,
+              rating,
+              body,
+              reviewer_name,
+              created_at
+            ),
+            restaurants (
+              id,
+              name
+            )
+          `)
+          .order("created_at", { ascending: false }),
       ]);
       if (rRes.error) throw rRes.error;
       if (pRes.error) throw pRes.error;
+      if (rrRes.error) throw rrRes.error;
+      const profileRows = (pRes.data ?? []) as ProfileOption[];
       setRestaurants((rRes.data ?? []) as RestaurantRow[]);
-      setProfiles((pRes.data ?? []) as ProfileOption[]);
+      setProfiles(profileRows);
+
+      const ownerLabelById = new Map(profileRows.map((p) => [p.id, profileLabel(p)]));
+      const normalizedReports: ReviewReportView[] = ((rrRes.data ?? []) as any[]).map((row) => {
+        const reviewRaw = Array.isArray(row.restaurant_reviews) ? row.restaurant_reviews[0] : row.restaurant_reviews;
+        const restaurantRaw = Array.isArray(row.restaurants) ? row.restaurants[0] : row.restaurants;
+        return {
+          id: row.id,
+          review_id: row.review_id,
+          restaurant_id: row.restaurant_id,
+          owner_user_id: row.owner_user_id,
+          status: row.status,
+          reason: row.reason ?? null,
+          admin_message: row.admin_message ?? null,
+          created_at: row.created_at,
+          reviewed_at: row.reviewed_at ?? null,
+          review: reviewRaw
+            ? {
+                id: reviewRaw.id,
+                rating: reviewRaw.rating,
+                body: reviewRaw.body ?? null,
+                reviewer_name: reviewRaw.reviewer_name,
+                created_at: reviewRaw.created_at,
+              }
+            : null,
+          restaurant: restaurantRaw
+            ? {
+                id: restaurantRaw.id,
+                name: restaurantRaw.name,
+              }
+            : null,
+          ownerLabel: ownerLabelById.get(row.owner_user_id) ?? row.owner_user_id,
+        };
+      });
+      setReviewReports(normalizedReports);
     } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -277,6 +367,51 @@ export default function AdminPortalScreen() {
     }
   };
 
+  const handleDeleteReport = async (reportId: number) => {
+    setReportActionLoadingId(reportId);
+    try {
+      const { data, error } = await supabase.rpc("delete_review_report", {
+        p_report_id: reportId,
+      });
+      if (error) throw error;
+      if (data !== true) {
+        Alert.alert("Not found", "This report may have already been removed.");
+      }
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await load();
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not delete report");
+    } finally {
+      setReportActionLoadingId(null);
+    }
+  };
+
+  const handleSubmitDecline = async () => {
+    if (!declineTarget) return;
+    const msg = declineMessage.trim();
+    if (msg.length < 3) {
+      Alert.alert("Message required", "Please add a short decline reason for the owner.");
+      return;
+    }
+
+    setDeclineSaving(true);
+    try {
+      const { error } = await supabase.rpc("decline_review_report", {
+        p_report_id: declineTarget.id,
+        p_message: msg,
+      });
+      if (error) throw error;
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setDeclineTarget(null);
+      setDeclineMessage("");
+      await load();
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not decline report");
+    } finally {
+      setDeclineSaving(false);
+    }
+  };
+
   const haptic = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
   };
@@ -372,6 +507,30 @@ export default function AdminPortalScreen() {
         >
           <Users size={14} color={adminMode === "users" ? "#EAB308" : "#888"} />
           <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "users" ? "#EAB308" : "#888" }}>Users</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            haptic();
+            setAdminMode("settings");
+            setSelectedId(null);
+            setSelectedUserId(null);
+          }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingVertical: 8,
+            paddingHorizontal: 14,
+            borderRadius: 999,
+            backgroundColor: adminMode === "settings" ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.06)",
+            borderWidth: 1,
+            borderColor: adminMode === "settings" ? "rgba(234,179,8,0.45)" : "rgba(255,255,255,0.08)",
+          }}
+        >
+          <Settings2 size={14} color={adminMode === "settings" ? "#EAB308" : "#888"} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "settings" ? "#EAB308" : "#888" }}>
+            Settings
+          </Text>
         </Pressable>
       </View>
 
@@ -518,6 +677,179 @@ export default function AdminPortalScreen() {
               </ScrollView>
             </View>
           </Modal>
+        </View>
+      ) : adminMode === "settings" ? (
+        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+          <View
+            style={{
+              marginTop: 4,
+              marginBottom: 10,
+              backgroundColor: "#141414",
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              paddingVertical: 11,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Flag size={14} color="#EAB308" />
+            <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 13, flex: 1 }}>
+              Review Reports
+            </Text>
+            <Text style={{ color: "#888", fontFamily: "JetBrainsMono_600SemiBold", fontSize: 11 }}>
+              {reviewReports.length}
+            </Text>
+          </View>
+
+          <FlatList
+            style={{ flex: 1 }}
+            data={reviewReports}
+            keyExtractor={(item) => String(item.id)}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 20, flexGrow: 1 }}
+            renderItem={({ item }) => {
+              const pending = item.status === "pending";
+              const actionLoading = reportActionLoadingId === item.id;
+              return (
+                <View
+                  style={{
+                    marginBottom: 10,
+                    backgroundColor: "#141414",
+                    borderWidth: 1,
+                    borderColor: "#2a2a2a",
+                    borderRadius: 12,
+                    padding: 12,
+                    gap: 8,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 14, flex: 1 }} numberOfLines={1}>
+                      {item.restaurant?.name ?? `Restaurant #${item.restaurant_id}`}
+                    </Text>
+                    <View
+                      style={{
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: pending ? "rgba(234,179,8,0.45)" : "rgba(239,68,68,0.4)",
+                        backgroundColor: pending ? "rgba(234,179,8,0.16)" : "rgba(239,68,68,0.16)",
+                        paddingHorizontal: 9,
+                        paddingVertical: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: pending ? "#EAB308" : "#F87171",
+                          fontFamily: "Manrope_700Bold",
+                          fontSize: 10,
+                        }}
+                      >
+                        {pending ? "PENDING" : "DECLINED"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                    Owner: {item.ownerLabel}
+                  </Text>
+                  <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                    Reviewer: {item.review?.reviewer_name ?? "Anonymous"} · {item.review?.rating ?? "?"}★
+                  </Text>
+                  {item.reason ? (
+                    <Text style={{ color: "#b0b0b0", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                      Owner note: {item.reason}
+                    </Text>
+                  ) : null}
+                  {!!item.review?.body && (
+                    <Text
+                      style={{ color: "#d5d5d5", fontFamily: "Manrope_500Medium", fontSize: 12, lineHeight: 18 }}
+                      numberOfLines={3}
+                    >
+                      “{item.review.body}”
+                    </Text>
+                  )}
+                  {!pending && item.admin_message ? (
+                    <Text style={{ color: "#FCA5A5", fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>
+                      Decline reason: {item.admin_message}
+                    </Text>
+                  ) : null}
+
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
+                    {pending ? (
+                      <Pressable
+                        onPress={() => {
+                          setDeclineTarget(item);
+                          setDeclineMessage(item.admin_message ?? "");
+                        }}
+                        disabled={actionLoading}
+                        style={{
+                          flex: 1,
+                          borderRadius: 10,
+                          borderWidth: 1,
+                          borderColor: "rgba(234,179,8,0.45)",
+                          backgroundColor: "rgba(234,179,8,0.16)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          paddingVertical: 10,
+                          opacity: actionLoading ? 0.6 : 1,
+                        }}
+                      >
+                        <Text style={{ color: "#EAB308", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Decline</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      onPress={() => {
+                        Alert.alert(
+                          "Delete report?",
+                          "This removes the report from the queue and notifies the owner.",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Delete",
+                              style: "destructive",
+                              onPress: () => {
+                                void handleDeleteReport(item.id);
+                              },
+                            },
+                          ]
+                        );
+                      }}
+                      disabled={actionLoading}
+                      style={{
+                        flex: 1,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: "rgba(239,68,68,0.42)",
+                        backgroundColor: "rgba(239,68,68,0.16)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingVertical: 10,
+                        opacity: actionLoading ? 0.6 : 1,
+                        flexDirection: "row",
+                        gap: 6,
+                      }}
+                    >
+                      {actionLoading ? (
+                        <ActivityIndicator size="small" color="#F87171" />
+                      ) : (
+                        <Trash2 size={14} color="#F87171" />
+                      )}
+                      <Text style={{ color: "#F87171", fontFamily: "Manrope_700Bold", fontSize: 12 }}>
+                        Delete Report
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            }}
+            ListEmptyComponent={
+              <Text style={{ color: "#666", textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
+                No review reports yet.
+              </Text>
+            }
+          />
         </View>
       ) : (
         <View style={{ flex: 1 }}>
@@ -693,6 +1025,98 @@ export default function AdminPortalScreen() {
           </Modal>
         </View>
       )}
+
+      <Modal visible={declineTarget != null} animationType="slide" onRequestClose={() => setDeclineTarget(null)}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "#0f0f0f",
+            paddingTop: insets.top,
+            paddingBottom: insets.bottom,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: "#2a2a2a",
+            }}
+          >
+            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5", flex: 1 }}>
+              Decline Review Report
+            </Text>
+            <Pressable
+              onPress={() => setDeclineTarget(null)}
+              hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+              style={{ padding: 4 }}
+            >
+              <X size={24} color="#f5f5f5" />
+            </Pressable>
+          </View>
+          <ScrollView style={{ flex: 1, padding: 16 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>
+            <View
+              style={{
+                backgroundColor: "#141414",
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 14,
+              }}
+            >
+              <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>
+                {declineTarget?.restaurant?.name ?? `Restaurant #${declineTarget?.restaurant_id ?? "?"}`}
+              </Text>
+              <Text style={{ color: "#8a8a8a", fontFamily: "Manrope_500Medium", fontSize: 11, marginTop: 4 }}>
+                Review: {declineTarget?.review?.reviewer_name ?? "Anonymous"} · {declineTarget?.review?.rating ?? "?"}★
+              </Text>
+            </View>
+
+            <Text style={{ color: "#999", fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 6 }}>
+              Decline message for owner
+            </Text>
+            <TextInput
+              value={declineMessage}
+              onChangeText={setDeclineMessage}
+              placeholder="Add a short reason (required)"
+              placeholderTextColor="#666"
+              multiline
+              style={[
+                inputStyle,
+                {
+                  minHeight: 110,
+                  textAlignVertical: "top",
+                  marginBottom: 14,
+                },
+              ]}
+            />
+
+            <Pressable
+              onPress={() => void handleSubmitDecline()}
+              disabled={declineSaving}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#EAB308",
+                borderRadius: 14,
+                paddingVertical: 14,
+                opacity: declineSaving ? 0.7 : 1,
+              }}
+            >
+              {declineSaving ? (
+                <ActivityIndicator color="#0f0f0f" />
+              ) : (
+                <Text style={{ fontFamily: "Manrope_700Bold", color: "#0f0f0f", fontSize: 16 }}>Send decline</Text>
+              )}
+            </Pressable>
+          </ScrollView>
+        </View>
+      </Modal>
 
       <Modal visible={ownerPickerOpen} animationType="slide" transparent onRequestClose={() => setOwnerPickerOpen(false)}>
         <View style={{ flex: 1, justifyContent: "flex-end" }}>

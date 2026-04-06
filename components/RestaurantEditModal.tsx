@@ -522,54 +522,52 @@ export function RestaurantEditModal({
                 <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 13, marginBottom: 12 }}>
                   Set opening and closing hours (24-hour format).
                 </Text>
-                {!hoursLoading && (
-                  <View
-                    style={{
-                      borderWidth: 1,
-                      borderColor: "#2a2a2a",
-                      borderRadius: 14,
-                      padding: 14,
-                      marginBottom: 14,
-                      backgroundColor: "#111",
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#e5e5e5", fontSize: 14 }}>
-                          Early waitlist window
-                        </Text>
-                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 4 }}>
-                          Allow opening the waitlist this many minutes before the first scheduled open (same day).
-                        </Text>
-                      </View>
-                      <Switch
-                        value={waitlistEarlyEnabled}
-                        onValueChange={setWaitlistEarlyEnabled}
-                        trackColor={{ false: "#333", true: "rgba(255,153,51,0.45)" }}
-                        thumbColor={waitlistEarlyEnabled ? "#FF9933" : "#888"}
-                      />
-                    </View>
-                    {waitlistEarlyEnabled && (
-                      <View style={{ marginTop: 12 }}>
-                        <Text style={labelStyle}>Minutes before open</Text>
-                        <TextInput
-                          value={waitlistEarlyMinutes}
-                          onChangeText={setWaitlistEarlyMinutes}
-                          keyboardType="number-pad"
-                          style={inputStyle}
-                          placeholder="30"
-                          placeholderTextColor="#555"
-                        />
-                      </View>
-                    )}
-                  </View>
-                )}
                 {hoursLoading ? (
                   <View style={{ paddingVertical: 48, alignItems: "center" }}>
                     <ActivityIndicator size="large" color="#FF9933" />
                   </View>
                 ) : (
                   <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+                    <View
+                      style={{
+                        borderWidth: 1,
+                        borderColor: "#2a2a2a",
+                        borderRadius: 14,
+                        padding: 14,
+                        marginBottom: 14,
+                        backgroundColor: "#111",
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#e5e5e5", fontSize: 14 }}>
+                            Early waitlist window
+                          </Text>
+                          <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 4 }}>
+                            Allow opening the waitlist this many minutes before the first scheduled open (same day).
+                          </Text>
+                        </View>
+                        <Switch
+                          value={waitlistEarlyEnabled}
+                          onValueChange={setWaitlistEarlyEnabled}
+                          trackColor={{ false: "#333", true: "rgba(255,153,51,0.45)" }}
+                          thumbColor={waitlistEarlyEnabled ? "#FF9933" : "#888"}
+                        />
+                      </View>
+                      {waitlistEarlyEnabled && (
+                        <View style={{ marginTop: 12 }}>
+                          <Text style={labelStyle}>Minutes before open</Text>
+                          <TextInput
+                            value={waitlistEarlyMinutes}
+                            onChangeText={setWaitlistEarlyMinutes}
+                            keyboardType="number-pad"
+                            style={inputStyle}
+                            placeholder="30"
+                            placeholderTextColor="#555"
+                          />
+                        </View>
+                      )}
+                    </View>
                     {hoursRows.map((row) => (
                       <View
                         key={row.day}

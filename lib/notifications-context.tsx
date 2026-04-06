@@ -12,6 +12,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -33,11 +34,22 @@ export type NotificationEventType =
   | "group_joined"
   | "group_item_added"
   | "group_submitted"
-  | "group_ended";
+  | "group_ended"
+  | "review_report_submitted"
+  | "review_report_new"
+  | "review_report_declined"
+  | "review_report_deleted";
+
+type NotificationEventSource = "local" | "server";
 
 export interface NotificationEvent {
   id: string;
   type: NotificationEventType;
+  source?: NotificationEventSource;
+  serverId?: number;
+  title?: string;
+  message?: string | null;
+  metadata?: Record<string, any> | null;
   restaurantName: string;
   restaurantId: string;
   entryId: string;
@@ -122,7 +134,22 @@ async function loadStoredEvents(): Promise<NotificationEvent[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as NotificationEvent[];
+    const parsed = JSON.parse(raw) as Partial<NotificationEvent>[];
+    return parsed.map((event) => ({
+      id: event.id ?? generateId(),
+      type: (event.type ?? "joined") as NotificationEventType,
+      source: event.source ?? "local",
+      serverId: event.serverId,
+      title: event.title,
+      message: event.message ?? null,
+      metadata: event.metadata ?? null,
+      restaurantName: event.restaurantName ?? "Rasvia",
+      restaurantId: event.restaurantId ?? "",
+      entryId: event.entryId ?? "",
+      partySize: event.partySize ?? 0,
+      timestamp: event.timestamp ?? new Date().toISOString(),
+      read: !!event.read,
+    }));
   } catch {
     return [];
   }
@@ -161,7 +188,8 @@ async function saveDismissedIds(ids: Set<string>): Promise<void> {
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
-  const [events, setEvents] = useState<NotificationEvent[]>([]);
+  const [localEvents, setLocalEvents] = useState<NotificationEvent[]>([]);
+  const [serverEvents, setServerEvents] = useState<NotificationEvent[]>([]);
   const [activeEntries, setActiveEntries] = useState<ActiveWaitlistEntry[]>([]);
   const [tableReadyAlert, setTableReadyAlert] = useState<TableReadyAlert | null>(null);
   const [seatedAlert, setSeatedAlert] = useState<SeatedAlert | null>(null);
@@ -177,9 +205,47 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   // Load persisted events + dismissed IDs on mount
   // ==========================================
   useEffect(() => {
-    loadStoredEvents().then(setEvents);
+    loadStoredEvents().then(setLocalEvents);
     loadDismissedIds().then((ids) => { dismissedIdsRef.current = ids; });
   }, []);
+
+  const refreshServerEvents = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setServerEvents([]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("app_notifications")
+        .select("id, type, title, message, metadata, created_at, read_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) return;
+      const mapped: NotificationEvent[] = (data ?? []).map((row: any) => {
+        const meta = (row.metadata as Record<string, any> | null) ?? {};
+        return {
+          id: `server-${row.id}`,
+          source: "server",
+          serverId: row.id,
+          type: row.type as NotificationEventType,
+          title: row.title ?? "",
+          message: row.message ?? null,
+          metadata: meta,
+          restaurantName: String(meta.restaurantName ?? row.title ?? "Rasvia"),
+          restaurantId: String(meta.restaurantId ?? ""),
+          entryId: String(meta.entryId ?? row.id),
+          partySize: Number(meta.partySize ?? 0),
+          timestamp: row.created_at,
+          read: !!row.read_at,
+        };
+      });
+      setServerEvents(mapped);
+    } catch {
+      // silently ignore
+    }
+  }, [session?.user?.id]);
 
   // ==========================================
   // Fetch + watch active waitlist entries
@@ -391,13 +457,42 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     watchedEntryIds.current.clear();
 
     refreshActive();
-  }, [session?.user?.id, refreshActive]);
+    refreshServerEvents();
+  }, [session?.user?.id, refreshActive, refreshServerEvents]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    const ch = supabase
+      .channel(`app-notifications:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_notifications",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void refreshServerEvents();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [session?.user?.id, refreshServerEvents]);
 
   // Also refresh every 60s to catch any missed updates
   useEffect(() => {
-    const interval = setInterval(refreshActive, 60_000);
+    const interval = setInterval(() => {
+      void refreshActive();
+      void refreshServerEvents();
+    }, 60_000);
     return () => clearInterval(interval);
-  }, [refreshActive]);
+  }, [refreshActive, refreshServerEvents]);
 
   // ==========================================
   // Cleanup on unmount
@@ -415,10 +510,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     async (event: Omit<NotificationEvent, "id" | "read">) => {
       const newEvent: NotificationEvent = {
         ...event,
+        source: event.source ?? "local",
         id: generateId(),
         read: false,
       };
-      setEvents((prev) => {
+      setLocalEvents((prev) => {
         const updated = [newEvent, ...prev];
         saveEvents(updated);
         return updated;
@@ -435,13 +531,30 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     setSeatedAlert(null);
   }, []);
 
+  const events = useMemo(() => {
+    return [...serverEvents, ...localEvents].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  }, [serverEvents, localEvents]);
+
   const removeEvent = useCallback(async (id: string) => {
-    setEvents((prev) => {
+    const serverEvent = serverEvents.find((e) => e.id === id);
+    if (serverEvent?.serverId && session?.user?.id) {
+      await supabase
+        .from("app_notifications")
+        .delete()
+        .eq("id", serverEvent.serverId)
+        .eq("user_id", session.user.id);
+      setServerEvents((prev) => prev.filter((e) => e.id !== id));
+      return;
+    }
+
+    setLocalEvents((prev) => {
       const updated = prev.filter((e) => e.id !== id);
       saveEvents(updated);
       return updated;
     });
-  }, []);
+  }, [serverEvents, session?.user?.id]);
 
   const dismissEntry = useCallback((entryId: string) => {
     dismissedIdsRef.current.add(entryId);
@@ -450,12 +563,26 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const markAllRead = useCallback(async () => {
-    setEvents((prev) => {
+    setLocalEvents((prev) => {
       const updated = prev.map((e) => ({ ...e, read: true }));
       saveEvents(updated);
       return updated;
     });
-  }, []);
+
+    if (session?.user?.id) {
+      const unreadServerIds = serverEvents
+        .filter((e) => !e.read && e.serverId != null)
+        .map((e) => e.serverId as number);
+      if (unreadServerIds.length > 0) {
+        await supabase
+          .from("app_notifications")
+          .update({ read_at: new Date().toISOString() })
+          .in("id", unreadServerIds)
+          .eq("user_id", session.user.id);
+      }
+      setServerEvents((prev) => prev.map((e) => ({ ...e, read: true })));
+    }
+  }, [serverEvents, session?.user?.id]);
 
   const clearAll = useCallback(async () => {
     setActiveEntries((prev) => {
@@ -463,9 +590,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       return [];
     });
     saveDismissedIds(dismissedIdsRef.current);
-    setEvents([]);
+    setLocalEvents([]);
+    setServerEvents([]);
     await AsyncStorage.removeItem(STORAGE_KEY);
-  }, []);
+    if (session?.user?.id) {
+      await supabase.from("app_notifications").delete().eq("user_id", session.user.id);
+    }
+  }, [session?.user?.id]);
 
   const unreadCount = events.filter((e) => !e.read).length;
 

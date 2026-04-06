@@ -13,10 +13,11 @@ import {
     Platform,
     StyleSheet,
     FlatList,
+    useWindowDimensions,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { getStartDate, getEndDate } from "../dateTools";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
     Calendar,
     Clock,
@@ -34,9 +35,9 @@ import {
 } from "lucide-react-native";
 import { RestaurantEditModal } from "@/components/RestaurantEditModal";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { OwnerReviewsPanel } from "@/components/OwnerReviewsPanel";
 import {
     getRestaurantStatus,
     subscribeDebugTimeChanges,
@@ -70,6 +71,14 @@ type OrderItem = {
     name: string;
     quantity: number;
     price: number;
+};
+
+type RecentReview = {
+    id: number;
+    reviewer_name: string;
+    rating: number;
+    body: string | null;
+    created_at: string;
 };
 
 type PulseItemBreakdown = {
@@ -927,7 +936,12 @@ export function OwnerHomeContent({
     refreshing: boolean;
     onRefreshSignal: () => void;
 }) {
-    const router = useRouter();
+    const insets = useSafeAreaInsets();
+    const { height: screenHeight, width: screenWidth } = useWindowDimensions();
+    const isCompactOwnerUi = screenWidth < 390;
+    const statValueFontSize = isCompactOwnerUi ? 20 : 24;
+    const statCardVerticalPadding = isCompactOwnerUi ? 8 : 10;
+    const combinedBreakdownVerticalPadding = isCompactOwnerUi ? 12 : 14;
     const {
         isAdmin,
         effectiveOwnerRestaurantId,
@@ -938,6 +952,7 @@ export function OwnerHomeContent({
     const [adminRestaurants, setAdminRestaurants] = useState<{ id: number; name: string }[]>([]);
     const [restaurantPickerOpen, setRestaurantPickerOpen] = useState(false);
     const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+    const [recentReviews, setRecentReviews] = useState<RecentReview[]>([]);
     const [queueCount, setQueueCount] = useState<number | null>(null);
     const [todayOrderCount, setTodayOrderCount] = useState<number | null>(null);
     const [todayRevenue, setTodayRevenue] = useState<number | null>(null);
@@ -958,6 +973,7 @@ export function OwnerHomeContent({
 
     // Modals
     const [showAllOrders, setShowAllOrders] = useState(false);
+    const [showAllReviews, setShowAllReviews] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [showHoursSettings, setShowHoursSettings] = useState(false);
     const [showPulseBreakdown, setShowPulseBreakdown] = useState<false | "All" | "Today">(false);
@@ -978,6 +994,7 @@ export function OwnerHomeContent({
             setRestaurant(null);
             setQueueCount(null);
             setRecentOrders([]);
+            setRecentReviews([]);
             setTodayOrderCount(null);
             setTodayRevenue(null);
             setRestaurantHoursRows([]);
@@ -989,7 +1006,7 @@ export function OwnerHomeContent({
         const blockingLoader = lastLoadedRestaurantIdRef.current !== effectiveOwnerRestaurantId;
         if (blockingLoader) setLoading(true);
         try {
-            const [restRes, queueRes, recentRes, todayRes, hoursRes] = await Promise.all([
+            const [restRes, queueRes, recentRes, todayRes, hoursRes, reviewsRes] = await Promise.all([
                 supabase
                     .from("restaurants")
                     .select(
@@ -1018,11 +1035,18 @@ export function OwnerHomeContent({
                     .from("restaurant_hours")
                     .select("day_of_week, open_time, close_time")
                     .eq("restaurant_id", effectiveOwnerRestaurantId),
+                supabase
+                    .from("restaurant_reviews")
+                    .select("id, reviewer_name, rating, body, created_at")
+                    .eq("restaurant_id", effectiveOwnerRestaurantId)
+                    .order("created_at", { ascending: false })
+                    .limit(2),
             ]);
 
             if (restRes.data) setRestaurant(restRes.data as RestaurantInfo);
             setQueueCount(queueRes.count ?? 0);
             setRecentOrders((recentRes.data as Order[]) ?? []);
+            setRecentReviews((reviewsRes.data as RecentReview[]) ?? []);
 
             const todayOrders = (todayRes.data as { id: number; subtotal: number }[]) ?? [];
             setTodayOrderCount(todayOrders.length);
@@ -1212,6 +1236,8 @@ export function OwnerHomeContent({
     // If the restaurant is closed by schedule, treat queue as disabled too
     const restaurantClosed = statusResult?.status === 'closed';
     const queueDisabled = !waitlistOpen || restaurantClosed;
+    const overlayTopGap = Math.max(insets.top + 10, 20);
+    const reviewOverlayHeight = Math.max(420, screenHeight - overlayTopGap);
 
     return (
         <>
@@ -1516,7 +1542,7 @@ export function OwnerHomeContent({
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                             <BarChart3 size={18} color={ORANGE} />
                             <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
-                                Today's Pulse
+                                Today&apos;s Pulse
                             </Text>
                         </View>
                         <Pressable
@@ -1553,14 +1579,14 @@ export function OwnerHomeContent({
                             padding: 16,
                         }}
                     >
-                        <View style={{ flexDirection: "row", gap: 10, marginBottom: 6 }}>
+                        <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
                             <View style={{
                                 flex: 1,
                                 borderRadius: 12,
                                 borderWidth: 1,
                                 borderColor: "rgba(255,153,51,0.26)",
                                 backgroundColor: "rgba(255,153,51,0.08)",
-                                paddingVertical: 10,
+                                paddingVertical: statCardVerticalPadding,
                                 paddingHorizontal: 12,
                             }}>
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
@@ -1569,7 +1595,7 @@ export function OwnerHomeContent({
                                         Orders
                                     </Text>
                                 </View>
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 24, color: "#f5f5f5" }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: statValueFontSize, color: "#f5f5f5" }}>
                                     {todayOrderCount ?? "—"}
                                 </Text>
                             </View>
@@ -1579,14 +1605,14 @@ export function OwnerHomeContent({
                                 borderWidth: 1,
                                 borderColor: "rgba(34,197,94,0.26)",
                                 backgroundColor: "rgba(34,197,94,0.08)",
-                                paddingVertical: 10,
+                                paddingVertical: statCardVerticalPadding,
                                 paddingHorizontal: 12,
                                 alignItems: "flex-end",
                             }}>
                                 <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: "#8ad9b0", marginBottom: 2 }}>
                                     Revenue
                                 </Text>
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 24, color: "#22C55E" }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: statValueFontSize, color: "#22C55E" }}>
                                     {todayRevenue != null ? `$${todayRevenue.toFixed(0)}` : "—"}
                                 </Text>
                             </View>
@@ -1597,19 +1623,18 @@ export function OwnerHomeContent({
                                 setShowPulseBreakdown("Today");
                             }}
                             style={({ pressed }) => ({
-                                marginTop: 24,
+                                marginTop: 8,
                                 borderRadius: 12,
                                 borderWidth: 1,
                                 borderColor: pressed ? "#3f3f3f" : "#2f2f2f",
                                 backgroundColor: pressed ? "#1a1a1a" : "#131313",
                                 paddingHorizontal: 16,
-                                paddingVertical: 14,
+                                paddingVertical: combinedBreakdownVerticalPadding,
                                 flexDirection: "row",
                                 alignItems: "center",
-                                justifyContent: "space-between",
                             })}
                         >
-                            <View>
+                            <View style={{ flex: 1 }}>
                                 <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: "#f5f5f5" }}>
                                     Open combined breakdown
                                 </Text>
@@ -1617,7 +1642,6 @@ export function OwnerHomeContent({
                                     Item + order insights in one place
                                 </Text>
                             </View>
-                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 18, color: "#555", lineHeight: 20 }}>›</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -1661,6 +1685,58 @@ export function OwnerHomeContent({
                         ))}
                     </View>
                 </View>
+
+                {/* ── Section 4: Recent Reviews ── */}
+                <View style={{ marginBottom: 20 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <TrendingUp size={18} color={ORANGE} />
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                Recent Reviews
+                            </Text>
+                        </View>
+                        <Pressable
+                            onPress={() => {
+                                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setShowAllReviews(true);
+                            }}
+                            hitSlop={10}
+                            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                        >
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: ORANGE }}>See All</Text>
+                        </Pressable>
+                    </View>
+
+                    <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
+                        {recentReviews.length === 0 ? (
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
+                                No reviews yet
+                            </Text>
+                        ) : recentReviews.map((review, index) => (
+                            <View
+                                key={review.id}
+                                style={{
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 16,
+                                    borderBottomWidth: index === recentReviews.length - 1 ? 0 : StyleSheet.hairlineWidth,
+                                    borderBottomColor: "#2a2a2a",
+                                }}
+                            >
+                                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                    <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 14 }} numberOfLines={1}>
+                                        {review.reviewer_name || "Anonymous"}
+                                    </Text>
+                                    <Text style={{ color: ORANGE, fontFamily: "Manrope_700Bold", fontSize: 12 }}>
+                                        {review.rating.toFixed(1)}★
+                                    </Text>
+                                </View>
+                                <Text style={{ color: "#9ca3af", fontFamily: "Manrope_500Medium", fontSize: 12 }} numberOfLines={2}>
+                                    {review.body?.trim() || "No written comment"}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
             </ScrollView>
 
             {/* Modals */}
@@ -1686,6 +1762,61 @@ export function OwnerHomeContent({
                     onClose={() => setShowPulseBreakdown(false)}
                 />
             )}
+            <Modal
+                visible={showAllReviews}
+                animationType="slide"
+                transparent
+                onRequestClose={() => setShowAllReviews(false)}
+            >
+                <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }}>
+                    <Pressable
+                        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+                        onPress={() => setShowAllReviews(false)}
+                    />
+                    <View
+                        style={{
+                            height: reviewOverlayHeight,
+                            backgroundColor: "#0f0f0f",
+                            borderTopLeftRadius: 20,
+                            borderTopRightRadius: 20,
+                            overflow: "hidden",
+                            borderWidth: 1,
+                            borderColor: "#2a2a2a",
+                            marginTop: "auto",
+                        }}
+                    >
+                    <View
+                        style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            paddingHorizontal: 16,
+                            paddingTop: 10,
+                            paddingBottom: 12,
+                            borderBottomWidth: 1,
+                            borderBottomColor: "#2a2a2a",
+                        }}
+                    >
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                            All Reviews
+                        </Text>
+                        <Pressable
+                            onPress={() => setShowAllReviews(false)}
+                            hitSlop={12}
+                            style={{ padding: 4 }}
+                        >
+                            <X size={24} color="#f5f5f5" />
+                        </Pressable>
+                    </View>
+                    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30 }}>
+                        <OwnerReviewsPanel
+                            restaurantId={effectiveOwnerRestaurantId ?? ""}
+                            isAdminView={isAdmin}
+                        />
+                    </ScrollView>
+                    </View>
+                </View>
+            </Modal>
             {isAdmin && (
                 <AdminRestaurantPickerModal
                     visible={restaurantPickerOpen}

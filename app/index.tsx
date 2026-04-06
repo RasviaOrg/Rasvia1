@@ -856,6 +856,17 @@ export default function DiscoveryFeed() {
     setActiveFilter(filter);
   }, []);
 
+  const openDiscoverSection = useCallback((section: "trending" | "favorites" | "nearby" | "quick-bites") => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    if (section === "nearby") {
+      router.push(`/discover/${section}?filter=${activeFilter}` as any);
+      return;
+    }
+    router.push(`/discover/${section}` as any);
+  }, [activeFilter, router]);
+
   const isOwnerDashboardMode =
     (isRestaurantOwner || isAdmin) && ownerHomeMode === "dashboard";
   const shouldShowFeedLoader =
@@ -1661,18 +1672,35 @@ export default function DiscoveryFeed() {
             <>
               <Animated.View entering={FadeInDown.delay(100).duration(500)}>
                 <View className="px-5 mb-1">
-                  <View className="flex-row items-center mb-1">
-                    <TrendingUp size={18} color="#FF9933" />
-                    <Text
+                  <View className="flex-row items-center justify-between mb-1">
+                    <View className="flex-row items-center">
+                      <TrendingUp size={18} color="#FF9933" />
+                      <Text
+                        style={{
+                          fontFamily: "BricolageGrotesque_800ExtraBold",
+                          color: "#f5f5f5",
+                          fontSize: 24,
+                          marginLeft: 8,
+                        }}
+                      >
+                        Trending Now
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => openDiscoverSection("trending")}
                       style={{
-                        fontFamily: "BricolageGrotesque_800ExtraBold",
-                        color: "#f5f5f5",
-                        fontSize: 24,
-                        marginLeft: 8,
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: "#242424",
+                        borderWidth: 1,
+                        borderColor: "#333",
+                        alignItems: "center",
+                        justifyContent: "center",
                       }}
                     >
-                      Trending Now
-                    </Text>
+                      <ChevronRight size={18} color="#f5f5f5" />
+                    </Pressable>
                   </View>
                   <Text
                     style={{
@@ -1716,18 +1744,35 @@ export default function DiscoveryFeed() {
             <>
               <Animated.View entering={FadeInDown.delay(320).duration(500)}>
                 <View className="px-5 mt-8 mb-4">
-                  <View className="flex-row items-center mb-1">
-                    <Heart size={18} color="#EF4444" />
-                    <Text
+                  <View className="flex-row items-center justify-between mb-1">
+                    <View className="flex-row items-center">
+                      <Heart size={18} color="#EF4444" />
+                      <Text
+                        style={{
+                          fontFamily: "BricolageGrotesque_800ExtraBold",
+                          color: "#f5f5f5",
+                          fontSize: 24,
+                          marginLeft: 8,
+                        }}
+                      >
+                        Favorites
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => openDiscoverSection("favorites")}
                       style={{
-                        fontFamily: "BricolageGrotesque_800ExtraBold",
-                        color: "#f5f5f5",
-                        fontSize: 24,
-                        marginLeft: 8,
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: "#242424",
+                        borderWidth: 1,
+                        borderColor: "#333",
+                        alignItems: "center",
+                        justifyContent: "center",
                       }}
                     >
-                      Favorites
-                    </Text>
+                      <ChevronRight size={18} color="#f5f5f5" />
+                    </Pressable>
                   </View>
                   <Text
                     style={{
@@ -1770,15 +1815,32 @@ export default function DiscoveryFeed() {
             <>
               <View className="mt-8 mb-4">
                 <View className="px-5 mb-3">
-                  <Text
-                    style={{
-                      fontFamily: "BricolageGrotesque_800ExtraBold",
-                      color: "#f5f5f5",
-                      fontSize: 24,
-                    }}
-                  >
-                    Nearby
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_800ExtraBold",
+                        color: "#f5f5f5",
+                        fontSize: 24,
+                      }}
+                    >
+                      Nearby
+                    </Text>
+                    <Pressable
+                      onPress={() => openDiscoverSection("nearby")}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: "#242424",
+                        borderWidth: 1,
+                        borderColor: "#333",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <ChevronRight size={18} color="#f5f5f5" />
+                    </Pressable>
+                  </View>
                   <Text
                     style={{
                       fontFamily: "Manrope_500Medium",
@@ -1828,18 +1890,35 @@ export default function DiscoveryFeed() {
             <>
               <Animated.View entering={FadeInDown.delay(400).duration(500)}>
                 <View className="px-5 mt-8 mb-4">
-                  <View className="flex-row items-center mb-1">
-                    <Zap size={18} color="#22C55E" />
-                    <Text
+                  <View className="flex-row items-center justify-between mb-1">
+                    <View className="flex-row items-center">
+                      <Zap size={18} color="#22C55E" />
+                      <Text
+                        style={{
+                          fontFamily: "BricolageGrotesque_800ExtraBold",
+                          color: "#f5f5f5",
+                          fontSize: 24,
+                          marginLeft: 8,
+                        }}
+                      >
+                        Quick Bites
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => openDiscoverSection("quick-bites")}
                       style={{
-                        fontFamily: "BricolageGrotesque_800ExtraBold",
-                        color: "#f5f5f5",
-                        fontSize: 24,
-                        marginLeft: 8,
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: "#242424",
+                        borderWidth: 1,
+                        borderColor: "#333",
+                        alignItems: "center",
+                        justifyContent: "center",
                       }}
                     >
-                      Quick Bites
-                    </Text>
+                      <ChevronRight size={18} color="#f5f5f5" />
+                    </Pressable>
                   </View>
                   <Text
                     style={{
