@@ -25,6 +25,9 @@ export interface SupabaseRestaurant {
     created_at: string;
     waitlist_early_open_enabled?: boolean;
     waitlist_early_open_minutes?: number;
+    /** When true the restaurant shows a "Coming Soon" overlay instead of the full menu.
+     *  DB default should be TRUE so new entries are gated until explicitly enabled. */
+    is_coming_soon?: boolean;
 }
 
 // ==========================================
@@ -55,6 +58,8 @@ export interface UIRestaurant {
     waitlistOpen: boolean;
     waitlistEarlyOpenEnabled: boolean;
     waitlistEarlyOpenMinutes: number;
+    /** Shows "Coming Soon" overlay on cards and blocks ordering/waitlist for non-admins */
+    isComingSoon: boolean;
 }
 
 // ==========================================
@@ -189,6 +194,8 @@ export function mapSupabaseToUI(
             0,
             Math.min(24 * 60, Number(restaurant.waitlist_early_open_minutes) || 30),
         ),
+        // NULL → false (existing rows unaffected); true only when explicitly set in DB
+        isComingSoon: restaurant.is_coming_soon === true,
     };
 }
 
@@ -229,6 +236,10 @@ export interface UIMenuItem {
     isAvailable: boolean;
     spiceLevel: number;
     mealTimes: string[];            // e.g. ["breakfast", "lunch"]
+    /** True when image_url was set in the DB (not a generated placeholder) */
+    hasOfficialImage: boolean;
+    /** "Name" of the community contributor whose photo was selected, or null */
+    communityImageCredit: string | null;
 }
 
 /**
@@ -268,6 +279,8 @@ export function mapMenuItemToUI(item: SupabaseMenuItem): UIMenuItem {
         isAvailable: item.in_stock !== false, // Defaults to true if missing/null
         spiceLevel: item.is_spicy ? 2 : 0,
         mealTimes: item.meal_times || [],
+        hasOfficialImage: !!item.image_url,
+        communityImageCredit: null, // Populated by fetchMenu after community_menu_images join
     };
 }
 

@@ -19,7 +19,6 @@ import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, Chev
 import Animated, {
   FadeIn,
   FadeInDown,
-  FadeInRight,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -2124,37 +2123,6 @@ export default function DiscoveryFeed() {
             );
           })()}
 
-          {/* Popular Cuisines */}
-          <Animated.View entering={FadeInDown.delay(500).duration(500)}>
-            <View className="px-5 mt-8 mb-4">
-              <Text
-                style={{
-                  fontFamily: "BricolageGrotesque_800ExtraBold",
-                  color: "#f5f5f5",
-                  fontSize: 24,
-                }}
-              >
-                Explore Cuisines
-              </Text>
-            </View>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 20, gap: 10 }}>
-              {[
-                { emoji: "🍛", label: "North Indian" },
-                { emoji: "🥘", label: "South Indian" },
-                { emoji: "🍢", label: "Pakistani" },
-                { emoji: "🦐", label: "Sri Lankan" },
-                { emoji: "🥡", label: "Indo-Chinese" },
-                { emoji: "🍰", label: "Desserts" },
-              ].map((cuisine, i) => (
-                <CuisineChip
-                  key={cuisine.label}
-                  cuisine={cuisine}
-                  index={i}
-                  onPress={() => router.push(`/cuisine/${encodeURIComponent(cuisine.label)}` as any)}
-                />
-              ))}
-            </View>
-          </Animated.View>
         </ScrollView>
           )}
         </View>
@@ -2163,63 +2131,5 @@ export default function DiscoveryFeed() {
         {showSearch && <SearchOverlay onClose={() => setShowSearch(false)} />}
       </SafeAreaView>
     </View>
-  );
-}
-
-function CuisineChip({
-  cuisine,
-  index,
-  onPress,
-}: {
-  cuisine: { emoji: string; label: string };
-  index: number;
-  onPress: () => void;
-}) {
-  const pressScale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pressScale.value }],
-  }));
-
-  return (
-    <Animated.View
-      entering={FadeInRight.delay(index * 60).duration(400)}
-      style={{ width: (SCREEN_WIDTH - 40 - 10) / 2 }}
-    >
-      <Animated.View style={animatedStyle}>
-        <Pressable
-          onPress={() => {
-            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            onPress();
-          }}
-          onPressIn={() => { pressScale.value = withSpring(0.93); }}
-          onPressOut={() => { pressScale.value = withSpring(1); }}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: "#1a1a1a",
-            borderRadius: 16,
-            borderWidth: 1,
-            borderColor: "#2a2a2a",
-            paddingVertical: 14,
-            paddingHorizontal: 16,
-            gap: 10,
-            width: "100%",
-          }}
-        >
-          <Text style={{ fontSize: 22 }}>{cuisine.emoji}</Text>
-          <Text
-            style={{
-              fontFamily: "Manrope_600SemiBold",
-              color: "#f5f5f5",
-              fontSize: 14,
-              flexShrink: 1,
-            }}
-            numberOfLines={1}
-          >
-            {cuisine.label}
-          </Text>
-        </Pressable>
-      </Animated.View>
-    </Animated.View>
   );
 }

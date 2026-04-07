@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Save, Plus, Building2, Users, X, Shield, Store, User as UserIcon, Settings2, Flag, Trash2 } from "lucide-react-native";
+import { ArrowLeft, Save, Plus, Building2, Users, X, Shield, Store, User as UserIcon, Settings2, Flag, Trash2, Camera } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -464,6 +464,25 @@ export default function AdminPortalScreen() {
       </View>
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
+        <Pressable
+          onPress={() => { haptic(); router.push("/admin-menu-images" as any); }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingVertical: 8,
+            paddingHorizontal: 14,
+            borderRadius: 999,
+            backgroundColor: "rgba(255,255,255,0.06)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.08)",
+          }}
+        >
+          <Camera size={14} color="#888" />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: "#888" }}>
+            Menu Images
+          </Text>
+        </Pressable>
         <Pressable
           onPress={() => {
             haptic();

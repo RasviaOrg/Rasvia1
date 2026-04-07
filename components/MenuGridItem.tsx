@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Plus, Leaf, Flame } from "lucide-react-native";
+import { Plus, Leaf, Flame, Camera } from "lucide-react-native";
 import type { UIMenuItem } from "@/lib/restaurant-types";
 import Animated, {
   FadeInUp,
@@ -23,6 +23,7 @@ interface MenuGridItemProps {
   onPress: () => void;
   onQuickAdd: () => void;
   showQuickAdd?: boolean;
+  onContributeImage?: (item: UIMenuItem) => void;
 }
 
 export function MenuGridItem({
@@ -31,6 +32,7 @@ export function MenuGridItem({
   onPress,
   onQuickAdd,
   showQuickAdd = true,
+  onContributeImage,
 }: MenuGridItemProps) {
   const pressScale = useSharedValue(1);
   const isEven = index % 2 === 0;
@@ -125,6 +127,73 @@ export function MenuGridItem({
                   Popular
                 </Text>
               </View>
+            )}
+
+            {/* Community photo credit — bottom-left */}
+            {item.communityImageCredit && (
+              <View
+                style={{
+                  position: "absolute",
+                  bottom: 6,
+                  left: 6,
+                  backgroundColor: "rgba(0,0,0,0.62)",
+                  borderRadius: 8,
+                  paddingHorizontal: 6,
+                  paddingVertical: 3,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  maxWidth: "80%",
+                }}
+              >
+                <Camera size={9} color="#aaa" />
+                <Text
+                  style={{
+                    fontFamily: "Manrope_500Medium",
+                    color: "#ccc",
+                    fontSize: 9,
+                  }}
+                  numberOfLines={1}
+                >
+                  {item.communityImageCredit}
+                </Text>
+              </View>
+            )}
+
+            {/* Contribute image button — show when no official or community image */}
+            {!item.hasOfficialImage && !item.communityImageCredit && onContributeImage && (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onContributeImage(item);
+                }}
+                style={{
+                  position: "absolute",
+                  bottom: 6,
+                  left: 6,
+                  backgroundColor: "rgba(0,0,0,0.65)",
+                  borderRadius: 8,
+                  paddingHorizontal: 7,
+                  paddingVertical: 4,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.18)",
+                }}
+              >
+                <Camera size={10} color="#FF9933" />
+                <Text
+                  style={{
+                    fontFamily: "Manrope_600SemiBold",
+                    color: "#FF9933",
+                    fontSize: 10,
+                  }}
+                >
+                  Add photo
+                </Text>
+              </Pressable>
             )}
           </View>
 

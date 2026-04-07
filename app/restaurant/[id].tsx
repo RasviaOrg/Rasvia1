@@ -49,6 +49,7 @@ import * as Haptics from "expo-haptics";
 import { WaitBadge } from "@/components/WaitBadge";
 import { MenuGridItem } from "@/components/MenuGridItem";
 import { MenuEditor } from "@/components/MenuEditor";
+import { CommunityImageModal } from "@/components/CommunityImageModal";
 import { FoodDetailModal } from "@/components/FoodDetailModal";
 import { MenuItemDetailSettingsModal } from "@/components/MenuItemDetailSettingsModal";
 import { GroupCartDrawer } from "@/components/GroupCartDrawer";
@@ -146,6 +147,7 @@ export default function RestaurantDetail() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
+  const [communityImageTarget, setCommunityImageTarget] = useState<UIMenuItem | null>(null);
   // Order type picker (shows before waitlist or takeout checkout)
   const [showOrderTypePicker, setShowOrderTypePicker] = useState(false);
 
@@ -422,6 +424,35 @@ export default function RestaurantDetail() {
       if (error) throw error;
       if (data) {
         const uiMenuItems = data.map(item => mapMenuItemToUI(item as SupabaseMenuItem));
+
+        // Overlay approved community images for items without an official photo
+        try {
+          const { data: communityImgs } = await supabase
+            .from('community_menu_images')
+            .select('menu_item_id, image_url, submitter_name')
+            .eq('restaurant_id', Number(id))
+            .eq('status', 'approved');
+
+          if (communityImgs && communityImgs.length > 0) {
+            const merged = uiMenuItems.map((item) => {
+              if (item.hasOfficialImage) return item;
+              const ci = communityImgs.find(
+                (c: { menu_item_id: number }) => String(c.menu_item_id) === item.id
+              );
+              if (!ci) return item;
+              return {
+                ...item,
+                image: ci.image_url,
+                communityImageCredit: ci.submitter_name ?? null,
+              };
+            });
+            setMenu(merged);
+            return;
+          }
+        } catch {
+          // community_menu_images table may not exist yet — silently skip
+        }
+
         setMenu(uiMenuItems);
       }
     } catch (error) {
@@ -766,6 +797,106 @@ export default function RestaurantDetail() {
         <Text style={{ color: '#999999', fontFamily: 'Manrope_500Medium' }}>
           {loading ? 'Loading...' : 'Restaurant not found'}
         </Text>
+      </View>
+    );
+  }
+
+  // ── Coming Soon gate (non-admin users only) ──────────────────────────────
+  if (restaurant.isComingSoon && !isAdmin) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+        {/* Hero image with dark overlay */}
+        <View style={{ height: HERO_HEIGHT, position: "relative" }}>
+          <Image
+            source={{ uri: restaurant.image }}
+            style={{ width: "100%", height: "100%", position: "absolute" }}
+            resizeMode="cover"
+          />
+          <LinearGradient
+            colors={["rgba(15,15,15,0.45)", "rgba(15,15,15,0.85)", "rgba(15,15,15,1)"]}
+            locations={[0, 0.55, 1]}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+          <SafeAreaView edges={["top"]} style={{ position: "absolute", top: 0, left: 0, right: 0 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8 }}>
+              <Pressable
+                onPress={() => router.back()}
+                style={{
+                  backgroundColor: "rgba(15,15,15,0.6)",
+                  width: 44, height: 44, borderRadius: 22,
+                  alignItems: "center", justifyContent: "center",
+                  borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+                }}
+              >
+                <ArrowLeft size={22} color="#f5f5f5" />
+              </Pressable>
+            </View>
+          </SafeAreaView>
+        </View>
+
+        {/* Coming Soon content */}
+        <View style={{ flex: 1, alignItems: "center", paddingHorizontal: 32, paddingTop: 40 }}>
+          <View
+            style={{
+              backgroundColor: "rgba(255,153,51,0.12)",
+              borderWidth: 1.5,
+              borderColor: "rgba(255,153,51,0.5)",
+              borderRadius: 28,
+              paddingHorizontal: 18,
+              paddingVertical: 8,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 7,
+              marginBottom: 20,
+            }}
+          >
+            <AlertTriangle size={15} color="#FF9933" />
+            <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 13, letterSpacing: 0.4 }}>
+              Coming Soon
+            </Text>
+          </View>
+
+          <Text
+            style={{
+              fontFamily: "BricolageGrotesque_800ExtraBold",
+              color: "#f5f5f5",
+              fontSize: 32,
+              textAlign: "center",
+              letterSpacing: -0.5,
+              marginBottom: 12,
+            }}
+          >
+            {restaurant.name}
+          </Text>
+
+          <Text
+            style={{
+              fontFamily: "Manrope_500Medium",
+              color: "#888",
+              fontSize: 15,
+              textAlign: "center",
+              lineHeight: 22,
+              marginBottom: 36,
+            }}
+          >
+            This restaurant is not yet officially on Rasvia.{"\n"}
+            Check back soon — we're working on it!
+          </Text>
+
+          <Pressable
+            onPress={() => router.back()}
+            style={{
+              backgroundColor: "#FF9933",
+              borderRadius: 16,
+              paddingHorizontal: 32,
+              paddingVertical: 14,
+            }}
+          >
+            <Text style={{ fontFamily: "Manrope_700Bold", color: "#0f0f0f", fontSize: 15 }}>
+              Go Back
+            </Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -1639,6 +1770,7 @@ export default function RestaurantDetail() {
               }}
               onQuickAdd={(item) => handleAddToCart(item)}
               restaurantId={id}
+              onContributeImage={(item) => setCommunityImageTarget(item)}
             />
           </View>
         </View>
@@ -2249,6 +2381,14 @@ export default function RestaurantDetail() {
           onReviewsChanged={handleReviewsStatsChanged}
         />
       )}
+
+      {/* Community Image Contribution Modal */}
+      <CommunityImageModal
+        visible={!!communityImageTarget}
+        item={communityImageTarget}
+        restaurantId={restaurant.id}
+        onClose={() => setCommunityImageTarget(null)}
+      />
     </View>
   );
 }

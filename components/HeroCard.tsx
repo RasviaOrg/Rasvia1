@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Image, Dimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Star, MapPin, Clock, Heart } from "lucide-react-native";
+import { Star, MapPin, Clock, Heart, Hourglass } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
 import Animated, {
   FadeInDown,
@@ -77,6 +77,43 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           >
             <Heart size={16} color={isFavorite ? "#EF4444" : "#fff"} fill={isFavorite ? "#EF4444" : "transparent"} />
           </Pressable>
+        )}
+
+        {/* Coming Soon overlay */}
+        {restaurant.isComingSoon && (
+          <View
+            style={{
+              position: "absolute",
+              top: 16,
+              left: 16,
+              backgroundColor: "rgba(10,10,10,0.92)",
+              borderWidth: 2,
+              borderColor: "#FF9F43",
+              borderRadius: 999,
+              paddingHorizontal: 13,
+              paddingVertical: 6,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              shadowColor: "#FF9F43",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 10,
+              elevation: 6,
+            }}
+          >
+            <Hourglass size={13} color="#FFB56B" />
+            <Text
+              style={{
+                fontFamily: "Manrope_700Bold",
+                color: "#FFC484",
+                fontSize: 13,
+                letterSpacing: 0.45,
+              }}
+            >
+              Coming Soon
+            </Text>
+          </View>
         )}
 
         {/* Content */}

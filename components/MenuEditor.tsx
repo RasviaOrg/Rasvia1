@@ -225,6 +225,7 @@ function EditableMenuItem({
   onDelete,
   canEdit,
   showQuickAdd,
+  onContributeImage,
 }: {
   item: UIMenuItem;
   index: number;
@@ -234,6 +235,7 @@ function EditableMenuItem({
   onDelete: (id: string) => void;
   canEdit: boolean;
   showQuickAdd: boolean;
+  onContributeImage?: (item: UIMenuItem) => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -346,7 +348,7 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} />
+      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} />
 
       {canEdit && (
         <Pressable
@@ -523,9 +525,10 @@ interface MenuEditorProps {
   onItemPress: (item: UIMenuItem) => void;
   onQuickAdd: (item: UIMenuItem) => void;
   restaurantId?: string;
+  onContributeImage?: (item: UIMenuItem) => void;
 }
 
-export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId }: MenuEditorProps) {
+export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId, onContributeImage }: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
   const canOrder = !isRestaurantOwner && !isAdmin;
@@ -675,6 +678,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onDelete={handleDelete}
               canEdit={canEdit}
               showQuickAdd={canOrder}
+              onContributeImage={onContributeImage}
             />
           ))}
         </View>
@@ -690,6 +694,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onDelete={handleDelete}
               canEdit={canEdit}
               showQuickAdd={canOrder}
+              onContributeImage={onContributeImage}
             />
           ))}
         </View>
