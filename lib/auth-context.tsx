@@ -25,6 +25,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(true);
     const [needsOnboarding, setNeedsOnboarding] = useState(false);
     const initialised = useRef(false);
+    const loadingRef = useRef(true);
+
+    useEffect(() => {
+        loadingRef.current = loading;
+    }, [loading]);
 
     async function checkOnboardingStatus(userId: string) {
         try {
@@ -55,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         let cancelled = false;
 
         const safetyTimeout = setTimeout(() => {
-            if (!cancelled && loading) {
+            if (!cancelled && loadingRef.current) {
                 console.warn('Auth initialisation timed out – unblocking UI');
                 setLoading(false);
             }
@@ -130,16 +135,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
-        // Also listen for Supabase global errors via the client fetch interceptor
-        // by wrapping getSession at startup – if the stored session is dead, sign out
+        // Deterministic bootstrap: always resolve initial session state on mount
+        // instead of relying purely on INITIAL_SESSION auth event delivery timing.
         (async () => {
             try {
                 const { data, error } = await supabase.auth.getSession();
                 if (error) {
                     await handleInvalidToken(error);
+                    return;
+                }
+
+                if (cancelled) return;
+                const initialSession = data?.session ?? null;
+                setSession(initialSession);
+
+                if (initialSession?.user?.id) {
+                    try {
+                        await upsertProfileFromAuthUser(initialSession.user);
+                    } catch (profileErr: any) {
+                        await handleInvalidToken(profileErr);
+                    }
+                    if (!cancelled) {
+                        await checkOnboardingStatus(initialSession.user.id);
+                    }
+                } else {
+                    setNeedsOnboarding(false);
                 }
             } catch (err) {
                 await handleInvalidToken(err);
+            } finally {
+                if (!cancelled) {
+                    initialised.current = true;
+                    setLoading(false);
+                }
             }
         })();
 

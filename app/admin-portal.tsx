@@ -18,6 +18,7 @@ import { ArrowLeft, Save, Plus, Building2, Users, X, Shield, Store, User as User
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { BrandedLoader } from "@/components/BrandedLoader";
 
 type RestaurantRow = {
   id: number;
@@ -34,6 +35,7 @@ type RestaurantRow = {
   is_featured: boolean | null;
   is_enabled: boolean | null;
   waitlist_open: boolean | null;
+  is_coming_soon: boolean | null;
   stripe_account_id: string | null;
 };
 
@@ -84,6 +86,7 @@ function emptyForm(): Partial<RestaurantRow> {
     is_featured: false,
     is_enabled: true,
     waitlist_open: true,
+    is_coming_soon: false,
     stripe_account_id: "",
   };
 }
@@ -311,6 +314,7 @@ export default function AdminPortalScreen() {
       is_featured: Boolean(draft.is_featured),
       is_enabled: draft.is_enabled !== false,
       waitlist_open: draft.waitlist_open !== false,
+      is_coming_soon: draft.is_coming_soon === true,
       stripe_account_id: draft.stripe_account_id?.trim() || null,
     };
 
@@ -417,11 +421,7 @@ export default function AdminPortalScreen() {
   };
 
   if (roleLoading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" color="#FF9933" />
-      </View>
-    );
+    return <BrandedLoader message="Loading admin portal..." />;
   }
 
   if (!isAdmin) {
@@ -554,9 +554,7 @@ export default function AdminPortalScreen() {
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator size="large" color="#FF9933" />
-        </View>
+        <BrandedLoader message="Loading data..." />
       ) : adminMode === "users" ? (
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
           <TextInput
@@ -1014,6 +1012,10 @@ export default function AdminPortalScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <Text style={{ color: "#ccc", fontFamily: "Manrope_500Medium" }}>Waitlist open</Text>
                 <Switch value={draft.waitlist_open !== false} onValueChange={(v) => setDraft((d) => ({ ...d, waitlist_open: v }))} trackColor={{ false: "#333", true: "rgba(234,179,8,0.4)" }} thumbColor={draft.waitlist_open !== false ? "#EAB308" : "#666"} />
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ color: "#ccc", fontFamily: "Manrope_500Medium" }}>Coming soon</Text>
+                <Switch value={draft.is_coming_soon === true} onValueChange={(v) => setDraft((d) => ({ ...d, is_coming_soon: v }))} trackColor={{ false: "#333", true: "rgba(148,163,184,0.45)" }} thumbColor={draft.is_coming_soon ? "#94A3B8" : "#666"} />
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <Text style={{ color: "#ccc", fontFamily: "Manrope_500Medium" }}>Featured</Text>

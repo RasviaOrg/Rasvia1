@@ -3,7 +3,6 @@ import {
   View,
   Text,
   Pressable,
-  ActivityIndicator,
   ScrollView,
   Image,
   RefreshControl,
@@ -27,6 +26,7 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { useAuth } from "@/lib/auth-context";
 import { FilterBar } from "@/components/FilterBar";
+import { BrandedLoader } from "@/components/BrandedLoader";
 import type { FilterType } from "@/data/mockData";
 
 function parseDist(distance: string) {
@@ -50,8 +50,11 @@ function SectionRestaurantRow({
   restaurant: UIRestaurant;
   onPress: () => void;
 }) {
+  const isComingSoon = restaurant.isComingSoon;
   const waitColor =
-    restaurant.waitStatus === "green"
+    isComingSoon
+      ? "#8a8a8a"
+      : restaurant.waitStatus === "green"
       ? "#22C55E"
       : restaurant.waitStatus === "amber"
       ? "#F59E0B"
@@ -67,33 +70,35 @@ function SectionRestaurantRow({
         borderWidth: 1,
         borderColor: "#2a2a2a",
         backgroundColor: "#151515",
-        padding: 10,
+        padding: 12,
         marginBottom: 10,
-        flexDirection: "row",
-        gap: 10,
       }}
     >
       <Image
         source={{ uri: restaurant.image }}
-        style={{ width: 84, height: 84, borderRadius: 10, backgroundColor: "#242424" }}
+        style={{ width: "100%", height: 220, borderRadius: 12, backgroundColor: "#242424" }}
         resizeMode="cover"
       />
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text
-          style={{
-            fontFamily: "BricolageGrotesque_700Bold",
-            color: "#f5f5f5",
-            fontSize: 16,
-          }}
-          numberOfLines={1}
-        >
-          {restaurant.name}
-        </Text>
+      <View style={{ marginTop: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text
+            style={{
+              fontFamily: "BricolageGrotesque_700Bold",
+              color: "#f5f5f5",
+              fontSize: 24,
+              flex: 1,
+            }}
+            numberOfLines={1}
+          >
+            {restaurant.name}
+          </Text>
+          <ChevronRight size={18} color="#666" />
+        </View>
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
             color: "#9a9a9a",
-            fontSize: 12,
+            fontSize: 13,
             marginTop: 2,
           }}
           numberOfLines={1}
@@ -111,7 +116,7 @@ function SectionRestaurantRow({
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Clock size={12} color={waitColor} />
             <Text style={{ fontFamily: "Manrope_600SemiBold", color: waitColor, fontSize: 12 }}>
-              {restaurant.waitStatus === "darkgrey" ? "Closed" : `${restaurant.waitTime} min`}
+              {isComingSoon ? "Coming soon" : restaurant.waitStatus === "darkgrey" ? "Closed" : `${restaurant.waitTime} min`}
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -121,10 +126,6 @@ function SectionRestaurantRow({
             </Text>
           </View>
         </View>
-      </View>
-
-      <View style={{ justifyContent: "center" }}>
-        <ChevronRight size={16} color="#666" />
       </View>
     </Pressable>
   );
@@ -250,16 +251,25 @@ export default function DiscoverSectionPage() {
         : r
     );
   }, [closedRestaurantIds, restaurants]);
+  const availabilityRank = useCallback((r: UIRestaurant) => {
+    if (r.isComingSoon) return 1;
+    if (r.waitStatus === "darkgrey") return 2;
+    return 0;
+  }, []);
 
   const nearbyRestaurants = useMemo(() => {
     const filtered = restaurantsWithHoursStatus.filter((r) => {
       if (!isAdmin && !r.isEnabled) return false;
       if (r.waitStatus === "darkgrey") return false;
+      if (r.isComingSoon && activeFilter !== "all") return false;
       if (activeFilter === "all") return true;
       return r.waitStatus === activeFilter;
     });
 
     return [...filtered].sort((a, b) => {
+      const ar = availabilityRank(a);
+      const br = availabilityRank(b);
+      if (ar !== br) return ar - br;
       const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
       if (scoreDelta !== 0) return scoreDelta;
       if (activeFilter !== "all") {
@@ -270,11 +280,11 @@ export default function DiscoverSectionPage() {
       }
       return parseDist(a.distance) - parseDist(b.distance);
     });
-  }, [activeFilter, dietarySortScore, isAdmin, restaurantsWithHoursStatus]);
+  }, [activeFilter, availabilityRank, dietarySortScore, isAdmin, restaurantsWithHoursStatus]);
 
   const trendingRestaurants = useMemo(() => {
     return restaurantsWithHoursStatus
-      .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
+      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
       .sort((a, b) => {
         const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
         if (scoreDelta !== 0) return scoreDelta;
@@ -284,7 +294,7 @@ export default function DiscoverSectionPage() {
 
   const quickBites = useMemo(() => {
     return restaurantsWithHoursStatus
-      .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus === "green")
+      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus === "green")
       .sort((a, b) => {
         const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
         if (scoreDelta !== 0) return scoreDelta;
@@ -296,15 +306,15 @@ export default function DiscoverSectionPage() {
     return restaurantsWithHoursStatus
       .filter((r) => (isAdmin || r.isEnabled) && favoriteRestaurantIds.includes(Number(r.id)))
       .sort((a, b) => {
-        const aClosed = a.waitStatus === "darkgrey" ? 1 : 0;
-        const bClosed = b.waitStatus === "darkgrey" ? 1 : 0;
-        if (aClosed !== bClosed) return aClosed - bClosed;
+        const ar = availabilityRank(a);
+        const br = availabilityRank(b);
+        if (ar !== br) return ar - br;
         const aw = a.waitTime >= 0 ? a.waitTime : Number.POSITIVE_INFINITY;
         const bw = b.waitTime >= 0 ? b.waitTime : Number.POSITIVE_INFINITY;
         if (aw !== bw) return aw - bw;
         return parseDist(a.distance) - parseDist(b.distance);
       });
-  }, [favoriteRestaurantIds, isAdmin, restaurantsWithHoursStatus]);
+  }, [availabilityRank, favoriteRestaurantIds, isAdmin, restaurantsWithHoursStatus]);
 
   const content = useMemo(() => {
     if (section === "favorites") {
@@ -341,11 +351,7 @@ export default function DiscoverSectionPage() {
   }, [router]);
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" color="#FF9933" />
-      </View>
-    );
+    return <BrandedLoader message="Loading section..." />;
   }
 
   return (

@@ -10,7 +10,6 @@ import {
   Platform,
   RefreshControl,
   Animated as RNAnimated,
-  ActivityIndicator,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -50,6 +49,7 @@ import { useNotifications } from "@/lib/notifications-context";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { usePersonalization } from "@/hooks/usePersonalization";
 import { OwnerHomeContent } from "@/components/OwnerHomeContent";
+import { BrandedLoader } from "@/components/BrandedLoader";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -742,10 +742,16 @@ export default function DiscoveryFeed() {
       ? { ...r, waitStatus: 'darkgrey' as const, waitTime: -1 }
       : r
   );
+  const availabilityRank = (r: UIRestaurant) => {
+    if (r.isComingSoon) return 1;
+    if (r.waitStatus === "darkgrey") return 2;
+    return 0;
+  };
 
   const filteredRestaurants = restaurantsWithHoursStatus.filter((r) => {
     if (!isAdmin && !r.isEnabled) return false;
     if (r.waitStatus === 'darkgrey') return false; // always exclude closed restaurants from Nearby
+    if (r.isComingSoon && activeFilter !== "all") return false;
     if (activeFilter === "all") return true;
     return r.waitStatus === activeFilter;
   });
@@ -795,6 +801,9 @@ export default function DiscoveryFeed() {
   };
 
   const nearbyRestaurants = [...filteredRestaurants].sort((a, b) => {
+    const ar = availabilityRank(a);
+    const br = availabilityRank(b);
+    if (ar !== br) return ar - br;
     const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
     if (scoreDelta !== 0) return scoreDelta;
     if (activeFilter !== "all") {
@@ -807,7 +816,7 @@ export default function DiscoveryFeed() {
   });
 
   const trendingRestaurants = restaurantsWithHoursStatus
-    .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
+    .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
     .sort((a, b) => {
       const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
       if (scoreDelta !== 0) return scoreDelta;
@@ -816,7 +825,7 @@ export default function DiscoveryFeed() {
     .slice(0, 3);
   
   const quickBites = restaurantsWithHoursStatus
-    .filter((r) => (isAdmin || r.isEnabled) && r.waitStatus === "green")
+    .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus === "green")
     .sort((a, b) => {
       const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
       if (scoreDelta !== 0) return scoreDelta;
@@ -826,9 +835,9 @@ export default function DiscoveryFeed() {
   const favoritesRestaurants = restaurantsWithHoursStatus
     .filter((r) => (isAdmin || r.isEnabled) && favoriteRestaurantIds.includes(Number(r.id)))
     .sort((a, b) => {
-      const aClosed = a.waitStatus === "darkgrey" ? 1 : 0;
-      const bClosed = b.waitStatus === "darkgrey" ? 1 : 0;
-      if (aClosed !== bClosed) return aClosed - bClosed;
+      const ar = availabilityRank(a);
+      const br = availabilityRank(b);
+      if (ar !== br) return ar - br;
       const aw = a.waitTime >= 0 ? a.waitTime : Number.POSITIVE_INFINITY;
       const bw = b.waitTime >= 0 ? b.waitTime : Number.POSITIVE_INFINITY;
       if (aw !== bw) return aw - bw;
@@ -873,14 +882,7 @@ export default function DiscoveryFeed() {
     (((!isRestaurantOwner && !isAdmin) || ownerHomeMode === "discover") && loading);
 
   if (shouldShowFeedLoader) {
-    return (
-      <View className="flex-1 bg-rasvia-black" style={{ alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" color="#FF9933" />
-        <Text style={{ marginTop: 12, color: "#888", fontFamily: "Manrope_500Medium", fontSize: 13 }}>
-          Loading your feed...
-        </Text>
-      </View>
-    );
+    return <BrandedLoader message="Loading your feed..." />;
   }
 
   return (
@@ -2036,7 +2038,11 @@ export default function DiscoveryFeed() {
                           ) : null}
                         </View>
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
-                          {restaurant.waitStatus === 'darkgrey' ? (
+                          {restaurant.isComingSoon ? (
+                            <View style={{ backgroundColor: "rgba(100,100,100,0.12)", borderRadius: 8, borderWidth: 1, borderColor: "rgba(100,100,100,0.2)", paddingHorizontal: 8, paddingVertical: 4 }}>
+                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#7a7a7a", fontSize: 11 }}>Coming soon</Text>
+                            </View>
+                          ) : restaurant.waitStatus === 'darkgrey' ? (
                             <View style={{ backgroundColor: "rgba(100,100,100,0.12)", borderRadius: 8, borderWidth: 1, borderColor: "rgba(100,100,100,0.2)", paddingHorizontal: 8, paddingVertical: 4 }}>
                               <Text style={{ fontFamily: "Manrope_700Bold", color: "#555", fontSize: 11 }}>Closed</Text>
                             </View>
@@ -2045,7 +2051,9 @@ export default function DiscoveryFeed() {
                               <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 11 }}>Order Again →</Text>
                             </View>
                           )}
-                          {restaurant.waitStatus === 'darkgrey' ? (
+                          {restaurant.isComingSoon ? (
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#666", fontSize: 11 }}>Coming soon</Text>
+                          ) : restaurant.waitStatus === 'darkgrey' ? (
                             <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#444", fontSize: 11 }}>—</Text>
                           ) : restaurant.waitTime >= 0 && restaurant.waitTime < 999 ? (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>

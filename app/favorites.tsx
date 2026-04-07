@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   Platform,
-  ActivityIndicator,
   RefreshControl,
   Image,
 } from "react-native";
@@ -18,6 +17,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { parseFavorites } from "@/lib/restaurant-types";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
+import { BrandedLoader } from "@/components/BrandedLoader";
 
 export default function FavoritesScreen() {
   const router = useRouter();
@@ -136,9 +136,7 @@ export default function FavoritesScreen() {
         </Animated.View>
 
         {loading ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#FF9933" size="large" />
-          </View>
+          <BrandedLoader message="Loading favorites..." />
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -183,21 +181,26 @@ export default function FavoritesScreen() {
               </Animated.View>
             ) : (
               favorites.map((restaurant, index) => {
+                const isComingSoon = restaurant.is_coming_soon === true;
                 const isClosed =
                   closedRestaurantIds.has(String(restaurant.id)) ||
                   restaurant.waitlist_open === false ||
                   restaurant.current_wait_time >= 999 ||
                   restaurant.is_enabled === false;
-                const noWait = !isClosed && restaurant.current_wait_time != null && restaurant.current_wait_time < 0;
+                const noWait = !isClosed && !isComingSoon && restaurant.current_wait_time != null && restaurant.current_wait_time < 0;
                 const wt = restaurant.current_wait_time;
-                const waitTimeStr = isClosed
+                const waitTimeStr = isComingSoon
+                  ? "Coming soon"
+                  : isClosed
                   ? "Closed"
                   : noWait
                     ? "No wait"
                     : wt != null && wt >= 0
                       ? `${wt} min wait`
                       : "-- min wait";
-                const waitColor = isClosed
+                const waitColor = isComingSoon
+                  ? "#888888"
+                  : isClosed
                   ? "#888888"
                   : noWait
                     ? "#10B981"

@@ -58,6 +58,12 @@ export default function AdminMenuImages() {
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
 
+  const normalizeImageUrl = useCallback((value: string) => {
+    if (!value) return value;
+    if (/^https?:\/\//i.test(value)) return value;
+    return supabase.storage.from("community-images").getPublicUrl(value).data.publicUrl;
+  }, []);
+
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
@@ -92,6 +98,7 @@ export default function AdminMenuImages() {
         setSubmissions(
           data.map((d: any) => ({
             ...d,
+            image_url: normalizeImageUrl(d.image_url),
             menu_item_name: menuMap[d.menu_item_id] ?? `Item #${d.menu_item_id}`,
             restaurant_name: restMap[d.restaurant_id] ?? `Restaurant #${d.restaurant_id}`,
           }))
@@ -104,7 +111,7 @@ export default function AdminMenuImages() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [normalizeImageUrl]);
 
   useEffect(() => {
     if (isAdmin) fetchSubmissions();
@@ -132,10 +139,12 @@ export default function AdminMenuImages() {
 
       // If approving: update the menu item's image_url so it's used going forward
       if (action === "approved") {
-        await supabase
+        const normalizedUrl = normalizeImageUrl(submission.image_url);
+        const { error: menuUpdateError } = await supabase
           .from("menu_items")
-          .update({ image_url: submission.image_url })
+          .update({ image_url: normalizedUrl })
           .eq("id", submission.menu_item_id);
+        if (menuUpdateError) throw menuUpdateError;
       }
 
       if (Platform.OS !== "web")

@@ -5,8 +5,8 @@ import {
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
-import { View, ActivityIndicator, Platform, Alert, LogBox } from "react-native";
+import { useEffect, useState } from "react";
+import { View, ActivityIndicator, Platform, Alert, LogBox, Image, Text } from "react-native";
 
 // Remote push token registration is unavailable in Expo Go SDK 53+.
 // Rasvia only uses local (scheduled) notifications so this is harmless.
@@ -39,6 +39,7 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { LocationProvider } from "@/lib/location-context";
 import { NotificationsProvider, useNotifications } from "@/lib/notifications-context";
 import { InAppNotification } from "@/components/InAppNotification";
+import { BrandedLoader } from "@/components/BrandedLoader";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -103,6 +104,16 @@ function AuthGate() {
   const { session, loading, needsOnboarding } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [showSlowLoadHint, setShowSlowLoadHint] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setShowSlowLoadHint(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowSlowLoadHint(true), 4000);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   useEffect(() => {
     if (loading) return;
@@ -181,7 +192,19 @@ function AuthGate() {
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center" }}>
+        <Image
+          source={require("../assets/images/rasvia-icon.png")}
+          style={{ width: 72, height: 72, marginBottom: 18 }}
+          resizeMode="contain"
+        />
         <ActivityIndicator size="large" color="#FF9933" />
+        {showSlowLoadHint && (
+          <View style={{ marginTop: 14 }}>
+            <Text style={{ color: "#9ca3af", fontSize: 12, fontFamily: "Manrope_500Medium" }}>
+              Taking longer than expected...
+            </Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -298,7 +321,7 @@ export default function RootLayout() {
   }, [fontsReady]);
 
   if (!fontsReady) {
-    return null;
+    return <BrandedLoader message="Loading Rasvia..." />;
   }
 
   return (

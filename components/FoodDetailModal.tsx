@@ -1,8 +1,8 @@
 import React from "react";
 import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { X, Plus, Leaf, Flame, Settings } from "lucide-react-native";
-import type { MenuItem } from "@/data/mockData";
+import { X, Plus, Leaf, Flame, Settings, Camera } from "lucide-react-native";
+import type { UIMenuItem } from "@/lib/restaurant-types";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
@@ -11,10 +11,12 @@ let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; SCREEN_HEIGHT = window.height; });
 
 interface FoodDetailModalProps {
-  item: MenuItem;
+  item: UIMenuItem;
   onClose: () => void;
   onAddToCart: () => void;
   onOpenSettings?: () => void;
+  showContributeImage?: boolean;
+  onContributeImage?: () => void;
 }
 
 export function FoodDetailModal({
@@ -22,7 +24,10 @@ export function FoodDetailModal({
   onClose,
   onAddToCart,
   onOpenSettings,
+  showContributeImage = false,
+  onContributeImage,
 }: FoodDetailModalProps) {
+  const hasImage = !!item.image?.trim();
   return (
     <Animated.View
       entering={FadeIn.duration(300)}
@@ -42,11 +47,28 @@ export function FoodDetailModal({
         >
           {/* Image Section with Video Placeholder */}
           <View style={{ height: SCREEN_HEIGHT * 0.45, position: "relative" }}>
-            <Image
-              source={{ uri: item.image }}
-              style={{ width: "100%", height: "100%" }}
-              resizeMode="cover"
-            />
+            {hasImage ? (
+              <Image
+                source={{ uri: item.image }}
+                style={{ width: "100%", height: "100%" }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "#1b1b1b",
+                }}
+              >
+                <Camera size={34} color="#7a7a7a" />
+                <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 13 }}>
+                  No image available
+                </Text>
+              </View>
+            )}
             <LinearGradient
               colors={["rgba(26,26,26,0.3)", "transparent", "rgba(26,26,26,0.95)"]}
               style={{
@@ -57,6 +79,38 @@ export function FoodDetailModal({
                 bottom: 0,
               }}
             />
+
+            {hasImage && item.communityImageCredit && (
+              <View
+                style={{
+                  position: "absolute",
+                  bottom: 14,
+                  right: 14,
+                  backgroundColor: "rgba(0,0,0,0.62)",
+                  borderRadius: 10,
+                  paddingHorizontal: 8,
+                  paddingVertical: 5,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.2)",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                  maxWidth: "70%",
+                }}
+              >
+                <Camera size={11} color="#d1d5db" />
+                <Text
+                  style={{
+                    fontFamily: "Manrope_500Medium",
+                    color: "#e5e7eb",
+                    fontSize: 11,
+                  }}
+                  numberOfLines={1}
+                >
+                  {item.communityImageCredit}
+                </Text>
+              </View>
+            )}
 
             {/* Top-right controls */}
             <View
@@ -160,15 +214,43 @@ export function FoodDetailModal({
                   {item.name}
                 </Text>
               </View>
-              <Text
-                style={{
-                  fontFamily: "JetBrainsMono_600SemiBold",
-                  color: "#FF9933",
-                  fontSize: 24,
-                }}
-              >
-                ${item.price.toFixed(2)}
-              </Text>
+              <View style={{ alignItems: "flex-end" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                  {showContributeImage && onContributeImage && (
+                    <Pressable
+                      onPress={() => {
+                        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        onContributeImage();
+                      }}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 5,
+                        backgroundColor: "rgba(15,15,15,0.72)",
+                        borderRadius: 999,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.2)",
+                      }}
+                    >
+                      <Camera size={12} color="#FF9933" />
+                      <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 11 }}>
+                        Add Photo
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+                <Text
+                  style={{
+                    fontFamily: "JetBrainsMono_600SemiBold",
+                    color: "#FF9933",
+                    fontSize: 24,
+                  }}
+                >
+                  ${item.price.toFixed(2)}
+                </Text>
+              </View>
             </View>
 
             <Text

@@ -176,6 +176,11 @@ export default function RestaurantDetail() {
   // Menu category multi-filter
   type MenuFilter = "all" | "breakfast" | "lunch" | "dinner" | "specials";
   const [selectedMenuFilters, setSelectedMenuFilters] = useState<MenuFilter[]>([]);
+  const [adminBypassComingSoon, setAdminBypassComingSoon] = useState(false);
+
+  useEffect(() => {
+    setAdminBypassComingSoon(false);
+  }, [id]);
   // User dietary preferences for veg indicator
   const [userDietaryType, setUserDietaryType] = useState("");
   const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
@@ -425,24 +430,47 @@ export default function RestaurantDetail() {
       if (data) {
         const uiMenuItems = data.map(item => mapMenuItemToUI(item as SupabaseMenuItem));
 
-        // Overlay approved community images for items without an official photo
+        // Overlay approved community image credits (and fallback image where needed)
         try {
           const { data: communityImgs } = await supabase
             .from('community_menu_images')
-            .select('menu_item_id, image_url, submitter_name')
+            .select('menu_item_id, image_url, submitter_name, created_at')
             .eq('restaurant_id', Number(id))
-            .eq('status', 'approved');
+            .eq('status', 'approved')
+            .order('created_at', { ascending: false });
 
           if (communityImgs && communityImgs.length > 0) {
+            const latestByMenuItem = new Map<string, { image_url: string | null; submitter_name: string | null }>();
+            for (const row of communityImgs as {
+              menu_item_id: number;
+              image_url: string | null;
+              submitter_name: string | null;
+              created_at: string;
+            }[]) {
+              const key = String(row.menu_item_id);
+              if (!latestByMenuItem.has(key)) {
+                latestByMenuItem.set(key, {
+                  image_url: row.image_url,
+                  submitter_name: row.submitter_name,
+                });
+              }
+            }
+
             const merged = uiMenuItems.map((item) => {
-              if (item.hasOfficialImage) return item;
-              const ci = communityImgs.find(
-                (c: { menu_item_id: number }) => String(c.menu_item_id) === item.id
-              );
+              const ci = latestByMenuItem.get(item.id);
               if (!ci) return item;
+
+              const raw = String(ci.image_url ?? "").trim();
+              const communityImageUrl =
+                raw.length === 0
+                  ? ""
+                  : /^https?:\/\//i.test(raw)
+                    ? raw
+                    : supabase.storage.from("community-images").getPublicUrl(raw).data.publicUrl;
+
               return {
                 ...item,
-                image: ci.image_url,
+                image: item.image?.trim() ? item.image : communityImageUrl,
                 communityImageCredit: ci.submitter_name ?? null,
               };
             });
@@ -801,8 +829,8 @@ export default function RestaurantDetail() {
     );
   }
 
-  // ── Coming Soon gate (non-admin users only) ──────────────────────────────
-  if (restaurant.isComingSoon && !isAdmin) {
+  // ── Coming Soon gate (all users; admins can bypass into menu) ────────────
+  if (restaurant.isComingSoon && (!isAdmin || !adminBypassComingSoon)) {
     return (
       <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
         {/* Hero image with dark overlay */}
@@ -880,22 +908,41 @@ export default function RestaurantDetail() {
             }}
           >
             This restaurant is not yet officially on Rasvia.{"\n"}
-            Check back soon — we're working on it!
+            Check back soon — we&apos;re working on it!
           </Text>
 
-          <Pressable
-            onPress={() => router.back()}
-            style={{
-              backgroundColor: "#FF9933",
-              borderRadius: 16,
-              paddingHorizontal: 32,
-              paddingVertical: 14,
-            }}
-          >
-            <Text style={{ fontFamily: "Manrope_700Bold", color: "#0f0f0f", fontSize: 15 }}>
-              Go Back
-            </Text>
-          </Pressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Pressable
+              onPress={() => router.back()}
+              style={{
+                backgroundColor: "#FF9933",
+                borderRadius: 16,
+                paddingHorizontal: 24,
+                paddingVertical: 14,
+              }}
+            >
+              <Text style={{ fontFamily: "Manrope_700Bold", color: "#0f0f0f", fontSize: 15 }}>
+                Go Back
+              </Text>
+            </Pressable>
+            {isAdmin && (
+              <Pressable
+                onPress={() => setAdminBypassComingSoon(true)}
+                style={{
+                  backgroundColor: "rgba(148,163,184,0.15)",
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: "rgba(148,163,184,0.45)",
+                  paddingHorizontal: 18,
+                  paddingVertical: 14,
+                }}
+              >
+                <Text style={{ fontFamily: "Manrope_700Bold", color: "#CBD5E1", fontSize: 14 }}>
+                  View Menu (Admin)
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
     );
@@ -1990,6 +2037,8 @@ export default function RestaurantDetail() {
           item={selectedItem}
           onClose={() => setSelectedItem(null)}
           onAddToCart={() => handleAddToCart(selectedItem)}
+          showContributeImage={!selectedItem.hasOfficialImage && !selectedItem.communityImageCredit}
+          onContributeImage={() => setCommunityImageTarget(selectedItem)}
           onOpenSettings={
             canManage
               ? () => {

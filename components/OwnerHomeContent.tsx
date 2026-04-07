@@ -34,6 +34,7 @@ import {
     SlidersHorizontal,
 } from "lucide-react-native";
 import { RestaurantEditModal } from "@/components/RestaurantEditModal";
+import { BrandedLoader } from "@/components/BrandedLoader";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -52,6 +53,7 @@ type RestaurantInfo = {
     current_wait_time: number;
     waitlist_open: boolean;
     is_enabled: boolean;
+    is_coming_soon?: boolean;
     waitlist_early_open_enabled?: boolean;
     waitlist_early_open_minutes?: number;
 };
@@ -1010,7 +1012,7 @@ export function OwnerHomeContent({
                 supabase
                     .from("restaurants")
                     .select(
-                        "id, name, current_wait_time, waitlist_open, is_enabled, waitlist_early_open_enabled, waitlist_early_open_minutes",
+                        "id, name, current_wait_time, waitlist_open, is_enabled, is_coming_soon, waitlist_early_open_enabled, waitlist_early_open_minutes",
                     )
                     .eq("id", effectiveOwnerRestaurantId)
                     .single(),
@@ -1223,11 +1225,7 @@ export function OwnerHomeContent({
     }
 
     if (loading) {
-        return (
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                <ActivityIndicator size="large" color={ORANGE} />
-            </View>
-        );
+        return <BrandedLoader message="Loading owner dashboard..." />;
     }
 
     const waitTime = restaurant?.current_wait_time ?? 0;
@@ -1303,6 +1301,28 @@ export function OwnerHomeContent({
                 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                         <View style={{ flex: 1, marginRight: 10 }}>
+                            {restaurant?.is_coming_soon === true && (
+                                <View
+                                    style={{
+                                        alignSelf: "flex-start",
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        backgroundColor: "rgba(120,120,120,0.16)",
+                                        borderWidth: 1,
+                                        borderColor: "rgba(140,140,140,0.35)",
+                                        borderRadius: 999,
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 4,
+                                        marginBottom: 8,
+                                    }}
+                                >
+                                    <Clock size={12} color="#9a9a9a" />
+                                    <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 11, color: "#a5a5a5", letterSpacing: 0.3 }}>
+                                        COMING SOON
+                                    </Text>
+                                </View>
+                            )}
                             <Text style={{
                                 fontFamily: "BricolageGrotesque_800ExtraBold",
                                 fontSize: 26,

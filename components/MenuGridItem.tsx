@@ -41,6 +41,7 @@ export function MenuGridItem({
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressScale.value }],
   }));
+  const hasImage = !!item.image?.trim();
 
   return (
     <Animated.View
@@ -64,11 +65,28 @@ export function MenuGridItem({
           style={{ opacity: item.isAvailable === false ? 0.45 : 1 }}
         >
           <View style={{ height: imageHeight, position: "relative" }}>
-            <Image
-              source={{ uri: item.image }}
-              style={{ width: "100%", height: "100%", opacity: item.isAvailable === false ? 0.8 : 1 }}
-              resizeMode="cover"
-            />
+            {hasImage ? (
+              <Image
+                source={{ uri: item.image }}
+                style={{ width: "100%", height: "100%", opacity: item.isAvailable === false ? 0.8 : 1 }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "#1b1b1b",
+                }}
+              >
+                <Camera size={30} color="#767676" />
+                <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 12 }}>
+                  No image
+                </Text>
+              </View>
+            )}
             <LinearGradient
               colors={["transparent", "rgba(34,34,34,0.95)"]}
               style={{
@@ -129,71 +147,24 @@ export function MenuGridItem({
               </View>
             )}
 
-            {/* Community photo credit — bottom-left */}
-            {item.communityImageCredit && (
+            {!hasImage && !item.communityImageCredit && (
               <View
                 style={{
                   position: "absolute",
-                  bottom: 6,
-                  left: 6,
-                  backgroundColor: "rgba(0,0,0,0.62)",
-                  borderRadius: 8,
-                  paddingHorizontal: 6,
-                  paddingVertical: 3,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  maxWidth: "80%",
-                }}
-              >
-                <Camera size={9} color="#aaa" />
-                <Text
-                  style={{
-                    fontFamily: "Manrope_500Medium",
-                    color: "#ccc",
-                    fontSize: 9,
-                  }}
-                  numberOfLines={1}
-                >
-                  {item.communityImageCredit}
-                </Text>
-              </View>
-            )}
-
-            {/* Contribute image button — show when no official or community image */}
-            {!item.hasOfficialImage && !item.communityImageCredit && onContributeImage && (
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation?.();
-                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onContributeImage(item);
-                }}
-                style={{
-                  position: "absolute",
-                  bottom: 6,
-                  left: 6,
-                  backgroundColor: "rgba(0,0,0,0.65)",
+                  top: 8,
+                  right: 8,
+                  backgroundColor: "rgba(15,15,15,0.72)",
                   borderRadius: 8,
                   paddingHorizontal: 7,
                   paddingVertical: 4,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
                   borderWidth: 1,
                   borderColor: "rgba(255,255,255,0.18)",
                 }}
               >
-                <Camera size={10} color="#FF9933" />
-                <Text
-                  style={{
-                    fontFamily: "Manrope_600SemiBold",
-                    color: "#FF9933",
-                    fontSize: 10,
-                  }}
-                >
-                  Add photo
+                <Text style={{ fontFamily: "Manrope_700Bold", color: "#d4d4d4", fontSize: 10 }}>
+                  No Image
                 </Text>
-              </Pressable>
+              </View>
             )}
           </View>
 

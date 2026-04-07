@@ -168,7 +168,11 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
     }
 
     if (sortBy === "waitTime") {
-      list.sort((a, b) => a.waitTime - b.waitTime);
+      list.sort((a, b) => {
+        const aw = a.isComingSoon ? Number.POSITIVE_INFINITY : a.waitTime;
+        const bw = b.isComingSoon ? Number.POSITIVE_INFINITY : b.waitTime;
+        return aw - bw;
+      });
     } else if (sortBy === "distance") {
       list.sort((a, b) => parseDistance(a.distance) - parseDistance(b.distance));
     } else {
@@ -435,7 +439,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                 restaurant={{
                   ...restaurant,
                   // Apply real-time hour-based closed status
-                  waitStatus: closedRestaurantIds.has(restaurant.id)
+                  waitStatus: (closedRestaurantIds.has(restaurant.id) || restaurant.isComingSoon)
                     ? "darkgrey"
                     : restaurant.waitStatus,
                 }}
@@ -539,7 +543,7 @@ function SearchResultCard({
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Clock size={12} color="#999999" />
                 <View style={{ backgroundColor: "rgba(153,153,153,0.15)", borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 4 }}>
-                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#999999", fontSize: 10 }}>Closed</Text>
+                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#999999", fontSize: 10 }}>{restaurant.isComingSoon ? "Coming soon" : "Closed"}</Text>
                 </View>
               </View>
             ) : (

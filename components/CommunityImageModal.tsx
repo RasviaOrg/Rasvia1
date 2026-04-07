@@ -34,7 +34,7 @@
  * ─────────────────────────────────────────────
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -42,11 +42,11 @@ import {
   Pressable,
   Image,
   ActivityIndicator,
-  TextInput,
   Platform,
   Alert,
   KeyboardAvoidingView,
   ScrollView,
+  Switch,
 } from "react-native";
 import { Camera, X, Upload, CheckCircle } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -65,16 +65,38 @@ interface Props {
 export function CommunityImageModal({ visible, item, restaurantId, onClose }: Props) {
   const { session } = useAuth();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [name, setName] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [anonymous, setAnonymous] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  const prettifyName = (raw: string) => {
+    const base = (raw || "").split("@")[0];
+    const spaced = base.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!spaced) return "User";
+    return spaced
+      .split(" ")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(" ");
+  };
+
   function reset() {
     setPhotoUri(null);
-    setName("");
+    setAnonymous(false);
     setUploading(false);
     setSubmitted(false);
   }
+
+  useEffect(() => {
+    if (!visible) return;
+    const user = session?.user;
+    const fallbackNameRaw =
+      user?.user_metadata?.full_name ||
+      user?.user_metadata?.name ||
+      user?.email?.split("@")[0] ||
+      "User";
+    setAccountName(prettifyName(String(fallbackNameRaw)));
+  }, [visible, session?.user]);
 
   function handleClose() {
     reset();
@@ -100,10 +122,6 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
 
   async function handleSubmit() {
     if (!photoUri) return;
-    if (!name.trim()) {
-      Alert.alert("Name required", "Please enter your name so we can credit you.");
-      return;
-    }
     if (!session?.user?.id) {
       Alert.alert("Sign in required", "You must be signed in to contribute photos.");
       return;
@@ -118,7 +136,8 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
       const response = await fetch(photoUri);
       const blob = await response.blob();
       const ext = photoUri.split(".").pop()?.toLowerCase() ?? "jpg";
-      const filePath = `${restaurantId}/${item.id}/${session.user.id}-${Date.now()}.${ext}`;
+      // Put auth uid first in path so common bucket RLS policies ("first folder = auth.uid()") pass.
+      const filePath = `${session.user.id}/${restaurantId}/${item.id}/${Date.now()}.${ext}`;
 
       // 2. Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
@@ -139,7 +158,7 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
           menu_item_id: Number(item.id),
           restaurant_id: Number(restaurantId),
           submitted_by: session.user.id,
-          submitter_name: name.trim(),
+          submitter_name: anonymous ? "Anonymous" : accountName,
           image_url: urlData.publicUrl,
           status: "pending",
         });
@@ -208,7 +227,7 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
                   Photo submitted!
                 </Text>
                 <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 14, textAlign: "center", lineHeight: 20, marginBottom: 32 }}>
-                  Thanks! Our team will review your photo.{"\n"}If selected, it'll appear with your credit.
+                  Thanks! Our team will review your photo.{"\n"}If selected, it&apos;ll appear with your credit.
                 </Text>
                 <Pressable
                   onPress={handleClose}
@@ -283,16 +302,7 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
                   </Pressable>
                 )}
 
-                {/* Name field */}
-                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#ccc", fontSize: 13, marginBottom: 8 }}>
-                  Your name (for photo credit)
-                </Text>
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="e.g. Priya S."
-                  placeholderTextColor="#555"
-                  maxLength={40}
+                <View
                   style={{
                     backgroundColor: "#141414",
                     borderWidth: 1,
@@ -300,12 +310,27 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
                     borderRadius: 12,
                     paddingHorizontal: 14,
                     paddingVertical: 12,
-                    fontFamily: "Manrope_500Medium",
-                    color: "#f5f5f5",
-                    fontSize: 14,
                     marginBottom: 28,
                   }}
-                />
+                >
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 12, marginBottom: 8 }}>
+                    Photo credit name
+                  </Text>
+                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14 }}>
+                    {anonymous ? "Anonymous" : accountName}
+                  </Text>
+                  <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#b8b8b8", fontSize: 13 }}>
+                      Submit anonymously
+                    </Text>
+                    <Switch
+                      value={anonymous}
+                      onValueChange={setAnonymous}
+                      trackColor={{ false: "#333", true: "rgba(148,163,184,0.45)" }}
+                      thumbColor={anonymous ? "#94A3B8" : "#888"}
+                    />
+                  </View>
+                </View>
 
                 <Pressable
                   onPress={handleSubmit}

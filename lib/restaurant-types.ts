@@ -2,6 +2,7 @@
  * Type definitions for Restaurant data
  * Maps between Supabase database schema (snake_case) and UI layer
  */
+import { supabase } from "./supabase";
 
 // ==========================================
 // 1. DATABASE SCHEMA (From Supabase)
@@ -246,33 +247,19 @@ export interface UIMenuItem {
  * Map Supabase menu item to UI format
  */
 
-// Varied fallback images for menu items — curated Indian/South-Asian food photos from Unsplash
-const DEFAULT_MENU_ITEM_IMAGES = [
-    'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=600&q=80', // Butter chicken
-    'https://images.unsplash.com/photo-1631452180539-96aca7d48617?w=600&q=80', // Biryani bowl
-    'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=600&q=80', // Dal makhani
-    'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&q=80', // Samosa
-    'https://images.unsplash.com/photo-1574484284002-952d92456975?w=600&q=80', // Naan
-    'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=600&q=80', // Curry spread
-    'https://images.unsplash.com/photo-1567337710282-00832b415979?w=600&q=80', // Tikka masala
-    'https://images.unsplash.com/photo-1596797038530-2c107229654b?w=600&q=80', // Thali plate
-    'https://images.unsplash.com/photo-1505253758473-96b7015fcd40?w=600&q=80', // Dosa
-    'https://images.unsplash.com/photo-1548943487-a2e4e43b4853?w=600&q=80', // Tandoori chicken
-    'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=600&q=80', // Masala dish
-    'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=600&q=80', // Indian feast
-];
-
-function getDefaultMenuItemImage(itemId: number): string {
-    return DEFAULT_MENU_ITEM_IMAGES[itemId % DEFAULT_MENU_ITEM_IMAGES.length];
-}
-
 export function mapMenuItemToUI(item: SupabaseMenuItem): UIMenuItem {
+    const normalizedImage =
+        item.image_url && /^https?:\/\//i.test(item.image_url)
+            ? item.image_url
+            : item.image_url
+                ? supabase.storage.from("community-images").getPublicUrl(item.image_url).data.publicUrl
+                : "";
     return {
         id: item.id.toString(),
         name: item.name,
         description: item.description || '',
         price: Number(item.price),
-        image: item.image_url || getDefaultMenuItemImage(item.id),
+        image: normalizedImage,
         category: item.category || 'Menu Item',
         isPopular: false,
         isVegetarian: item.is_vegetarian,

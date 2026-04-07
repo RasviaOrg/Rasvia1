@@ -13,7 +13,6 @@ import {
   Alert,
   Platform,
   Dimensions,
-  ActivityIndicator,
   Image,
   ScrollView,
   Animated as RNAnimated,
@@ -52,6 +51,7 @@ import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { AddRestaurantModal } from "@/components/AddRestaurantModal";
 import { AdminRestaurantPanel } from "@/components/AdminRestaurantPanel";
+import { BrandedLoader } from "@/components/BrandedLoader";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -579,18 +579,7 @@ export default function MapScreen() {
   // Render
   // ==============================
   if (loading) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "#0f0f0f",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <ActivityIndicator size="large" color="#FF9933" />
-      </View>
-    );
+    return <BrandedLoader message="Loading map..." />;
   }
 
   return (
@@ -655,7 +644,8 @@ export default function MapScreen() {
         )}
 
         {mappableRestaurants.map((restaurant) => {
-          const isClosed = closedRestaurantIds.has(restaurant.id);
+          const isComingSoon = restaurant.isComingSoon;
+          const isClosed = closedRestaurantIds.has(restaurant.id) || isComingSoon;
           const isOwnedVenue =
             (isRestaurantOwner || isAdmin) &&
             effectiveOwnerRestaurantId != null &&
@@ -685,6 +675,7 @@ export default function MapScreen() {
                 <ZoomedInMarker
                   restaurant={restaurant}
                   isClosed={isClosed}
+                  isComingSoon={isComingSoon}
                   isOwned={isOwnedVenue}
                 />
               ) : isOwnedVenue ? (
@@ -705,7 +696,8 @@ export default function MapScreen() {
       {selectedRestaurant && (
         <SelectedRestaurantCard
           restaurant={selectedRestaurant}
-          isClosed={closedRestaurantIds.has(selectedRestaurant.id)}
+          isClosed={closedRestaurantIds.has(selectedRestaurant.id) || selectedRestaurant.isComingSoon}
+          isComingSoon={selectedRestaurant.isComingSoon}
           onDismiss={() => setSelectedRestaurant(null)}
           onPress={() => handleRestaurantPress(selectedRestaurant)}
           isAdmin={isAdmin}
@@ -1180,7 +1172,17 @@ function OwnerVenueMarker({ isClosed }: { isClosed: boolean }) {
 // ==========================================
 // ZOOMED IN MARKER — iOS only
 // ==========================================
-function ZoomedInMarker({ restaurant, isClosed, isOwned }: { restaurant: UIRestaurant; isClosed?: boolean; isOwned?: boolean }) {
+function ZoomedInMarker({
+  restaurant,
+  isClosed,
+  isComingSoon,
+  isOwned,
+}: {
+  restaurant: UIRestaurant;
+  isClosed?: boolean;
+  isComingSoon?: boolean;
+  isOwned?: boolean;
+}) {
   const displayStatus = (isClosed ? 'darkgrey' : restaurant.waitStatus) as typeof restaurant.waitStatus;
   return (
     <View
@@ -1260,7 +1262,7 @@ function ZoomedInMarker({ restaurant, isClosed, isOwned }: { restaurant: UIResta
               fontSize: 9,
             }}
           >
-            {displayStatus === 'darkgrey' ? 'Closed' : restaurant.waitTime < 0 ? '--m' : `${restaurant.waitTime}m`}
+            {isComingSoon ? 'Coming soon' : displayStatus === 'darkgrey' ? 'Closed' : restaurant.waitTime < 0 ? '--m' : `${restaurant.waitTime}m`}
           </Text>
         </View>
       </View>
@@ -1325,6 +1327,7 @@ const CARD_HEIGHT = 130; // approximate card height for slide animation
 function SelectedRestaurantCard({
   restaurant,
   isClosed,
+  isComingSoon,
   onDismiss,
   onPress,
   isAdmin,
@@ -1332,6 +1335,7 @@ function SelectedRestaurantCard({
 }: {
   restaurant: UIRestaurant;
   isClosed?: boolean;
+  isComingSoon?: boolean;
   onDismiss: () => void;
   onPress: () => void;
   isAdmin?: boolean;
@@ -1506,7 +1510,7 @@ function SelectedRestaurantCard({
                   }}
                 >
                   {isClosed
-                    ? "Closed"
+                    ? (isComingSoon ? "Coming soon" : "Closed")
                     : restaurant.waitStatus === "darkgrey"
                       ? "Closed"
                       : restaurant.waitTime < 0
@@ -1728,12 +1732,12 @@ function NearbyListOverlay({
         {/* Sort: open first, closed last */}
         {[...restaurants]
           .sort((a, b) => {
-            const aClosed = closedRestaurantIds.has(a.id) ? 1 : 0;
-            const bClosed = closedRestaurantIds.has(b.id) ? 1 : 0;
+            const aClosed = closedRestaurantIds.has(a.id) || a.isComingSoon ? 1 : 0;
+            const bClosed = closedRestaurantIds.has(b.id) || b.isComingSoon ? 1 : 0;
             return aClosed - bClosed;
           })
           .map((r, i) => {
-            const isClosed = closedRestaurantIds.has(r.id);
+            const isClosed = closedRestaurantIds.has(r.id) || r.isComingSoon;
             const displayStatus = (isClosed ? 'darkgrey' : r.waitStatus) as typeof r.waitStatus;
             return (<Pressable
               key={r.id}
@@ -1805,7 +1809,7 @@ function NearbyListOverlay({
                     fontSize: 11,
                   }}
                 >
-                  {displayStatus === 'darkgrey' ? 'Closed' : r.waitTime < 0 ? '--' : `${r.waitTime}m`}
+                  {r.isComingSoon ? 'Coming soon' : displayStatus === 'darkgrey' ? 'Closed' : r.waitTime < 0 ? '--' : `${r.waitTime}m`}
                 </Text>
               </View>
               {/* Distance */}
@@ -1893,7 +1897,7 @@ function ClusterMarker({ restaurants }: { restaurants: UIRestaurant[] }) {
               width: 6,
               height: 6,
               borderRadius: 3,
-              backgroundColor: STATUS_COLORS[r.waitStatus],
+              backgroundColor: STATUS_COLORS[r.isComingSoon ? "darkgrey" : r.waitStatus],
               marginRight: 6,
             }}
           />
@@ -1910,7 +1914,7 @@ function ClusterMarker({ restaurants }: { restaurants: UIRestaurant[] }) {
           </Text>
           <View
             style={{
-              backgroundColor: STATUS_BG[r.waitStatus],
+              backgroundColor: STATUS_BG[r.isComingSoon ? "darkgrey" : r.waitStatus],
               borderRadius: 6,
               paddingHorizontal: 4,
               paddingVertical: 1,
@@ -1920,11 +1924,11 @@ function ClusterMarker({ restaurants }: { restaurants: UIRestaurant[] }) {
             <Text
               style={{
                 fontFamily: "JetBrainsMono_600SemiBold",
-                color: STATUS_COLORS[r.waitStatus],
+                color: STATUS_COLORS[r.isComingSoon ? "darkgrey" : r.waitStatus],
                 fontSize: 9,
               }}
             >
-              {r.waitStatus === 'darkgrey' ? 'Closed' : r.waitTime < 0 ? '--m' : `${r.waitTime}m`}
+              {r.isComingSoon ? 'Coming soon' : r.waitStatus === 'darkgrey' ? 'Closed' : r.waitTime < 0 ? '--m' : `${r.waitTime}m`}
             </Text>
           </View>
         </View>
@@ -1987,12 +1991,16 @@ function MapSearchOverlay({
     // Primary: open first, closed last
     // Secondary: selected sort option within each group
     list.sort((a, b) => {
-      const aClosed = closedRestaurantIds.has(a.id) ? 1 : 0;
-      const bClosed = closedRestaurantIds.has(b.id) ? 1 : 0;
+      const aClosed = closedRestaurantIds.has(a.id) || a.isComingSoon ? 1 : 0;
+      const bClosed = closedRestaurantIds.has(b.id) || b.isComingSoon ? 1 : 0;
       if (aClosed !== bClosed) return aClosed - bClosed;
 
       // Secondary sort within the same open/closed group
-      if (sortBy === "waitTime") return a.waitTime - b.waitTime;
+      if (sortBy === "waitTime") {
+        const aw = a.isComingSoon ? Number.POSITIVE_INFINITY : a.waitTime;
+        const bw = b.isComingSoon ? Number.POSITIVE_INFINITY : b.waitTime;
+        return aw - bw;
+      }
       if (sortBy === "distance") return parseDistance(a.distance || "0") - parseDistance(b.distance || "0");
       return a.name.localeCompare(b.name);
     });
@@ -2291,7 +2299,7 @@ function MapSearchOverlay({
                     </Text>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
                       {(() => {
-                        const isClosed = closedRestaurantIds.has(r.id);
+                        const isClosed = closedRestaurantIds.has(r.id) || r.isComingSoon;
                         const displayStatus = isClosed ? "darkgrey" : r.waitStatus;
                         return (
                           <>
@@ -2313,7 +2321,7 @@ function MapSearchOverlay({
                                 }}
                               >
                                 {isClosed
-                                  ? "Closed"
+                                  ? (r.isComingSoon ? "Coming soon" : "Closed")
                                   : r.waitTime < 0
                                     ? "-- min"
                                     : `${r.waitTime} min`}

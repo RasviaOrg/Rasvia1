@@ -37,7 +37,9 @@ export function RestaurantListCard({
       : FadeInRight.delay(index * 50).duration(400);
 
   const waitColor =
-    restaurant.waitStatus === "green"
+    restaurant.isComingSoon
+      ? "#888888"
+      : restaurant.waitStatus === "green"
       ? "#22C55E"
       : restaurant.waitStatus === "amber"
       ? "#F59E0B"
@@ -48,7 +50,9 @@ export function RestaurantListCard({
       : "#EF4444";
 
   const waitLabel =
-    restaurant.waitStatus === "darkgrey"
+    restaurant.isComingSoon
+      ? "Coming soon"
+      : restaurant.waitStatus === "darkgrey"
       ? "Closed"
       : restaurant.waitTime < 0
       ? "-- min"

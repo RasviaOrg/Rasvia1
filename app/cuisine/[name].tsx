@@ -47,8 +47,16 @@ export default function CuisinePage() {
 
   const decodedName = decodeURIComponent(name || "");
   const emoji = cuisineEmojis[decodedName] || "🍽️";
+  const CUISINE_EXPLORATION_ENABLED = false;
 
   useEffect(() => {
+    if (!CUISINE_EXPLORATION_ENABLED) {
+      router.replace("/" as any);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (!CUISINE_EXPLORATION_ENABLED) return;
     async function fetchRestaurants() {
       try {
         const { data, error } = await supabase
@@ -75,6 +83,7 @@ export default function CuisinePage() {
 
   // Recalculate distances when userCoords arrives after initial fetch
   useEffect(() => {
+    if (!CUISINE_EXPLORATION_ENABLED) return;
     if (!userCoords) return;
     setRestaurants((prev) =>
       prev.map((r) => {
@@ -114,6 +123,14 @@ export default function CuisinePage() {
     },
     [router]
   );
+
+  if (!CUISINE_EXPLORATION_ENABLED) {
+    return (
+      <View className="flex-1 bg-rasvia-black items-center justify-center">
+        <ActivityIndicator size="small" color="#FF9933" />
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-rasvia-black">
