@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 
@@ -101,7 +101,7 @@ export function useAdminMode() {
     }
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(ADMIN_OWNER_RESTAURANT_KEY);
+        const raw = await SecureStore.getItemAsync(ADMIN_OWNER_RESTAURANT_KEY);
         if (raw === null || raw === "") {
           setAdminOwnerRestaurantIdState(null);
         } else {
@@ -118,9 +118,9 @@ export function useAdminMode() {
     void (async () => {
       try {
         if (id == null) {
-          await AsyncStorage.removeItem(ADMIN_OWNER_RESTAURANT_KEY);
+          await SecureStore.deleteItemAsync(ADMIN_OWNER_RESTAURANT_KEY);
         } else {
-          await AsyncStorage.setItem(ADMIN_OWNER_RESTAURANT_KEY, id);
+          await SecureStore.setItemAsync(ADMIN_OWNER_RESTAURANT_KEY, id);
         }
       } catch {
         /* ignore */

@@ -31,7 +31,7 @@ import {
 } from "lucide-react-native";
 import Animated, { FadeInDown, FadeIn } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
@@ -65,7 +65,7 @@ export default function HostPartyScreen() {
 
   const currentUserId = session?.user?.id;
   const activeOrderKey = currentUserId
-    ? `rasvia:active_group_order:${currentUserId}`
+    ? `rasvia_active_group_order_${currentUserId}`
     : null;
 
   const [step, setStep] = useState<Step>("select");
@@ -154,7 +154,7 @@ export default function HostPartyScreen() {
         setStep("created");
 
         if (activeOrderKey) {
-          await AsyncStorage.setItem(
+          await SecureStore.setItemAsync(
             activeOrderKey,
             JSON.stringify({
               sessionId: sess.id,
@@ -210,7 +210,7 @@ export default function HostPartyScreen() {
       }
 
       // Check AsyncStorage for guest participation (user-scoped)
-      const stored = activeOrderKey ? await AsyncStorage.getItem(activeOrderKey) : null;
+      const stored = activeOrderKey ? await SecureStore.getItemAsync(activeOrderKey) : null;
       if (stored) {
         const parsed = JSON.parse(stored);
         const { data: sess } = await supabase
@@ -340,7 +340,7 @@ export default function HostPartyScreen() {
               try {
                 await supabase.from("party_items").delete().eq("session_id", existingSession.id);
                 await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", existingSession.id);
-                if (activeOrderKey) await AsyncStorage.removeItem(activeOrderKey);
+                if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
                 setExistingSession(null);
                 if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
               } catch {
@@ -377,7 +377,7 @@ export default function HostPartyScreen() {
       setStep("created");
 
       if (activeOrderKey) {
-        await AsyncStorage.setItem(
+        await SecureStore.setItemAsync(
           activeOrderKey,
           JSON.stringify({
             sessionId: data.id,
@@ -550,7 +550,7 @@ export default function HostPartyScreen() {
                           try {
                             await supabase.from("party_items").delete().eq("session_id", existingSession.id);
                             await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", existingSession.id);
-                            if (activeOrderKey) await AsyncStorage.removeItem(activeOrderKey);
+                            if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
                             setExistingSession(null);
                             if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                           } catch {

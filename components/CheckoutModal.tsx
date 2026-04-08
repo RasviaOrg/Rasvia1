@@ -35,6 +35,9 @@ import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from "@/lib/edge-function-error";
+import { withTimeout } from "@/lib/with-timeout";
+import { getCheckoutUrlOrThrow } from "@/lib/checkout-response";
 import type { CartItem } from "@/data/mockData";
 import type { OrderType, MealPeriod } from "@/lib/restaurant-types";
 
@@ -66,6 +69,7 @@ const MEAL_PERIODS: { key: MealPeriod; label: string; icon: any; color: string }
     { key: "lunch", label: "Lunch", icon: Sun, color: "#22C55E" },
     { key: "dinner", label: "Dinner", icon: Moon, color: "#818CF8" },
 ];
+const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
 
 const S = {
     card: {
@@ -264,37 +268,132 @@ export function CheckoutModal({
                     added_by: customerName.trim() || '',
                 }));
 
-                const { data: fnData, error: fnError } = await supabase.functions.invoke(
-                    'create-checkout',
-                    {
-                        body: {
-                            restaurant_id: Number(restaurantId),
-                            stripe_account_id: stripeAccountId,
-                            amount: subtotal,
-                            cart_items: cartMeta,
-                            restaurant_name: restaurantName,
-                            customer_name: customerName.trim(),
-                            user_id: session.user.id,
-                            order_type: orderType,
-                        },
+                const isWeb = Platform.OS === ('web' as any);
+                const returnUrlBase = isWeb
+                    ? window.location.origin
+                    : Linking.createURL('');
+
+                const requestBody = {
+                    restaurant_id: Number(restaurantId),
+                    stripe_account_id: stripeAccountId,
+                    amount: subtotal,
+                    cart_items: cartMeta,
+                    restaurant_name: restaurantName,
+                    customer_name: customerName.trim(),
+                    user_id: session.user.id,
+                    order_type: orderType,
+                    return_url_base: returnUrlBase,
+                };
+                const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
+                const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
+                const invokeCreateCheckout = (authToken: string) =>
+                    withTimeout(
+                        supabase.functions.invoke(
+                            "create-checkout",
+                            {
+                                body: requestBody,
+                                headers: {
+                                    Authorization: `Bearer ${authToken}`,
+                                    ...(anonKey ? { apikey: anonKey } : {}),
+                                },
+                            }
+                        ),
+                        PAYMENT_REQUEST_TIMEOUT_MS,
+                        "Request timed out while creating checkout. Please try again."
+                    );
+                const invokeCreateCheckoutWithAnonFetch = async () => {
+                    if (!anonKey || !supabaseUrl) {
+                        throw new Error("Supabase configuration is missing for checkout.");
                     }
+                    const response = await withTimeout(
+                        fetch(`${supabaseUrl}/functions/v1/create-checkout`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${anonKey}`,
+                                apikey: anonKey,
+                            },
+                            body: JSON.stringify(requestBody),
+                        }),
+                        PAYMENT_REQUEST_TIMEOUT_MS,
+                        "Request timed out while creating checkout. Please try again."
+                    );
+
+                    const raw = await response.text();
+                    let parsed: any = null;
+                    try { parsed = raw ? JSON.parse(raw) : null; } catch { }
+
+                    if (!response.ok) {
+                        const msg = parsed?.error || parsed?.message || raw || `Checkout request failed (${response.status}).`;
+                        throw new Error(msg);
+                    }
+
+                    return parsed;
+                };
+
+                const { data: sessionData, error: sessionErr } = await withTimeout(
+                    supabase.auth.getSession(),
+                    PAYMENT_REQUEST_TIMEOUT_MS,
+                    "Request timed out while validating your session. Please reopen the app and try again."
                 );
+                const accessToken = sessionData?.session?.access_token;
+                if (sessionErr || !accessToken) {
+                    throw new Error("Authentication session unavailable. Please reopen the app and try again.");
+                }
+
+                let { data: fnData, error: fnError } = await invokeCreateCheckout(accessToken);
+
+                if (fnError) {
+                    const fnErrorDetails = await parseEdgeFunctionError(fnError);
+                    if (isInvalidJwtEdgeFunctionError(fnErrorDetails)) {
+                        const { data: sessionData, error: sessionErr } = await withTimeout(
+                            supabase.auth.getSession(),
+                            PAYMENT_REQUEST_TIMEOUT_MS,
+                            "Request timed out while validating your session. Please reopen the app and try again."
+                        );
+                        const retryToken = sessionData?.session?.access_token;
+                        if (sessionErr || !retryToken) {
+                            throw new Error('Authentication session unavailable. Please reopen the app and try again.');
+                        }
+
+                        const retryResult = await invokeCreateCheckout(retryToken);
+                        fnData = retryResult.data;
+                        fnError = retryResult.error;
+                    }
+                }
+
+                if (fnError) {
+                    const postRetryDetails = await parseEdgeFunctionError(fnError);
+                    if (isInvalidJwtEdgeFunctionError(postRetryDetails) && anonKey) {
+                        fnData = await invokeCreateCheckoutWithAnonFetch();
+                        fnError = null;
+                    }
+                }
 
                 if (fnError) throw fnError;
-                const checkoutUrl: string = fnData?.url;
-                if (!checkoutUrl) throw new Error('No checkout URL returned.');
+                if (fnData?.error) throw new Error(fnData.error);
 
-                // Use openAuthSessionAsync so the browser auto-closes when
-                // the payment-redirect page fires the rasvia:// deep link.
+                const checkoutUrl = getCheckoutUrlOrThrow(fnData);
+
+                if (isWeb) {
+                    // Standard redirect for Web instances (PWA / browser)
+                    // Stripe natively handles redirecting back using the provided return_url_base
+                    window.location.href = checkoutUrl;
+                    return;
+                }
+
+                // Avoid button-lock if auth session never resolves.
+                setPlacing(false);
+
+                // Native flow using Expo WebBrowser
                 const result = await WebBrowser.openAuthSessionAsync(
                     checkoutUrl,
-                    'rasvia://'
+                    returnUrlBase
                 );
 
                 if (result.type === 'success' && result.url) {
                     const rawUrl = result.url;
-                    // Parse query params robustly — works for both rasvia://order-confirmation?...
-                    // and rasvia:///order-confirmation?... style URLs
+                    // Parse query params robustly
                     const qIndex = rawUrl.indexOf('?');
                     const qString = qIndex >= 0 ? rawUrl.slice(qIndex + 1) : '';
                     const sp = new URLSearchParams(qString);
@@ -407,9 +506,13 @@ export function CheckoutModal({
             setPlacedOrderId(orderId);
             setDone(true);
             onOrderPlaced(orderId, orderType);
-        } catch (err: any) {
-            console.error("Order placement error:", err);
-            Alert.alert("Error", err.message || "Could not place your order. Please try again.");
+        } catch (err: unknown) {
+            const parsedError = await parseEdgeFunctionError(
+                err,
+                "Could not place your order. Please try again."
+            );
+            console.error("Order placement error:", parsedError, err);
+            Alert.alert("Error", parsedError.message);
         } finally {
             setPlacing(false);
         }

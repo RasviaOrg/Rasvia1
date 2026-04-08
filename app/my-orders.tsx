@@ -40,7 +40,7 @@ import Animated, {
   cancelAnimation,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -51,7 +51,7 @@ import {
   type UIOrder,
 } from "@/lib/restaurant-types";
 
-const DISMISSED_ORDERS_KEY = "rasvia:my-orders-dismissed:v1";
+const DISMISSED_ORDERS_KEY = "rasvia_my-orders-dismissed_v1";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -146,6 +146,11 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   completed: "#10B981",
   cancelled: "#EF4444",
 };
+
+const FALLBACK_STATUS_COLOR = "#6B7280";
+function getStatusColor(status: string): string {
+  return STATUS_COLORS[status as OrderStatus] ?? FALLBACK_STATUS_COLOR;
+}
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   dine_in: "Dine In",
@@ -458,6 +463,7 @@ function ActiveOrderCard({
   const router = useRouter();
   const statusMsg = getStatusMessage(order.status, order.orderType);
   const isLive = order.status !== "completed" && order.status !== "cancelled";
+  const statusColor = getStatusColor(order.status);
 
   const TypeIcon =
     order.orderType === "takeout"
@@ -473,7 +479,7 @@ function ActiveOrderCard({
         backgroundColor: "#141414",
         borderRadius: 22,
         borderWidth: 1,
-        borderColor: isLive ? `${STATUS_COLORS[order.status]}40` : "#2a2a2a",
+        borderColor: isLive ? `${statusColor}40` : "#2a2a2a",
         marginBottom: 16,
         overflow: "hidden",
       }}
@@ -483,7 +489,7 @@ function ActiveOrderCard({
         <View
           style={{
             height: 3,
-            backgroundColor: STATUS_COLORS[order.status],
+            backgroundColor: statusColor,
             borderTopLeftRadius: 22,
             borderTopRightRadius: 22,
           }}
@@ -591,10 +597,10 @@ function ActiveOrderCard({
         {/* Status message */}
         <View
           style={{
-            backgroundColor: `${STATUS_COLORS[order.status]}10`,
+            backgroundColor: `${statusColor}10`,
             borderRadius: 14,
             borderWidth: 1,
-            borderColor: `${STATUS_COLORS[order.status]}20`,
+            borderColor: `${statusColor}20`,
             padding: 14,
             marginTop: 4,
           }}
@@ -602,7 +608,7 @@ function ActiveOrderCard({
           <Text
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: STATUS_COLORS[order.status],
+              color: statusColor,
               fontSize: 15,
               marginBottom: 3,
             }}
@@ -647,7 +653,7 @@ function PastOrderCard({
   order: UIOrder;
   index: number;
 }) {
-  const statusColor = STATUS_COLORS[order.status];
+  const statusColor = getStatusColor(order.status);
   const TypeIcon =
     order.orderType === "takeout"
       ? Truck
@@ -809,7 +815,7 @@ export default function MyOrdersScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(DISMISSED_ORDERS_KEY);
+        const raw = await SecureStore.getItemAsync(DISMISSED_ORDERS_KEY);
         if (raw) setDismissedIds(new Set(JSON.parse(raw) as string[]));
       } catch {
         /* ignore */
@@ -820,7 +826,7 @@ export default function MyOrdersScreen() {
   const dismissOrder = useCallback((id: string) => {
     setDismissedIds((prev) => {
       const next = new Set(prev).add(id);
-      void AsyncStorage.setItem(DISMISSED_ORDERS_KEY, JSON.stringify([...next]));
+      void SecureStore.setItemAsync(DISMISSED_ORDERS_KEY, JSON.stringify([...next]));
       return next;
     });
   }, []);

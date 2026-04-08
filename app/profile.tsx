@@ -1,3 +1,4 @@
+import * as SecureStore from 'expo-secure-store';
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -18,7 +19,6 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import * as SecureStore from 'expo-secure-store';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
@@ -63,7 +63,6 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -347,7 +346,7 @@ export default function ProfileSettingsScreen() {
           .eq("id", session.user.id)
           .maybeSingle();
 
-        const localToggle = await AsyncStorage.getItem("live_location_enabled");
+        const localToggle = await SecureStore.getItemAsync("live_location_enabled");
         if (localToggle !== null) {
           const isLive = JSON.parse(localToggle);
           setLiveLocationEnabled(isLive);
@@ -736,7 +735,7 @@ export default function ProfileSettingsScreen() {
       }
 
       // Save the toggle to local storage
-      await AsyncStorage.setItem(
+      await SecureStore.setItemAsync(
         "live_location_enabled",
         JSON.stringify(liveLocationEnabled),
       );

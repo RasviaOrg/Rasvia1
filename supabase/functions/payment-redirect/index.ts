@@ -4,13 +4,14 @@
 // Bridge page between Stripe Checkout and the Rasvia app.
 // Stripe redirects here → we verify payment, save the order, then redirect into the app.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import Stripe from "https://esm.sh/stripe@13.10.0?target=deno"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
+import Stripe from "npm:stripe@^13.10.0"
+import { createClient } from "npm:@supabase/supabase-js@^2.39.0"
 
 serve(async (req: Request) => {
   const url = new URL(req.url)
   const status = url.searchParams.get('status') // 'success' | 'cancel'
   const stripeSessionId = url.searchParams.get('session_id')
+  const returnUrlBaseParam = url.searchParams.get('return_url_base')
 
   // Helper: return a 302 redirect to a deep link URL
   const redirect = (deepLink: string) =>
@@ -19,9 +20,37 @@ serve(async (req: Request) => {
       headers: { 'Location': deepLink },
     })
 
+  const appendParams = (base: string, params: URLSearchParams) =>
+    base + (base.includes('?') ? '&' : '?') + params.toString()
+
+  const buildStatusRedirect = (statusValue: 'cancel' | 'error', reason?: string) => {
+    if (returnUrlBaseParam) {
+      const params = new URLSearchParams()
+      params.set('checkout_status', statusValue)
+      if (reason) params.set('reason', reason)
+      return appendParams(returnUrlBaseParam, params)
+    }
+    if (statusValue === 'cancel') return 'rasvia://checkout/cancel'
+    return `rasvia://checkout/error?reason=${encodeURIComponent(reason || 'unknown')}`
+  }
+
+  const buildSuccessRedirect = (params: URLSearchParams) => {
+    if (!returnUrlBaseParam) {
+      return `rasvia://order-confirmation?${params.toString()}`
+    }
+    if (returnUrlBaseParam.includes('?')) {
+      return appendParams(returnUrlBaseParam, params)
+    }
+    if (returnUrlBaseParam === 'rasvia://' || returnUrlBaseParam.startsWith('rasvia://')) {
+      const separator = returnUrlBaseParam.endsWith('/') ? '' : '/'
+      return `${returnUrlBaseParam}${separator}order-confirmation?${params.toString()}`
+    }
+    return appendParams(returnUrlBaseParam, params)
+  }
+
   // ── Cancel / user-dismissed ────────────────────────────────────────
   if (status === 'cancel') {
-    return redirect('rasvia://checkout/cancel')
+    return redirect(buildStatusRedirect('cancel'))
   }
 
   // ── Success path: verify + save order ──────────────────────────────
@@ -36,117 +65,61 @@ serve(async (req: Request) => {
       const session = await stripe.checkout.sessions.retrieve(stripeSessionId)
 
       if (session.payment_status !== 'paid') {
-        return redirect('rasvia://checkout/error?reason=payment_incomplete')
+        return redirect(buildStatusRedirect('error', 'payment_incomplete'))
       }
-
-      // 2. Extract metadata we stashed during checkout creation
-      const meta = session.metadata || {}
-      const partySessionId = meta.party_session_id || ''
-      const restaurantId = Number(meta.restaurant_id) || 0
-      const userId = meta.user_id || ''
-      const customerName = meta.customer_name || ''
-      const restaurantName = meta.restaurant_name || 'Restaurant'
-      const orderType = meta.order_type || 'dine_in'
-
-      let cartItems: any[] = []
-      try { cartItems = JSON.parse(meta.cart_items || '[]') } catch { }
-
-      const subtotal = cartItems.reduce(
-        (sum: number, i: any) => sum + (Number(i.price) * (i.quantity ?? 1)), 0
-      )
-
-      // 3. Save to Supabase orders + order_items tables
+      
+      // 3. Query the order from Supabase
       const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
       const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-      let orderId: number | null = null
+      const { data: order, error: orderErr } = await supabase
+        .from('orders')
+        .select(`
+          id, 
+          subtotal, 
+          party_session_id, 
+          order_type,
+          restaurants!inner ( name )
+        `)
+        .eq('stripe_session_id', stripeSessionId)
+        .single()
 
-      if (restaurantId && cartItems.length > 0) {
-        // Insert order
-        const { data: orderData, error: orderErr } = await supabase
-          .from('orders')
-          .insert({
-            restaurant_id: restaurantId,
-            table_number: null,
-            party_size: 1,
-            order_type: orderType,
-            status: orderType === 'takeout' ? 'preparing' : 'pending',
-            meal_period: 'dinner',
-            subtotal,
-            tip_amount: 0,
-            payment_method: 'card',
-            notes: null,
-            waitlist_entry_id: null,
-            party_session_id: partySessionId || null,
-            customer_name: customerName || null,
-            created_by: userId || null,
-          })
-          .select('id')
-          .single()
-
-        if (orderErr) {
-          console.error('Order insert error:', orderErr)
-        } else {
-          orderId = orderData.id
-
-          // Insert order items
-          const items = cartItems.map((i: any) => ({
-            order_id: orderId,
-            menu_item_id: i.menu_item_id ? Number(i.menu_item_id) : null,
-            name: i.name || 'Unknown Item',
-            price: Number(i.price) || 0,
-            quantity: i.quantity ?? 1,
-            is_vegetarian: i.is_vegetarian ?? false,
-          }))
-
-          const { error: itemsErr } = await supabase.from('order_items').insert(items)
-          if (itemsErr) console.error('Order items insert error:', itemsErr)
-        }
-
-        // Also mark the party_session as submitted if applicable
-        if (partySessionId) {
-          await supabase
-            .from('party_sessions')
-            .update({ status: 'submitted', submitted_at: new Date().toISOString() })
-            .eq('id', partySessionId)
-
-          // Insert into group_orders too
-          const orderSummary = cartItems.map((i: any) => ({
-            name: i.name || 'Unknown',
-            price: Number(i.price) || 0,
-            quantity: i.quantity ?? 1,
-            added_by: i.added_by || customerName || 'Unknown',
-          }))
-
-          await supabase.from('group_orders').insert({
-            party_session_id: partySessionId,
-            restaurant_id: restaurantId,
-            items: orderSummary,
-            total: subtotal,
-            submitted_at: new Date().toISOString(),
-          })
-        }
+      if (orderErr || !order) {
+        console.error('Failed to find order for session:', stripeSessionId, orderErr)
+        return redirect(buildStatusRedirect('error', 'order_not_found'))
       }
+
+      const orderId = order.id
+      const subtotal = order.subtotal
+      const orderType = order.order_type
+      const partySessionId = order.party_session_id
+
+      // Type cast the relation since we know it's a single object from inner join
+      const restaurantRel: any = order.restaurants
+      const restaurantName = restaurantRel?.name || 'Restaurant'
 
       // 4. Build deep link with order info and redirect
       const deepLinkParams = new URLSearchParams()
       if (orderId) deepLinkParams.set('order_id', String(orderId))
       deepLinkParams.set('restaurant_name', restaurantName)
       deepLinkParams.set('order_type', orderType)
-      deepLinkParams.set('total', subtotal.toFixed(2))
+      deepLinkParams.set('total', Number(subtotal || 0).toFixed(2))
+      deepLinkParams.set('checkout_status', 'success')
       if (partySessionId) deepLinkParams.set('party_session_id', partySessionId)
 
-      return redirect(`rasvia://order-confirmation?${deepLinkParams.toString()}`)
+      const finalUrl = buildSuccessRedirect(deepLinkParams)
+
+      return redirect(finalUrl)
 
     } catch (err: any) {
       console.error('Payment redirect error:', err)
-      return redirect(`rasvia://checkout/error?reason=${encodeURIComponent(err.message || 'unknown')}`)
+      return redirect(buildStatusRedirect('error', err.message || 'unknown'))
     }
   }
 
   // ── Fallback: unknown status ───────────────────────────────────────
-  return redirect('rasvia://checkout/cancel')
+  return redirect(buildStatusRedirect('cancel'))
 })
 
 // ── HTML page builder ────────────────────────────────────────────────

@@ -80,7 +80,7 @@ import {
   type CartItem,
   type GroupMember,
 } from "@/data/mockData";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 import * as ExpoClipboard from "expo-clipboard";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
@@ -248,8 +248,8 @@ export default function RestaurantDetail() {
   // Check for an active group session for this restaurant on mount
   useEffect(() => {
     if (!session?.user?.id) return;
-    const key = `rasvia:active_group_order:${session.user.id}`;
-    AsyncStorage.getItem(key).then((raw) => {
+    const key = `rasvia_active_group_order_${session.user.id}`;
+    SecureStore.getItemAsync(key).then((raw) => {
       if (!raw) return;
       try {
         const stored = JSON.parse(raw);
@@ -2086,8 +2086,8 @@ export default function RestaurantDetail() {
           }}
           onShare={async () => {
             if (!session?.user?.id) return;
-            const key = `rasvia:active_group_order:${session.user.id}`;
-            const raw = await AsyncStorage.getItem(key);
+            const key = `rasvia_active_group_order_${session.user.id}`;
+            const raw = await SecureStore.getItemAsync(key);
             if (!raw) {
               Alert.alert("Share Cart", "No active group session found.");
               return;

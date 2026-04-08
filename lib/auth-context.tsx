@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { supabase } from './supabase';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { upsertProfileFromAuthUser } from './profile-sync';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 interface AuthContextType {
     session: Session | null;
@@ -78,9 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 msg.toLowerCase().includes('invalid_grant')
             ) {
                 // Clear all persisted auth keys so AsyncStorage is clean
-                const keys = await AsyncStorage.getAllKeys();
-                const authKeys = keys.filter(k => k.startsWith('sb-'));
-                if (authKeys.length) await AsyncStorage.multiRemove(authKeys);
+                // SecureStore manages its own isolated keys, relying purely on signOut now.
                 await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
                 if (!cancelled) {
                     setSession(null);

@@ -24,6 +24,7 @@ ios/Pods/
 ios/.xcode.env.local
 .bundle/
 vendor/bundle/
+android/
 
 # Metro
 .metro-health-check*

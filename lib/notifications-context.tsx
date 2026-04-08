@@ -15,7 +15,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from "./supabase";
 import { useAuth } from "./auth-context";
 import { schedulePushNotification } from "./push-notifications";
@@ -132,7 +132,7 @@ function generateId(): string {
 
 async function loadStoredEvents(): Promise<NotificationEvent[]> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const raw = await SecureStore.getItemAsync(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Partial<NotificationEvent>[];
     return parsed.map((event) => ({
@@ -158,7 +158,7 @@ async function loadStoredEvents(): Promise<NotificationEvent[]> {
 async function saveEvents(events: NotificationEvent[]): Promise<void> {
   try {
     const trimmed = events.slice(0, 100);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+    await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(trimmed));
   } catch {
     // silently ignore
   }
@@ -166,7 +166,7 @@ async function saveEvents(events: NotificationEvent[]): Promise<void> {
 
 async function loadDismissedIds(): Promise<Set<string>> {
   try {
-    const raw = await AsyncStorage.getItem(DISMISSED_KEY);
+    const raw = await SecureStore.getItemAsync(DISMISSED_KEY);
     if (!raw) return new Set();
     return new Set(JSON.parse(raw) as string[]);
   } catch {
@@ -176,7 +176,7 @@ async function loadDismissedIds(): Promise<Set<string>> {
 
 async function saveDismissedIds(ids: Set<string>): Promise<void> {
   try {
-    await AsyncStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids]));
+    await SecureStore.setItemAsync(DISMISSED_KEY, JSON.stringify([...ids]));
   } catch {
     // silently ignore
   }
@@ -592,7 +592,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     saveDismissedIds(dismissedIdsRef.current);
     setLocalEvents([]);
     setServerEvents([]);
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await SecureStore.deleteItemAsync(STORAGE_KEY);
     if (session?.user?.id) {
       await supabase.from("app_notifications").delete().eq("user_id", session.user.id);
     }

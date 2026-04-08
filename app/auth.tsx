@@ -262,18 +262,15 @@ export default function AuthScreen() {
         try {
             if (signInWithPhone) {
                 const rawPhone = phoneSignIn.replace(/\D/g, "").trim();
-                const { data: profile, error: lookupError } = await supabase
-                    .from("profiles")
-                    .select("email")
-                    .eq("phone_number", rawPhone)
-                    .maybeSingle();
+                const { data: email, error: lookupError } = await supabase
+                    .rpc("get_email_for_phone", { p_phone_digits: rawPhone });
 
-                if (lookupError || !profile?.email) {
+                if (lookupError || !email) {
                     throw new Error("No account found with that phone number.");
                 }
 
                 const { error } = await supabase.auth.signInWithPassword({
-                    email: profile.email,
+                    email: email,
                     password,
                 });
                 if (error) throw error;

@@ -6,12 +6,15 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useNotifications } from '../../lib/notifications-context';
 import { useAuth } from '../../lib/auth-context';
+import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from '../../lib/edge-function-error';
+import { withTimeout } from '../../lib/with-timeout';
+import { getCheckoutUrlOrThrow } from '../../lib/checkout-response';
 import {
     ArrowLeft, ShoppingCart, Plus, Minus, X, Coffee, Sun, Moon,
     Star, Clock, Leaf, Flame, ChevronDown, ChevronUp,
@@ -33,6 +36,12 @@ const MEAL_PERIOD_CFG: Record<MealPeriod, { label: string; color: string; bg: st
 
 const MEMBER_COLORS = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'];
 const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
+const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
+type PaymentMode = 'host_pays' | 'split' | 'assign';
+
+function normalizePaymentMode(mode: unknown): PaymentMode {
+    return mode === 'split' || mode === 'assign' || mode === 'host_pays' ? mode : 'host_pays';
+}
 
 function MealPeriodTag({ period }: { period: MealPeriod }) {
     const cfg = MEAL_PERIOD_CFG[period];
@@ -108,8 +117,9 @@ export default function JoinPartyScreen() {
     // ── Group Order Type & Payment Mode ──
     const [groupOrderType, setGroupOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
     const [groupPartySize, setGroupPartySize] = useState(2);
-    const [paymentMode, setPaymentMode] = useState<'host_pays' | 'split' | 'assign'>('host_pays');
+    const [paymentMode, setPaymentMode] = useState<PaymentMode>('host_pays');
     const [assignedPayer, setAssignedPayer] = useState<string | null>(null);
+    const [payingMyShare, setPayingMyShare] = useState(false);
 
     const channelRef = useRef<any>(null);
     const fetchCartRef = useRef<() => Promise<void>>(async () => { });
@@ -118,7 +128,7 @@ export default function JoinPartyScreen() {
 
     // User-scoped storage keys so multiple accounts on one device never collide
     const nameKey = userId ? `party_name_${userId}_${sessionId}` : `party_name_anon_${sessionId}`;
-    const activeOrderKey = userId ? `rasvia:active_group_order:${userId}` : 'rasvia:active_group_order:anon';
+    const activeOrderKey = userId ? `rasvia_active_group_order_${userId}` : 'rasvia_active_group_order_anon';
 
     const totalItems = cartItems.reduce((sum, item) => sum + (item.quantity ?? 1), 0);
     const totalPrice = cartItems.reduce((sum, item) => {
@@ -150,6 +160,7 @@ export default function JoinPartyScreen() {
         });
         return totals;
     }, [cartItems]);
+    const myShareTotal = guestName ? (memberTotals[guestName]?.total ?? 0) : 0;
 
     const combinedAllItems = useMemo(() => {
         const combined = new Map<string, {
@@ -239,7 +250,7 @@ export default function JoinPartyScreen() {
         const init = async () => {
             try {
                 // Read the user-scoped name for this session
-                const storedName = await AsyncStorage.getItem(nameKey);
+                const storedName = await SecureStore.getItemAsync(nameKey);
                 if (storedName) {
                     setGuestName(storedName);
                     setIsJoined(true);
@@ -247,7 +258,7 @@ export default function JoinPartyScreen() {
 
                 const { data: sess, error } = await supabase
                     .from('party_sessions')
-                    .select('restaurant_id, host_user_id, status, restaurants(name, image_url)')
+                    .select('restaurant_id, host_user_id, status, payment_mode, assigned_payer_name, restaurants(name, image_url)')
                     .eq('id', sessionId)
                     .single();
 
@@ -259,6 +270,8 @@ export default function JoinPartyScreen() {
                 if (sess.status === 'submitted') setSubmitted(true);
                 if (sess.status === 'cancelled') { setSessionError(true); return; }
                 setRestaurantId(sess.restaurant_id);
+                setPaymentMode(normalizePaymentMode((sess as any).payment_mode));
+                setAssignedPayer((sess as any).assigned_payer_name ?? null);
 
                 // Host detection: compare against the locally-available session user
                 const currentUserId = userId;
@@ -273,7 +286,7 @@ export default function JoinPartyScreen() {
                         const hostName = profile?.full_name || 'Host';
                         setGuestName(hostName);
                         setIsJoined(true);
-                        AsyncStorage.setItem(nameKey, hostName);
+                        SecureStore.setItemAsync(nameKey, hostName);
                         if ((profile as any)?.avatar_url) setUserAvatarUrl((profile as any).avatar_url);
                     } else {
                         // Still fetch avatar for existing host
@@ -331,7 +344,10 @@ export default function JoinPartyScreen() {
             .on('postgres_changes',
                 { event: 'UPDATE', schema: 'public', table: 'party_sessions', filter: `id=eq.${sessionId}` },
                 (payload) => {
-                    if (payload.new?.status === 'submitted') setSubmitted(true);
+                    const nextSession = payload.new as Record<string, unknown>;
+                    if (nextSession?.status === 'submitted') setSubmitted(true);
+                    setPaymentMode(normalizePaymentMode(nextSession?.payment_mode));
+                    setAssignedPayer(typeof nextSession?.assigned_payer_name === 'string' ? nextSession.assigned_payer_name : null);
                 }
             )
             .subscribe();
@@ -370,7 +386,7 @@ export default function JoinPartyScreen() {
                     partySize: cartItemsRef.current.length,
                     timestamp: new Date().toISOString(),
                 });
-                AsyncStorage.removeItem(activeOrderKey);
+                SecureStore.deleteItemAsync(activeOrderKey);
             } else if (path === 'checkout/cancel') {
                 setShowCartModal(false);
                 if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -403,7 +419,7 @@ export default function JoinPartyScreen() {
     // Persist session ID so home page can find it (user-scoped)
     useEffect(() => {
         if (sessionId && isJoined && restaurantName && userId) {
-            AsyncStorage.setItem(activeOrderKey, JSON.stringify({
+            SecureStore.setItemAsync(activeOrderKey, JSON.stringify({
                 sessionId,
                 restaurantName,
                 isHost,
@@ -415,7 +431,7 @@ export default function JoinPartyScreen() {
     const handleJoin = async () => {
         if (!guestName.trim()) return;
         if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        await AsyncStorage.setItem(nameKey, guestName.trim());
+        await SecureStore.setItemAsync(nameKey, guestName.trim());
         setGuestName(guestName.trim());
         setIsJoined(true);
         if (!isHost) {
@@ -484,7 +500,7 @@ export default function JoinPartyScreen() {
                         try {
                             await supabase.from('party_items').delete().eq('session_id', sessionId);
                             await supabase.from('party_sessions').update({ status: 'cancelled' }).eq('id', sessionId);
-                            await AsyncStorage.removeItem(activeOrderKey);
+                            await SecureStore.deleteItemAsync(activeOrderKey);
                             if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                             addEvent({
                                 type: 'group_ended',
@@ -540,7 +556,7 @@ export default function JoinPartyScreen() {
             timestamp: new Date().toISOString(),
         });
 
-        AsyncStorage.removeItem(activeOrderKey);
+        SecureStore.deleteItemAsync(activeOrderKey);
 
         // If dine-in group order, add to waitlist automatically
         if (groupOrderType === 'dine_in' && restaurantId) {
@@ -566,9 +582,248 @@ export default function JoinPartyScreen() {
         }
     };
 
+    const syncPaymentModeToSession = useCallback(async (nextMode: PaymentMode, nextAssignedPayer: string | null) => {
+        setPaymentMode(nextMode);
+        setAssignedPayer(nextAssignedPayer);
+
+        if (!isHost || !sessionId) return;
+
+        const { error } = await supabase
+            .from('party_sessions')
+            .update({
+                payment_mode: nextMode,
+                assigned_payer_name: nextMode === 'assign' ? nextAssignedPayer : null,
+            })
+            .eq('id', sessionId);
+
+        if (error) {
+            throw error;
+        }
+    }, [isHost, sessionId]);
+
+    const buildCartMetaForPayer = useCallback((payerName?: string) => {
+        const sourceItems = payerName ? cartItems.filter((ci) => ci.added_by_name === payerName) : cartItems;
+        return sourceItems.map((ci) => ({
+            name: ci.menu_items?.name ?? 'Unknown',
+            price: Number(ci.menu_items?.price ?? 0),
+            quantity: ci.quantity ?? 1,
+            menu_item_id: ci.menu_item_id,
+            is_vegetarian: ci.menu_items?.is_vegetarian ?? false,
+            added_by: ci.added_by_name || guestName || '',
+        }));
+    }, [cartItems, guestName]);
+
+    const createCheckoutSessionUrl = useCallback(async (requestBody: Record<string, unknown>) => {
+        const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+        const invokeCreateCheckout = (authToken: string) =>
+            withTimeout(
+                supabase.functions.invoke(
+                    'create-checkout',
+                    {
+                        body: requestBody,
+                        headers: {
+                            Authorization: `Bearer ${authToken}`,
+                            ...(anonKey ? { apikey: anonKey } : {}),
+                        },
+                    }
+                ),
+                PAYMENT_REQUEST_TIMEOUT_MS,
+                'Request timed out while creating checkout. Please try again.'
+            );
+
+        const invokeCreateCheckoutWithAnonFetch = async () => {
+            if (!anonKey || !supabaseUrl) {
+                throw new Error('Supabase configuration is missing for checkout.');
+            }
+            const response = await withTimeout(
+                fetch(`${supabaseUrl}/functions/v1/create-checkout`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${anonKey}`,
+                        apikey: anonKey,
+                    },
+                    body: JSON.stringify(requestBody),
+                }),
+                PAYMENT_REQUEST_TIMEOUT_MS,
+                'Request timed out while creating checkout. Please try again.'
+            );
+
+            const raw = await response.text();
+            let parsed: any = null;
+            try { parsed = raw ? JSON.parse(raw) : null; } catch { }
+
+            if (!response.ok) {
+                const msg = parsed?.error || parsed?.message || raw || `Checkout request failed (${response.status}).`;
+                throw new Error(msg);
+            }
+
+            return parsed;
+        };
+
+        const { data: sessionData, error: sessionErr } = await withTimeout(
+            supabase.auth.getSession(),
+            PAYMENT_REQUEST_TIMEOUT_MS,
+            'Request timed out while validating your session. Please reopen the app and try again.'
+        );
+        const accessToken = sessionData?.session?.access_token;
+
+        let fnData: any = null;
+        let fnError: any = null;
+
+        if (accessToken && !sessionErr) {
+            const invokeResult = await invokeCreateCheckout(accessToken);
+            fnData = invokeResult.data;
+            fnError = invokeResult.error;
+
+            if (fnError) {
+                const fnErrorDetails = await parseEdgeFunctionError(fnError);
+                if (isInvalidJwtEdgeFunctionError(fnErrorDetails)) {
+                    const { data: retrySessionData, error: retrySessionErr } = await withTimeout(
+                        supabase.auth.getSession(),
+                        PAYMENT_REQUEST_TIMEOUT_MS,
+                        'Request timed out while validating your session. Please reopen the app and try again.'
+                    );
+                    const retryToken = retrySessionData?.session?.access_token;
+                    if (!retrySessionErr && retryToken) {
+                        const retryResult = await invokeCreateCheckout(retryToken);
+                        fnData = retryResult.data;
+                        fnError = retryResult.error;
+                    }
+                }
+            }
+        }
+
+        if (fnError) {
+            const postRetryDetails = await parseEdgeFunctionError(fnError);
+            if (isInvalidJwtEdgeFunctionError(postRetryDetails) && anonKey) {
+                fnData = await invokeCreateCheckoutWithAnonFetch();
+                fnError = null;
+            }
+        } else if (!fnData && anonKey) {
+            fnData = await invokeCreateCheckoutWithAnonFetch();
+        }
+
+        if (fnError) throw fnError;
+
+        return getCheckoutUrlOrThrow(fnData);
+    }, []);
+
+    const handlePayMyShare = async () => {
+        if (!sessionId || !restaurantId || !guestName || myShareTotal <= 0) return;
+
+        setPayingMyShare(true);
+        try {
+            const { data: restData, error: restError } = await withTimeout(
+                supabase
+                    .from('restaurants')
+                    .select('stripe_account_id')
+                    .eq('id', restaurantId)
+                    .single(),
+                PAYMENT_REQUEST_TIMEOUT_MS,
+                'Request timed out while loading payment settings.'
+            );
+
+            if (restError) throw restError;
+
+            const stripeAccountId = restData?.stripe_account_id;
+            if (!stripeAccountId) {
+                throw new Error('Online payments are not available for this restaurant yet.');
+            }
+
+            const payerItems = buildCartMetaForPayer(guestName);
+            if (payerItems.length === 0) {
+                throw new Error('No items found for your share.');
+            }
+
+            const returnBase = `rasvia://join/${sessionId}?split_paid=1&payer=${encodeURIComponent(guestName)}`;
+            const checkoutUrl = await createCheckoutSessionUrl({
+                restaurant_id: restaurantId,
+                stripe_account_id: stripeAccountId,
+                amount: myShareTotal,
+                party_session_id: sessionId,
+                cart_items: payerItems,
+                restaurant_name: restaurantName,
+                customer_name: guestName,
+                user_id: session?.user?.id ?? null,
+                order_type: groupOrderType,
+                return_url_base: returnBase,
+            });
+
+            const result = await WebBrowser.openAuthSessionAsync(checkoutUrl, 'rasvia://');
+            if (result.type === 'success' && result.url) {
+                const rawUrl = result.url;
+                const qIndex = rawUrl.indexOf('?');
+                const qString = qIndex >= 0 ? rawUrl.slice(qIndex + 1) : '';
+                const sp = new URLSearchParams(qString);
+
+                if (rawUrl.includes('checkout/cancel') || sp.get('checkout_status') === 'cancel') {
+                    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert('Payment Cancelled', 'Your payment was not processed.');
+                } else if (rawUrl.includes('checkout/error') || sp.get('checkout_status') === 'error') {
+                    const reason = sp.get('reason') || 'unknown';
+                    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    Alert.alert('Payment Error', `Something went wrong. ${reason}`);
+                } else {
+                    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    Alert.alert('Payment Complete', `You paid $${myShareTotal.toFixed(2)} for your items.`);
+                }
+            }
+        } catch (e: unknown) {
+            const parsedError = await parseEdgeFunctionError(
+                e,
+                'Could not initiate payment.'
+            );
+            console.error('Group member payment error:', parsedError, e);
+            Alert.alert('Payment Error', parsedError.message);
+        } finally {
+            setPayingMyShare(false);
+        }
+    };
+
     // ── Main Pay / Submit handler ────────────────────────────────────────
     const handlePayment = async () => {
         if (!isHost || cartItems.length === 0) return;
+
+        if (paymentMode === 'split') {
+            Alert.alert(
+                'Enable Split Checkout',
+                'Everyone will pay exactly for the items they added. Members will see their amount and a pay button.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                        text: 'Enable',
+                        style: 'default',
+                        onPress: async () => {
+                            setSubmitting(true);
+                            try {
+                                await syncPaymentModeToSession('split', null);
+                                setShowCartModal(false);
+                                Alert.alert('Split Checkout Enabled', 'Group members can now pay directly from their own device.');
+                            } catch (e: unknown) {
+                                const parsedError = await parseEdgeFunctionError(
+                                    e,
+                                    'Could not enable split checkout.'
+                                );
+                                Alert.alert('Update Failed', parsedError.message);
+                            } finally {
+                                setSubmitting(false);
+                            }
+                        },
+                    },
+                ]
+            );
+            return;
+        }
+
+        if (paymentMode === 'assign' && assignedPayer && assignedPayer !== guestName) {
+            Alert.alert(
+                'Assigned Payer',
+                `${assignedPayer} is assigned to pay the full bill from their device.`
+            );
+            return;
+        }
 
         Alert.alert(
             'Submit Group Order',
@@ -581,54 +836,42 @@ export default function JoinPartyScreen() {
                     onPress: async () => {
                         setSubmitting(true);
                         try {
-                            // 1. Fetch the restaurant's Stripe account
-                            const { data: restData, error: restError } = await supabase
-                                .from('restaurants')
-                                .select('stripe_account_id')
-                                .eq('id', restaurantId)
-                                .single();
+                            if (!session?.user?.id) {
+                                throw new Error('Your session expired. Please sign in again.');
+                            }
+
+                            await syncPaymentModeToSession(paymentMode, paymentMode === 'assign' ? assignedPayer : null);
+
+                            const { data: restData, error: restError } = await withTimeout(
+                                supabase
+                                    .from('restaurants')
+                                    .select('stripe_account_id')
+                                    .eq('id', restaurantId)
+                                    .single(),
+                                PAYMENT_REQUEST_TIMEOUT_MS,
+                                'Request timed out while loading payment settings.'
+                            );
 
                             if (restError) throw restError;
 
                             const stripeAccountId = restData?.stripe_account_id;
 
                             if (stripeAccountId) {
-                                // 2a. Restaurant has Stripe → open Checkout
-                                // Build cart items metadata for the redirect page to save
-                                const cartMeta = cartItems.map(ci => ({
-                                    name: ci.menu_items?.name ?? 'Unknown',
-                                    price: Number(ci.menu_items?.price ?? 0),
-                                    quantity: ci.quantity ?? 1,
-                                    menu_item_id: ci.menu_item_id,
-                                    is_vegetarian: ci.menu_items?.is_vegetarian ?? false,
-                                    added_by: ci.added_by_name || guestName || '',
-                                }));
+                                const cartMeta = buildCartMetaForPayer();
+                                const checkoutUrl = await createCheckoutSessionUrl({
+                                    restaurant_id: restaurantId,
+                                    stripe_account_id: stripeAccountId,
+                                    amount: totalPrice,
+                                    party_session_id: sessionId,
+                                    cart_items: cartMeta,
+                                    restaurant_name: restaurantName,
+                                    customer_name: guestName,
+                                    user_id: session.user.id,
+                                    order_type: groupOrderType,
+                                });
 
-                                const { data: fnData, error: fnError } = await supabase.functions.invoke(
-                                    'create-checkout',
-                                    {
-                                        body: {
-                                            restaurant_id: restaurantId,
-                                            stripe_account_id: stripeAccountId,
-                                            amount: totalPrice,
-                                            // Order metadata for the redirect page
-                                            party_session_id: sessionId,
-                                            cart_items: cartMeta,
-                                            restaurant_name: restaurantName,
-                                            customer_name: guestName,
-                                            user_id: userId,
-                                            order_type: groupOrderType,
-                                        },
-                                    }
-                                );
+                                setSubmitting(false);
 
-                                if (fnError) throw fnError;
-
-                                const checkoutUrl: string = fnData?.url;
-                                if (!checkoutUrl) throw new Error('No checkout URL returned.');
-
-                                // Use openAuthSessionAsync so the browser auto-closes
-                                // when payment-redirect fires the rasvia:// deep link.
                                 const result = await WebBrowser.openAuthSessionAsync(
                                     checkoutUrl,
                                     'rasvia://'
@@ -659,17 +902,17 @@ export default function JoinPartyScreen() {
                                             partySize: cartItems.length,
                                             timestamp: new Date().toISOString(),
                                         });
-                                        AsyncStorage.removeItem(activeOrderKey);
+                                        SecureStore.deleteItemAsync(activeOrderKey);
                                         setTimeout(() => {
                                             router.push({
                                                 pathname: '/order-confirmation' as any,
                                                 params,
                                             });
                                         }, 150);
-                                    } else if (rawUrl.includes('checkout/cancel')) {
+                                    } else if (rawUrl.includes('checkout/cancel') || sp.get('checkout_status') === 'cancel') {
                                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                                         Alert.alert('Payment Cancelled', 'Your payment was not processed.');
-                                    } else if (rawUrl.includes('checkout/error')) {
+                                    } else if (rawUrl.includes('checkout/error') || sp.get('checkout_status') === 'error') {
                                         const reason = sp.get('reason') || 'unknown';
                                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                                         Alert.alert('Payment Error', `Something went wrong. ${reason}`);
@@ -678,7 +921,6 @@ export default function JoinPartyScreen() {
                                         Alert.alert('Redirect info', `URL: ${rawUrl}`);
                                     }
                                 } else if (!submitted) {
-                                    // Browser dismissed manually — check server status
                                     const { data: sessCheck } = await supabase
                                         .from('party_sessions')
                                         .select('status')
@@ -697,15 +939,19 @@ export default function JoinPartyScreen() {
                                             partySize: cartItems.length,
                                             timestamp: new Date().toISOString(),
                                         });
-                                        AsyncStorage.removeItem(activeOrderKey);
+                                        SecureStore.deleteItemAsync(activeOrderKey);
                                     }
                                 }
                             } else {
-                                // 2b. No Stripe account → submit directly to kitchen (cash)
                                 await finaliseSubmit();
                             }
-                        } catch (e: any) {
-                            Alert.alert('Payment Error', e.message || 'Could not initiate payment.');
+                        } catch (e: unknown) {
+                            const parsedError = await parseEdgeFunctionError(
+                                e,
+                                'Could not initiate payment.'
+                            );
+                            console.error('Group order payment error:', parsedError, e);
+                            Alert.alert('Payment Error', parsedError.message);
                         } finally {
                             setSubmitting(false);
                         }
@@ -1379,23 +1625,39 @@ export default function JoinPartyScreen() {
                                 <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
                                     {/* I'll Pay */}
                                     <Pressable
-                                        onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setPaymentMode('host_pays'); setAssignedPayer(null); }}
+                                        onPress={() => {
+                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                            syncPaymentModeToSession('host_pays', null).catch((e) => {
+                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
+                                            });
+                                        }}
                                         style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'host_pays' ? 'rgba(34,197,94,0.12)' : '#1a1a1a', borderColor: paymentMode === 'host_pays' ? '#22C55E' : '#2a2a2a' }}
                                     >
                                         <Wallet size={16} color={paymentMode === 'host_pays' ? '#22C55E' : '#666'} style={{ marginBottom: 4 }} />
                                         <Text style={{ fontFamily: paymentMode === 'host_pays' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'host_pays' ? '#22C55E' : '#777', fontSize: 12, textAlign: 'center' }}>I&apos;ll Pay</Text>
                                     </Pressable>
-                                    {/* Split Equally */}
+                                    {/* Split By Person */}
                                     <Pressable
-                                        onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setPaymentMode('split'); setAssignedPayer(null); }}
+                                        onPress={() => {
+                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                            syncPaymentModeToSession('split', null).catch((e) => {
+                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
+                                            });
+                                        }}
                                         style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'split' ? 'rgba(129,140,248,0.12)' : '#1a1a1a', borderColor: paymentMode === 'split' ? '#818CF8' : '#2a2a2a' }}
                                     >
                                         <Users size={16} color={paymentMode === 'split' ? '#818CF8' : '#666'} style={{ marginBottom: 4 }} />
-                                        <Text style={{ fontFamily: paymentMode === 'split' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'split' ? '#818CF8' : '#777', fontSize: 12, textAlign: 'center' }}>Split</Text>
+                                        <Text style={{ fontFamily: paymentMode === 'split' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'split' ? '#818CF8' : '#777', fontSize: 12, textAlign: 'center' }}>Split by Person</Text>
                                     </Pressable>
                                     {/* Assign Payer */}
                                     <Pressable
-                                        onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setPaymentMode('assign'); }}
+                                        onPress={() => {
+                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                            const fallbackPayer = assignedPayer || guestName || uniqueMembers[0] || null;
+                                            syncPaymentModeToSession('assign', fallbackPayer).catch((e) => {
+                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
+                                            });
+                                        }}
                                         style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'assign' ? 'rgba(249,115,22,0.12)' : '#1a1a1a', borderColor: paymentMode === 'assign' ? '#F97316' : '#2a2a2a' }}
                                     >
                                         <Crown size={16} color={paymentMode === 'assign' ? '#F97316' : '#666'} style={{ marginBottom: 4 }} />
@@ -1433,7 +1695,12 @@ export default function JoinPartyScreen() {
                                             return (
                                                 <Pressable
                                                     key={name}
-                                                    onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setAssignedPayer(name); }}
+                                                    onPress={() => {
+                                                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                                        syncPaymentModeToSession('assign', name).catch((e) => {
+                                                            parseEdgeFunctionError(e, 'Could not update assigned payer.').then((err) => Alert.alert('Update Failed', err.message));
+                                                        });
+                                                    }}
                                                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10, backgroundColor: isSelected ? 'rgba(249,115,22,0.15)' : 'transparent', marginBottom: 4 }}
                                                 >
                                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1465,7 +1732,7 @@ export default function JoinPartyScreen() {
                                         <CreditCard size={18} color="#fff" />
                                         <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 17 }}>
                                             {paymentMode === 'split'
-                                                ? `Split & Submit · $${totalPrice.toFixed(2)}`
+                                                ? 'Enable Split Checkout'
                                                 : paymentMode === 'assign' && assignedPayer
                                                     ? `${assignedPayer} Pays · $${totalPrice.toFixed(2)}`
                                                     : `Pay & Submit · $${totalPrice.toFixed(2)}`}
@@ -1473,18 +1740,39 @@ export default function JoinPartyScreen() {
                                     </>
                                 )}
                             </Pressable>
+                        ) : null}
+
+                        {paymentMode === 'split' && myShareTotal > 0 ? (
+                            <Pressable
+                                onPress={handlePayMyShare}
+                                disabled={payingMyShare}
+                                style={{ marginTop: isHost ? 10 : 0, backgroundColor: '#6366F1', borderRadius: 16, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: payingMyShare ? 0.6 : 1 }}
+                            >
+                                {payingMyShare ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <>
+                                        <CreditCard size={17} color="#fff" />
+                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 16 }}>
+                                            Pay My Share · ${myShareTotal.toFixed(2)}
+                                        </Text>
+                                    </>
+                                )}
+                            </Pressable>
                         ) : (
-                            <View style={{ backgroundColor: '#1a1a1a', borderRadius: 16, borderWidth: 1, borderColor: '#2a2a2a', paddingVertical: 16, alignItems: 'center' }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                    <Crown size={16} color="#FF9933" />
-                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#FF9933', fontSize: 16 }}>
-                                        Waiting for host to submit
+                            !isHost && (
+                                <View style={{ backgroundColor: '#1a1a1a', borderRadius: 16, borderWidth: 1, borderColor: '#2a2a2a', paddingVertical: 16, alignItems: 'center' }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                        <Crown size={16} color="#FF9933" />
+                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#FF9933', fontSize: 16 }}>
+                                            Waiting for host to submit
+                                        </Text>
+                                    </View>
+                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#666', fontSize: 12 }}>
+                                        Keep adding items while you wait
                                     </Text>
                                 </View>
-                                <Text style={{ fontFamily: 'Manrope_500Medium', color: '#666', fontSize: 12 }}>
-                                    Keep adding items while you wait
-                                </Text>
-                            </View>
+                            )
                         )}
                     </View>
                 </View>

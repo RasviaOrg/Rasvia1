@@ -8,7 +8,7 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 
 const PUSH_ENABLED_KEY = "rasvia:push-notifications-enabled";
 const isExpoGo = Constants.executionEnvironment === "storeClient";
@@ -49,7 +49,7 @@ export async function isPushEnabled(): Promise<boolean> {
   if (!Device.isDevice) return false;
   const { status } = await Notifications.getPermissionsAsync();
   if (status !== "granted") return false;
-  const saved = await AsyncStorage.getItem(PUSH_ENABLED_KEY);
+  const saved = await SecureStore.getItemAsync(PUSH_ENABLED_KEY);
   return saved !== "false"; // default to true if permission granted
 }
 
@@ -101,7 +101,7 @@ export async function registerForPushNotifications(): Promise<boolean> {
   }
 
   // Persist the enabled state
-  await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
+  await SecureStore.setItemAsync(PUSH_ENABLED_KEY, "true");
   return true;
 }
 
@@ -110,7 +110,7 @@ export async function registerForPushNotifications(): Promise<boolean> {
  * Does NOT revoke OS permissions, just disables in-app sending.
  */
 export async function disablePushNotifications(): Promise<void> {
-  await AsyncStorage.setItem(PUSH_ENABLED_KEY, "false");
+  await SecureStore.setItemAsync(PUSH_ENABLED_KEY, "false");
 }
 
 /**
@@ -120,7 +120,7 @@ export async function disablePushNotifications(): Promise<void> {
 export async function enablePushNotifications(): Promise<boolean> {
   const granted = await registerForPushNotifications();
   if (granted) {
-    await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
+    await SecureStore.setItemAsync(PUSH_ENABLED_KEY, "true");
   }
   return granted;
 }

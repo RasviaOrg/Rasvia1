@@ -40,7 +40,7 @@ import {
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 
 const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 
@@ -53,7 +53,7 @@ export default function WaitlistStatus() {
 
   const currentUserId = session?.user?.id;
   const activeOrderKey = currentUserId
-    ? `rasvia:active_group_order:${currentUserId}`
+    ? `rasvia_active_group_order_${currentUserId}`
     : null;
 
   // ==========================================
@@ -438,7 +438,7 @@ export default function WaitlistStatus() {
           const shareUrl = `${GROUP_ORDER_WEB_BASE_URL}/join?id=${sessionId}`;
 
           // Store as active (user-scoped)
-          if (activeOrderKey) await AsyncStorage.setItem(activeOrderKey, JSON.stringify({
+          if (activeOrderKey) await SecureStore.setItemAsync(activeOrderKey, JSON.stringify({
             sessionId,
             restaurantName: restaurant?.name ?? 'Restaurant',
             isHost: true,
@@ -471,7 +471,7 @@ export default function WaitlistStatus() {
                 try {
                   await supabase.from('party_items').delete().eq('session_id', existing.id);
                   await supabase.from('party_sessions').update({ status: 'cancelled' }).eq('id', existing.id);
-                  if (activeOrderKey) await AsyncStorage.removeItem(activeOrderKey);
+                  if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
                   if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                   Alert.alert("Cancelled", "Tap 'Share & Start Group Order' again to start your new group order.");
                 } catch {
@@ -502,7 +502,7 @@ export default function WaitlistStatus() {
       const shareUrl = `${GROUP_ORDER_WEB_BASE_URL}/join?id=${newSession.id}`;
 
       if (activeOrderKey) {
-        await AsyncStorage.setItem(activeOrderKey, JSON.stringify({
+        await SecureStore.setItemAsync(activeOrderKey, JSON.stringify({
           sessionId: newSession.id,
           restaurantName: restaurant?.name ?? 'Restaurant',
           isHost: true,

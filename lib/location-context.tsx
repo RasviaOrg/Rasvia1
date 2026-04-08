@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import * as Location from "expo-location";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 
@@ -87,7 +87,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
     const reloadLocationPrefs = useCallback(async () => {
         try {
-            const localToggle = await AsyncStorage.getItem("live_location_enabled");
+            const localToggle = await SecureStore.getItemAsync("live_location_enabled");
             let liveEnabled = true;
             if (localToggle !== null) {
                 liveEnabled = JSON.parse(localToggle);

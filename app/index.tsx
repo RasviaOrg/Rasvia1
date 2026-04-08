@@ -26,7 +26,7 @@ import Animated, {
   interpolateColor,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from 'expo-secure-store';
 import { HeroCard } from "@/components/HeroCard";
 import { RestaurantListCard } from "@/components/RestaurantListCard";
 import { FilterBar } from "@/components/FilterBar";
@@ -81,8 +81,8 @@ function liveStepIndex(status: OrderStatus): number {
   return -1;
 }
 
-const HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia:home-live-order-dismissed-ids:v1";
-const HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia:home-waitlist-seated-dismissed-entry-ids:v1";
+const HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia_home-live-order-dismissed-ids_v1";
+const HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia_home-waitlist-seated-dismissed-entry-ids_v1";
 
 /** Live order banner: Received → Preparing → Ready → Served (orange → blue → teal → green) */
 const LIVE_ORDER_CARD_BG = [
@@ -198,9 +198,9 @@ export default function DiscoveryFeed() {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(HOME_LIVE_ORDER_DISMISSED_KEY);
+        const raw = await SecureStore.getItemAsync(HOME_LIVE_ORDER_DISMISSED_KEY);
         if (raw) setDismissedLiveOrderIds(new Set(JSON.parse(raw) as string[]));
-        const rawWl = await AsyncStorage.getItem(HOME_WAITLIST_SEATED_DISMISSED_KEY);
+        const rawWl = await SecureStore.getItemAsync(HOME_WAITLIST_SEATED_DISMISSED_KEY);
         if (rawWl) setDismissedSeatedWaitlistEntryIds(new Set(JSON.parse(rawWl) as string[]));
       } catch {
         /* ignore */
@@ -211,7 +211,7 @@ export default function DiscoveryFeed() {
   const dismissLiveOrderBanner = useCallback((orderId: string) => {
     setDismissedLiveOrderIds((prev) => {
       const next = new Set(prev).add(orderId);
-      void AsyncStorage.setItem(HOME_LIVE_ORDER_DISMISSED_KEY, JSON.stringify([...next]));
+      void SecureStore.setItemAsync(HOME_LIVE_ORDER_DISMISSED_KEY, JSON.stringify([...next]));
       return next;
     });
   }, []);
@@ -219,7 +219,7 @@ export default function DiscoveryFeed() {
   const dismissSeatedWaitlistBanner = useCallback((entryId: string) => {
     setDismissedSeatedWaitlistEntryIds((prev) => {
       const next = new Set(prev).add(entryId);
-      void AsyncStorage.setItem(HOME_WAITLIST_SEATED_DISMISSED_KEY, JSON.stringify([...next]));
+      void SecureStore.setItemAsync(HOME_WAITLIST_SEATED_DISMISSED_KEY, JSON.stringify([...next]));
       return next;
     });
   }, []);
@@ -372,7 +372,7 @@ export default function DiscoveryFeed() {
 
   useEffect(() => {
     if (!isRestaurantOwner && !isAdmin) return;
-    AsyncStorage.getItem("rasvia:owner-home-mode:v1")
+    SecureStore.getItemAsync("rasvia_owner-home-mode_v1")
       .then((saved) => {
         if (saved === "discover" || saved === "dashboard") {
           setOwnerHomeMode(saved);
@@ -385,7 +385,7 @@ export default function DiscoveryFeed() {
 
   const setOwnerMode = useCallback((mode: "discover" | "dashboard") => {
     setOwnerHomeMode(mode);
-    void AsyncStorage.setItem("rasvia:owner-home-mode:v1", mode);
+    void SecureStore.setItemAsync("rasvia_owner-home-mode_v1", mode);
   }, []);
 
 
@@ -426,7 +426,7 @@ export default function DiscoveryFeed() {
 
   const currentUserId = session?.user?.id;
   const activeOrderKey = currentUserId
-    ? `rasvia:active_group_order:${currentUserId}`
+    ? `rasvia_active_group_order_${currentUserId}`
     : null;
 
   const discardGroupOrder = useCallback(async (sessId: string) => {
@@ -442,7 +442,7 @@ export default function DiscoveryFeed() {
             try {
               await supabase.from("party_items").delete().eq("session_id", sessId);
               await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", sessId);
-              if (activeOrderKey) await AsyncStorage.removeItem(activeOrderKey);
+              if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
               setActiveGroupOrder(null);
               if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             } catch {
@@ -462,7 +462,7 @@ export default function DiscoveryFeed() {
     }
     try {
       // Check user-scoped AsyncStorage first (fast, local)
-      const stored = await AsyncStorage.getItem(activeOrderKey);
+      const stored = await SecureStore.getItemAsync(activeOrderKey);
       if (stored) {
         const parsed = JSON.parse(stored) as ActiveGroupOrder;
         const { data: sess, error } = await supabase
@@ -479,7 +479,7 @@ export default function DiscoveryFeed() {
           return;
         }
         // Not open anymore — clean up
-        await AsyncStorage.removeItem(activeOrderKey);
+        await SecureStore.deleteItemAsync(activeOrderKey);
       }
 
       // Fallback: check if the user hosts any open sessions
@@ -500,7 +500,7 @@ export default function DiscoveryFeed() {
           joinedAt: new Date().toISOString(),
         };
         // Re-persist so the banner works immediately next time
-        await AsyncStorage.setItem(activeOrderKey, JSON.stringify(order));
+        await SecureStore.setItemAsync(activeOrderKey, JSON.stringify(order));
         setActiveGroupOrder(order);
         return;
       }
