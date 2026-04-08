@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { X, Search, Users, Clock, MapPin, ArrowUpDown } from "lucide-react-native";
+import { X, Search, Users, Clock, MapPin, ArrowUpDown, ChevronDown, ChevronUp } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -19,10 +19,21 @@ import Animated, {
 import * as Haptics from "expo-haptics";
 import { WaitBadge } from "@/components/WaitBadge";
 import { supabase } from "@/lib/supabase";
-import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineDistance } from "@/lib/restaurant-types";
+import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineDistance, brandKey } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
+
+// ── Chain grouping helpers ────────────────────────────────────────────────────
+
+interface ChainGroup {
+  key: string;
+  /** The representative (closest / first) restaurant shown collapsed */
+  primary: UIRestaurant;
+  /** All locations sorted nearest-first */
+  locations: UIRestaurant[];
+  isChain: boolean;
+}
 
 // --- Trie-based prefix search for efficient matching ---
 
@@ -95,7 +106,18 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("none");
+  const [expandedChains, setExpandedChains] = useState<Set<string>>(new Set());
   const inputRef = useRef<TextInput>(null);
+
+  const toggleChain = useCallback((key: string) => {
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    setExpandedChains((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   // Fetch restaurants from Supabase
   const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
@@ -156,7 +178,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
   }, []);
 
 
-  const results = useMemo(() => {
+  const results = useMemo((): ChainGroup[] => {
     let list: UIRestaurant[];
     if (!query.trim()) {
       list = [...restaurants];
@@ -179,7 +201,40 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
       list.sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    return list;
+    // ── Group into chains ─────────────────────────────────────────────────
+    const groupMap = new Map<string, UIRestaurant[]>();
+    for (const r of list) {
+      const k = brandKey(r.name);
+      if (!groupMap.has(k)) groupMap.set(k, []);
+      groupMap.get(k)!.push(r);
+    }
+
+    const groups: ChainGroup[] = [];
+    for (const [key, locs] of groupMap) {
+      // Sort locations nearest-first; unknown distance goes last
+      locs.sort((a, b) => parseDistance(a.distance) - parseDistance(b.distance));
+      groups.push({
+        key,
+        primary: locs[0],
+        locations: locs,
+        isChain: locs.length > 1,
+      });
+    }
+
+    // Sort groups by the primary location's sort key
+    if (sortBy === "waitTime") {
+      groups.sort((a, b) => {
+        const aw = a.primary.isComingSoon ? Number.POSITIVE_INFINITY : a.primary.waitTime;
+        const bw = b.primary.isComingSoon ? Number.POSITIVE_INFINITY : b.primary.waitTime;
+        return aw - bw;
+      });
+    } else if (sortBy === "distance") {
+      groups.sort((a, b) => parseDistance(a.primary.distance) - parseDistance(b.primary.distance));
+    } else {
+      groups.sort((a, b) => a.primary.name.localeCompare(b.primary.name));
+    }
+
+    return groups;
   }, [query, sortBy, restaurants, restaurantTrie, restaurantMap]);
 
   const handleResultPress = useCallback(
@@ -204,6 +259,8 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
   );
 
   const isSearchEmpty = query.trim() !== "" && results.length === 0;
+  /** Total unique restaurants represented (for the count label) */
+  const totalRestaurantCount = results.reduce((n, g) => n + g.locations.length, 0);
 
   return (
     <Animated.View
@@ -430,23 +487,129 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
               }}
             >
               {query.trim()
-                ? `${results.length} result${results.length !== 1 ? "s" : ""}`
+                ? `${totalRestaurantCount} result${totalRestaurantCount !== 1 ? "s" : ""}`
                 : "All Restaurants"}
             </Text>
-            {results.map((restaurant, index) => (
-              <SearchResultCard
-                key={restaurant.id}
-                restaurant={{
-                  ...restaurant,
-                  // Apply real-time hour-based closed status
-                  waitStatus: (closedRestaurantIds.has(restaurant.id) || restaurant.isComingSoon)
-                    ? "darkgrey"
-                    : restaurant.waitStatus,
-                }}
-                index={index}
-                onPress={() => handleResultPress(restaurant.id)}
-              />
-            ))}
+            {results.map((group, index) => {
+              const isExpanded = expandedChains.has(group.key);
+              const primaryWithStatus = {
+                ...group.primary,
+                waitStatus: (
+                  closedRestaurantIds.has(group.primary.id) || group.primary.isComingSoon
+                ) ? "darkgrey" as const : group.primary.waitStatus,
+              };
+              return (
+                <View key={group.key}>
+                  <SearchResultCard
+                    restaurant={primaryWithStatus}
+                    index={index}
+                    onPress={() => handleResultPress(group.primary.id)}
+                    chainInfo={group.isChain ? {
+                      count: group.locations.length,
+                      isExpanded,
+                      onToggle: () => toggleChain(group.key),
+                    } : undefined}
+                  />
+                  {/* Expanded location list */}
+                  {group.isChain && isExpanded && (
+                    <View
+                      style={{
+                        marginLeft: 16,
+                        marginTop: -4,
+                        marginBottom: 6,
+                        borderLeftWidth: 2,
+                        borderLeftColor: "#2a2a2a",
+                        paddingLeft: 12,
+                      }}
+                    >
+                      {group.locations.map((loc) => {
+                        const locWithStatus = {
+                          ...loc,
+                          waitStatus: (
+                            closedRestaurantIds.has(loc.id) || loc.isComingSoon
+                          ) ? "darkgrey" as const : loc.waitStatus,
+                        };
+                        const isNearest = loc.id === group.primary.id;
+                        return (
+                          <Pressable
+                            key={loc.id}
+                            onPress={() => handleResultPress(loc.id)}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              backgroundColor: isNearest ? "rgba(255,153,51,0.07)" : "#161616",
+                              borderRadius: 12,
+                              padding: 10,
+                              marginBottom: 6,
+                              borderWidth: 1,
+                              borderColor: isNearest ? "rgba(255,153,51,0.25)" : "#222",
+                            }}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
+                                {isNearest && (
+                                  <View
+                                    style={{
+                                      backgroundColor: "rgba(255,153,51,0.18)",
+                                      borderRadius: 6,
+                                      paddingHorizontal: 6,
+                                      paddingVertical: 2,
+                                      marginRight: 7,
+                                    }}
+                                  >
+                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 9 }}>
+                                      NEAREST
+                                    </Text>
+                                  </View>
+                                )}
+                                <Text
+                                  numberOfLines={1}
+                                  style={{
+                                    fontFamily: "Manrope_600SemiBold",
+                                    color: "#f5f5f5",
+                                    fontSize: 13,
+                                    flex: 1,
+                                  }}
+                                >
+                                  {loc.name}
+                                </Text>
+                              </View>
+                              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                <MapPin size={10} color="#999" />
+                                <Text
+                                  numberOfLines={1}
+                                  style={{
+                                    fontFamily: "Manrope_500Medium",
+                                    color: "#999",
+                                    fontSize: 11,
+                                    marginLeft: 4,
+                                    flex: 1,
+                                  }}
+                                >
+                                  {loc.address}
+                                </Text>
+                              </View>
+                            </View>
+                            <View style={{ alignItems: "flex-end", marginLeft: 10 }}>
+                              <Text style={{ fontFamily: "Manrope_500Medium", color: "#aaa", fontSize: 11 }}>
+                                {loc.distance}
+                              </Text>
+                              {locWithStatus.waitStatus !== "darkgrey" ? (
+                                <WaitBadge waitTime={loc.waitTime} status={locWithStatus.waitStatus} size="sm" />
+                              ) : (
+                                <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 10 }}>
+                                  {loc.isComingSoon ? "Coming soon" : "Closed"}
+                                </Text>
+                              )}
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </View>
         )}
       </ScrollView>
@@ -458,13 +621,15 @@ function SearchResultCard({
   restaurant,
   index,
   onPress,
+  chainInfo,
 }: {
   restaurant: UIRestaurant;
   index: number;
   onPress: () => void;
+  chainInfo?: { count: number; isExpanded: boolean; onToggle: () => void };
 }) {
   return (
-    <Animated.View entering={FadeInDown.duration(220)}>
+    <Animated.View entering={FadeInDown.duration(220)} style={{ marginBottom: 10 }}>
       <Pressable
         onPress={onPress}
         style={{
@@ -473,7 +638,6 @@ function SearchResultCard({
           backgroundColor: "#1a1a1a",
           borderRadius: 16,
           padding: 12,
-          marginBottom: 10,
           borderWidth: 1,
           borderColor: "#2a2a2a",
         }}
@@ -491,25 +655,34 @@ function SearchResultCard({
         />
 
         <View style={{ flex: 1, marginLeft: 14 }}>
-          <Text
-            numberOfLines={1}
-            style={{
-              fontFamily: "BricolageGrotesque_700Bold",
-              color: "#f5f5f5",
-              fontSize: 17,
-              letterSpacing: -0.3,
-              marginBottom: 3,
-            }}
-          >
-            {restaurant.name}
-          </Text>
+          {/* Name row */}
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
+            <Text
+              numberOfLines={1}
+              style={{
+                fontFamily: "BricolageGrotesque_700Bold",
+                color: "#f5f5f5",
+                fontSize: 17,
+                letterSpacing: -0.3,
+                flex: 1,
+              }}
+            >
+              {/* For chains show only brand name (strip location suffix) */}
+              {chainInfo
+                ? restaurant.name
+                    .replace(/[-–—(|,].*/, "")
+                    .trim()
+                : restaurant.name}
+            </Text>
+          </View>
+
           <Text
             numberOfLines={1}
             style={{
               fontFamily: "Manrope_500Medium",
               color: "#999999",
               fontSize: 12,
-              marginBottom: 6,
+              marginBottom: 5,
             }}
           >
             {restaurant.cuisine}
@@ -543,7 +716,9 @@ function SearchResultCard({
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Clock size={12} color="#999999" />
                 <View style={{ backgroundColor: "rgba(153,153,153,0.15)", borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 4 }}>
-                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#999999", fontSize: 10 }}>{restaurant.isComingSoon ? "Coming soon" : "Closed"}</Text>
+                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#999999", fontSize: 10 }}>
+                    {restaurant.isComingSoon ? "Coming soon" : "Closed"}
+                  </Text>
                 </View>
               </View>
             ) : (
@@ -559,7 +734,8 @@ function SearchResultCard({
           </View>
         </View>
 
-        <View style={{ alignItems: "flex-end" }}>
+        {/* Right side: distance + chain toggle */}
+        <View style={{ alignItems: "flex-end", marginLeft: 8, gap: 6 }}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <MapPin size={11} color="#999999" />
             <Text
@@ -573,6 +749,44 @@ function SearchResultCard({
               {restaurant.distance}
             </Text>
           </View>
+
+          {chainInfo && (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                chainInfo.onToggle();
+              }}
+              hitSlop={10}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: chainInfo.isExpanded
+                  ? "rgba(255,153,51,0.18)"
+                  : "rgba(255,255,255,0.07)",
+                borderRadius: 8,
+                paddingHorizontal: 7,
+                paddingVertical: 4,
+                gap: 3,
+                borderWidth: 1,
+                borderColor: chainInfo.isExpanded
+                  ? "rgba(255,153,51,0.4)"
+                  : "rgba(255,255,255,0.1)",
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: "Manrope_700Bold",
+                  color: chainInfo.isExpanded ? "#FF9933" : "#aaa",
+                  fontSize: 10,
+                }}
+              >
+                {chainInfo.count} locations
+              </Text>
+              {chainInfo.isExpanded
+                ? <ChevronUp size={11} color="#FF9933" />
+                : <ChevronDown size={11} color="#aaa" />}
+            </Pressable>
+          )}
         </View>
       </Pressable>
     </Animated.View>

@@ -68,6 +68,33 @@ export interface UIRestaurant {
 // ==========================================
 
 /**
+ * Normalise a restaurant name into a brand key used for chain grouping.
+ * e.g. "Simply South - Frisco" → "simply south", "A2B (Addison)" → "a2b"
+ */
+export function brandKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[-–—(|,].*/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .trim();
+}
+
+/**
+ * Given an already-sorted list (nearest-first or any priority order), return
+ * only the first representative of each chain brand.  The remaining locations
+ * are accessible through the search overlay's location picker.
+ */
+export function deduplicateChains(restaurants: UIRestaurant[]): UIRestaurant[] {
+  const seen = new Set<string>();
+  return restaurants.filter((r) => {
+    const k = brandKey(r.name);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/**
  * Calculate wait status based on wait time (Traffic Light Logic)
  * Green: < 15 minutes
  * Amber: 15-44 minutes

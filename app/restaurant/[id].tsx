@@ -36,6 +36,8 @@ import {
   Leaf,
   AlertTriangle,
   ShieldCheck,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react-native";
 import Animated, {
   useAnimatedStyle,
@@ -71,6 +73,7 @@ import {
   mapMenuItemToUI,
   haversineDistance,
   parseFavorites,
+  brandKey,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
@@ -148,6 +151,9 @@ export default function RestaurantDetail() {
   const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
   const [communityImageTarget, setCommunityImageTarget] = useState<UIMenuItem | null>(null);
+  // Chain / multi-location picker
+  const [chainLocations, setChainLocations] = useState<UIRestaurant[]>([]);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   // Order type picker (shows before waitlist or takeout checkout)
   const [showOrderTypePicker, setShowOrderTypePicker] = useState(false);
 
@@ -392,11 +398,30 @@ export default function RestaurantDetail() {
 
       if (error) throw error;
       if (data) {
-        setRestaurant(mapSupabaseToUI(data as SupabaseRestaurant, userCoords));
+        const uiRestaurant = mapSupabaseToUI(data as SupabaseRestaurant, userCoords);
+        setRestaurant(uiRestaurant);
         // Fetch live review stats from restaurant_reviews (not the DB rating column)
         const stats = await fetchReviewStats(id);
         setLiveReviewCount(stats.count);
         setLiveAvgRating(stats.average);
+
+        // ── Fetch sibling locations for chains ──────────────────────────────
+        const thisBrandKey = brandKey(uiRestaurant.name);
+        const { data: allRestaurants } = await supabase
+          .from("restaurants")
+          .select("id, name, address, lat, long, image_url, current_wait_time, is_waitlist_open, is_enabled, waitlist_open, rating, price_range, cuisine_tags, owner_id, created_at, waitlist_early_open_enabled, waitlist_early_open_minutes, is_coming_soon")
+          .order("name", { ascending: true });
+        if (allRestaurants) {
+          const siblings = (allRestaurants as SupabaseRestaurant[])
+            .filter((r) => brandKey(r.name) === thisBrandKey)
+            .map((r) => mapSupabaseToUI(r, userCoords))
+            .sort((a, b) => {
+              const da = parseFloat((a.distance ?? "").replace(/[^0-9.]/g, "")) || Infinity;
+              const db = parseFloat((b.distance ?? "").replace(/[^0-9.]/g, "")) || Infinity;
+              return da - db;
+            });
+          setChainLocations(siblings);
+        }
       }
 
       // Check if this restaurant is favorited by the current user
@@ -1042,28 +1067,63 @@ export default function RestaurantDetail() {
                 {restaurant.name}
               </Text>
               <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
-                {restaurant.tags.filter((t) => t.trim().toLowerCase() !== "indian").slice(0, 2).map((tag) => (
-                  <View
-                    key={tag}
+                {chainLocations.length > 1 ? (
+                  /* Location switcher pill in collapsed header */
+                  <Pressable
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      setShowLocationPicker(true);
+                    }}
                     style={{
-                      backgroundColor: "rgba(255, 153, 51, 0.15)",
-                      borderRadius: 10,
-                      paddingHorizontal: 6,
-                      paddingVertical: 1,
-                      marginRight: 4,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: "rgba(255,153,51,0.12)",
+                      borderRadius: 8,
+                      paddingHorizontal: 7,
+                      paddingVertical: 3,
+                      gap: 4,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,153,51,0.3)",
                     }}
                   >
+                    <MapPin size={9} color="#FF9933" />
                     <Text
+                      numberOfLines={1}
                       style={{
-                        fontFamily: "Manrope_500Medium",
+                        fontFamily: "Manrope_600SemiBold",
                         color: "#FF9933",
-                        fontSize: 9,
+                        fontSize: 10,
+                        maxWidth: 120,
                       }}
                     >
-                      {tag}
+                      {chainLocations.length} locations
                     </Text>
-                  </View>
-                ))}
+                    <ChevronDown size={9} color="#FF9933" />
+                  </Pressable>
+                ) : (
+                  restaurant.tags.filter((t) => t.trim().toLowerCase() !== "indian").slice(0, 2).map((tag) => (
+                    <View
+                      key={tag}
+                      style={{
+                        backgroundColor: "rgba(255, 153, 51, 0.15)",
+                        borderRadius: 10,
+                        paddingHorizontal: 6,
+                        paddingVertical: 1,
+                        marginRight: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_500Medium",
+                          color: "#FF9933",
+                          fontSize: 9,
+                        }}
+                      >
+                        {tag}
+                      </Text>
+                    </View>
+                  ))
+                )}
               </View>
             </View>
 
@@ -1304,6 +1364,43 @@ export default function RestaurantDetail() {
               >
                 {restaurant.name}
               </Text>
+
+              {/* Location switcher chip — only shown for chains */}
+              {chainLocations.length > 1 && (
+                <Pressable
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    setShowLocationPicker(true);
+                  }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    alignSelf: "flex-start",
+                    marginTop: 10,
+                    backgroundColor: "rgba(15,15,15,0.72)",
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,153,51,0.45)",
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    gap: 6,
+                  }}
+                >
+                  <MapPin size={12} color="#FF9933" />
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontFamily: "Manrope_600SemiBold",
+                      color: "#f5f5f5",
+                      fontSize: 12,
+                      maxWidth: 200,
+                    }}
+                  >
+                    {restaurant.address}
+                  </Text>
+                  <ChevronDown size={12} color="#FF9933" />
+                </Pressable>
+              )}
             </Animated.View>
           </Animated.View>
         </View>
@@ -2458,6 +2555,114 @@ export default function RestaurantDetail() {
         restaurantId={restaurant.id}
         onClose={() => setCommunityImageTarget(null)}
       />
+
+      {/* ── Location Picker Modal (chain restaurants) ─────────────────────── */}
+      {chainLocations.length > 1 && (
+        <Modal
+          visible={showLocationPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowLocationPicker(false)}
+        >
+          <Pressable
+            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}
+            onPress={() => setShowLocationPicker(false)}
+          >
+            <Pressable onPress={(e) => e.stopPropagation?.()}>
+              <View
+                style={{
+                  backgroundColor: "#141414",
+                  borderTopLeftRadius: 28,
+                  borderTopRightRadius: 28,
+                  borderWidth: 1,
+                  borderColor: "#2a2a2a",
+                  paddingBottom: insets.bottom + 16,
+                }}
+              >
+                {/* Handle */}
+                <View style={{ alignItems: "center", paddingTop: 14, paddingBottom: 4 }}>
+                  <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: "#333" }} />
+                </View>
+
+                {/* Header */}
+                <View style={{ paddingHorizontal: 20, paddingVertical: 12 }}>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20, letterSpacing: -0.3 }}>
+                    {brandKey(restaurant.name)
+                      .split(" ")
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(" ")} Locations
+                  </Text>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 3 }}>
+                    {chainLocations.length} locations · sorted by distance
+                  </Text>
+                </View>
+
+                <View style={{ height: 1, backgroundColor: "#222", marginHorizontal: 20, marginBottom: 8 }} />
+
+                {/* Location list */}
+                {chainLocations.map((loc) => {
+                  const isCurrent = loc.id === restaurant.id;
+                  return (
+                    <Pressable
+                      key={loc.id}
+                      onPress={() => {
+                        setShowLocationPicker(false);
+                        if (!isCurrent) {
+                          if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          router.replace(`/restaurant/${loc.id}` as any);
+                        }
+                      }}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginHorizontal: 16,
+                        marginBottom: 8,
+                        padding: 14,
+                        borderRadius: 16,
+                        backgroundColor: isCurrent ? "rgba(255,153,51,0.1)" : "#1a1a1a",
+                        borderWidth: 1.5,
+                        borderColor: isCurrent ? "rgba(255,153,51,0.45)" : "#242424",
+                      }}
+                    >
+                      <Image
+                        source={{ uri: loc.image }}
+                        style={{ width: 52, height: 52, borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a" }}
+                        resizeMode="cover"
+                      />
+                      <View style={{ flex: 1, marginLeft: 14 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
+                          {isCurrent && (
+                            <View style={{ backgroundColor: "rgba(255,153,51,0.2)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginRight: 8 }}>
+                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 9 }}>CURRENT</Text>
+                            </View>
+                          )}
+                          <Text numberOfLines={1} style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 15, flex: 1, letterSpacing: -0.2 }}>
+                            {loc.name}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          <MapPin size={11} color="#888" />
+                          <Text numberOfLines={1} style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginLeft: 5, flex: 1 }}>
+                            {loc.address}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{ alignItems: "flex-end", marginLeft: 10 }}>
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#aaa", fontSize: 12 }}>
+                          {loc.distance}
+                        </Text>
+                        {!isCurrent && (
+                          <ChevronDown size={14} color="#555" style={{ marginTop: 4, transform: [{ rotate: "-90deg" }] }} />
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
     </View>
   );
 }

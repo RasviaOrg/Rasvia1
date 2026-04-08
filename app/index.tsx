@@ -41,6 +41,7 @@ import {
   mapSupabaseToUI,
   haversineDistance,
   parseFavorites,
+  deduplicateChains,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -800,37 +801,42 @@ export default function DiscoveryFeed() {
     return 0;
   };
 
-  const nearbyRestaurants = [...filteredRestaurants].sort((a, b) => {
-    const ar = availabilityRank(a);
-    const br = availabilityRank(b);
-    if (ar !== br) return ar - br;
-    const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
-    if (scoreDelta !== 0) return scoreDelta;
-    if (activeFilter !== "all") {
-      const aw = a.waitTime ?? 9999;
-      const bw = b.waitTime ?? 9999;
-      if (aw !== bw) return aw - bw;
-      return parseDist(a.distance) - parseDist(b.distance);
-    }
-    return parseDist(a.distance) - parseDist(b.distance);
-  });
-
-  const trendingRestaurants = restaurantsWithHoursStatus
-    .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
-    .sort((a, b) => {
+  const nearbyRestaurants = deduplicateChains(
+    [...filteredRestaurants].sort((a, b) => {
+      const ar = availabilityRank(a);
+      const br = availabilityRank(b);
+      if (ar !== br) return ar - br;
       const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
       if (scoreDelta !== 0) return scoreDelta;
-      return (a.waitTime ?? 9999) - (b.waitTime ?? 9999);
+      if (activeFilter !== "all") {
+        const aw = a.waitTime ?? 9999;
+        const bw = b.waitTime ?? 9999;
+        if (aw !== bw) return aw - bw;
+        return parseDist(a.distance) - parseDist(b.distance);
+      }
+      return parseDist(a.distance) - parseDist(b.distance);
     })
-    .slice(0, 3);
-  
-  const quickBites = restaurantsWithHoursStatus
-    .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus === "green")
-    .sort((a, b) => {
-      const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
-      if (scoreDelta !== 0) return scoreDelta;
-      return parseDist(a.distance) - parseDist(b.distance);
-    });
+  );
+
+  const trendingRestaurants = deduplicateChains(
+    restaurantsWithHoursStatus
+      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
+      .sort((a, b) => {
+        const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
+        if (scoreDelta !== 0) return scoreDelta;
+        return (a.waitTime ?? 9999) - (b.waitTime ?? 9999);
+      })
+  ).slice(0, 3);
+
+  const quickBites = deduplicateChains(
+    restaurantsWithHoursStatus
+      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus === "green")
+      .sort((a, b) => {
+        const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
+        if (scoreDelta !== 0) return scoreDelta;
+        return parseDist(a.distance) - parseDist(b.distance);
+      })
+  );
 
   const favoritesRestaurants = restaurantsWithHoursStatus
     .filter((r) => (isAdmin || r.isEnabled) && favoriteRestaurantIds.includes(Number(r.id)))
