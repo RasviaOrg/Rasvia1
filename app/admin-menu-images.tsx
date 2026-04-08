@@ -34,6 +34,7 @@ type Submission = {
   restaurant_id: number;
   submitted_by: string | null;
   submitter_name: string;
+  raw_image_url: string;
   image_url: string;
   status: SubmissionStatus;
   admin_note: string | null;
@@ -98,6 +99,7 @@ export default function AdminMenuImages() {
         setSubmissions(
           data.map((d: any) => ({
             ...d,
+            raw_image_url: d.image_url,
             image_url: normalizeImageUrl(d.image_url),
             menu_item_name: menuMap[d.menu_item_id] ?? `Item #${d.menu_item_id}`,
             restaurant_name: restMap[d.restaurant_id] ?? `Restaurant #${d.restaurant_id}`,
@@ -125,27 +127,12 @@ export default function AdminMenuImages() {
     setActioningId(submission.id);
     try {
       const note = adminNotes[submission.id]?.trim() ?? null;
-
-      const { error } = await supabase
-        .from("community_menu_images")
-        .update({
-          status: action,
-          admin_note: note || null,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq("id", submission.id);
-
+      const { error } = await supabase.rpc("review_menu_image_submission", {
+        p_submission_id: submission.id,
+        p_action: action,
+        p_note: note || null,
+      });
       if (error) throw error;
-
-      // If approving: update the menu item's image_url so it's used going forward
-      if (action === "approved") {
-        const normalizedUrl = normalizeImageUrl(submission.image_url);
-        const { error: menuUpdateError } = await supabase
-          .from("menu_items")
-          .update({ image_url: normalizedUrl })
-          .eq("id", submission.menu_item_id);
-        if (menuUpdateError) throw menuUpdateError;
-      }
 
       if (Platform.OS !== "web")
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -332,8 +319,34 @@ export default function AdminMenuImages() {
                 setAdminNotes((prev) => ({ ...prev, [submission.id]: text }))
               }
               actioning={actioningId === submission.id}
-              onApprove={() => handleAction(submission, "approved")}
-              onReject={() => handleAction(submission, "rejected")}
+              onApprove={() => {
+                Alert.alert(
+                  "Approve image?",
+                  `Approve this image for ${submission.menu_item_name ?? "this menu item"}?`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Approve",
+                      style: "default",
+                      onPress: () => { void handleAction(submission, "approved"); },
+                    },
+                  ]
+                );
+              }}
+              onReject={() => {
+                Alert.alert(
+                  "Reject image?",
+                  `Reject this image request for ${submission.menu_item_name ?? "this menu item"}?`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Reject",
+                      style: "destructive",
+                      onPress: () => { void handleAction(submission, "rejected"); },
+                    },
+                  ]
+                );
+              }}
             />
           ))}
         </ScrollView>

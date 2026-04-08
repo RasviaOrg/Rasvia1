@@ -103,11 +103,11 @@ export function FoodDetailModal({
                   style={{
                     fontFamily: "Manrope_500Medium",
                     color: "#e5e7eb",
-                    fontSize: 11,
+                    fontSize: 9,
                   }}
                   numberOfLines={1}
                 >
-                  {item.communityImageCredit}
+                  {`Image taken by ${item.communityImageCredit}`}
                 </Text>
               </View>
             )}

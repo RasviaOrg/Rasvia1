@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
     View, Text, TextInput, FlatList, SectionList,
-    Alert, ActivityIndicator, Modal, Platform, ScrollView,
+    Alert, ActivityIndicator, Modal, Platform, ScrollView, KeyboardAvoidingView,
     Pressable, Image, Share,
 } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
@@ -155,8 +155,19 @@ export default function JoinPartyScreen() {
         cartItems.forEach(item => {
             const name = item.added_by_name || 'Unknown';
             if (!totals[name]) totals[name] = { items: [], total: 0 };
-            totals[name].items.push(item);
-            totals[name].total += Number(item.menu_items?.price ?? item.price ?? 0) * (item.quantity ?? 1);
+            const unitPrice = Number(item.menu_items?.price ?? item.price ?? 0);
+            const qty = item.quantity ?? 1;
+            totals[name].total += unitPrice * qty;
+
+            const aggKey = item.menu_item_id != null
+                ? `id:${item.menu_item_id}`
+                : `name:${(item.menu_items?.name ?? item.name ?? 'item').toLowerCase()}:${unitPrice}`;
+            const existing = totals[name].items.find((x: any) => x.__aggKey === aggKey);
+            if (existing) {
+                existing.quantity = (existing.quantity ?? 1) + qty;
+            } else {
+                totals[name].items.push({ ...item, __aggKey: aggKey });
+            }
         });
         return totals;
     }, [cartItems]);
@@ -449,27 +460,46 @@ export default function JoinPartyScreen() {
     const addToCart = async (item: any, quantity: number = 1) => {
         if (submitted) return;
         if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        const existing = cartItems.find(
+            (ci) =>
+                ci.menu_item_id === item.id &&
+                String(ci.added_by_name || '').trim() === guestName.trim() &&
+                !String(ci.id).startsWith('temp-')
+        );
 
-        const tempId = `temp-${Math.random()}`;
-        const optimistic = {
-            id: tempId,
-            menu_item_id: item.id,
-            menu_items: { name: item.name, price: item.price, description: item.description, image_url: item.image_url },
-            added_by_name: guestName,
-            quantity,
-        };
-        setCartItems(prev => [...prev, optimistic]);
+        if (existing) {
+            const nextQty = (existing.quantity ?? 1) + quantity;
+            setCartItems(prev => prev.map(ci => ci.id === existing.id ? { ...ci, quantity: nextQty } : ci));
+            const { error } = await supabase
+                .from('party_items')
+                .update({ quantity: nextQty })
+                .eq('id', existing.id);
+            if (error) {
+                doFetchCart();
+                Alert.alert('Error', 'Could not add item. Please try again.');
+            }
+        } else {
+            const tempId = `temp-${Math.random()}`;
+            const optimistic = {
+                id: tempId,
+                menu_item_id: item.id,
+                menu_items: { name: item.name, price: item.price, description: item.description, image_url: item.image_url },
+                added_by_name: guestName,
+                quantity,
+            };
+            setCartItems(prev => [...prev, optimistic]);
 
-        const { error } = await supabase.from('party_items').insert({
-            session_id: sessionId,
-            menu_item_id: item.id,
-            added_by_name: guestName,
-            quantity,
-        });
+            const { error } = await supabase.from('party_items').insert({
+                session_id: sessionId,
+                menu_item_id: item.id,
+                added_by_name: guestName,
+                quantity,
+            });
 
-        if (error) {
-            setCartItems(prev => prev.filter(i => i.id !== tempId));
-            Alert.alert('Error', 'Could not add item. Please try again.');
+            if (error) {
+                setCartItems(prev => prev.filter(i => i.id !== tempId));
+                Alert.alert('Error', 'Could not add item. Please try again.');
+            }
         }
         // Reset the quantity selector
         setItemQuantities(prev => { const n = { ...prev }; delete n[item.id.toString()]; return n; });
@@ -1091,12 +1121,19 @@ export default function JoinPartyScreen() {
     // ─── Join Screen ─────────────────────────────────────────────────────
     if (!isJoined) {
         return (
-            <View style={{ flex: 1, backgroundColor: '#0f0f0f' }}>
+            <KeyboardAvoidingView
+                style={{ flex: 1, backgroundColor: '#0f0f0f' }}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
                 <Stack.Screen options={{ headerShown: false }} />
                 {restaurantImage && (
-                    <Image source={{ uri: restaurantImage }} style={{ width: '100%', height: 220 }} resizeMode="cover" />
+                    <Image source={{ uri: restaurantImage }} style={{ width: '100%', height: 180 }} resizeMode="cover" />
                 )}
-                <View style={{ flex: 1, padding: 28, justifyContent: 'center' }}>
+                <ScrollView
+                    contentContainerStyle={{ flexGrow: 1 }}
+                    keyboardShouldPersistTaps="handled"
+                >
+                <View style={{ flex: 1, padding: 24, justifyContent: 'center' }}>
                     <Pressable onPress={goBack} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 32 }}>
                         <ArrowLeft size={18} color="#999" />
                         <Text style={{ fontFamily: 'Manrope_500Medium', color: '#999', fontSize: 14 }}>Back</Text>
@@ -1138,7 +1175,8 @@ export default function JoinPartyScreen() {
                         </Text>
                     </Pressable>
                 </View>
-            </View>
+                </ScrollView>
+            </KeyboardAvoidingView>
         );
     }
 
@@ -1295,6 +1333,7 @@ export default function JoinPartyScreen() {
                     const isExpanded = expandedItemId === item.id.toString();
                     const mealPeriod = item.meal_period as MealPeriod | undefined;
                     const itemInCart = cartItems.filter(ci => ci.menu_item_id === item.id || ci.menu_items?.name === item.name);
+                    const itemInCartQty = itemInCart.reduce((sum, ci) => sum + (ci.quantity ?? 1), 0);
 
                     return (
                         <Animated.View entering={FadeInDown.delay(Math.min(index * 40, 400)).duration(400)}>
@@ -1307,7 +1346,7 @@ export default function JoinPartyScreen() {
                                     backgroundColor: '#1a1a1a',
                                     borderRadius: 20,
                                     borderWidth: 1,
-                                    borderColor: isExpanded ? '#FF9933' : itemInCart.length > 0 ? 'rgba(255,153,51,0.3)' : '#2a2a2a',
+                                    borderColor: isExpanded ? '#FF9933' : itemInCartQty > 0 ? 'rgba(255,153,51,0.3)' : '#2a2a2a',
                                     marginBottom: 12,
                                     overflow: 'hidden',
                                 }}
@@ -1339,10 +1378,10 @@ export default function JoinPartyScreen() {
                                                     <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#EF4444', fontSize: 10 }}>Spicy</Text>
                                                 </View>
                                             )}
-                                            {itemInCart.length > 0 && (
+                                            {itemInCartQty > 0 && (
                                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(255,153,51,0.12)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,153,51,0.3)', paddingHorizontal: 8, paddingVertical: 3 }}>
                                                     <ShoppingCart size={10} color="#FF9933" />
-                                                    <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 10 }}>×{itemInCart.length}</Text>
+                                                    <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 10 }}>×{itemInCartQty}</Text>
                                                 </View>
                                             )}
                                         </View>
@@ -1517,63 +1556,121 @@ export default function JoinPartyScreen() {
                         </View>
                     ) : showMemberBreakdown ? (
                         /* By Member View */
-                        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 180 }}>
-                            {Object.entries(memberTotals).map(([name, data]) => {
-                                const color = getMemberColor(name, uniqueMembers);
-                                const canRemove = isHost || name === guestName;
-                                return (
-                                    <View key={name} style={{ marginBottom: 16 }}>
-                                        {/* Member Header */}
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                                <MemberAvatar name={name} color={color} size={28} avatarUrl={memberAvatarMap[name]} />
-                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 15 }}>{name}</Text>
-                                                {name === guestName && isHost && <Crown size={12} color="#FF9933" />}
-                                            </View>
-                                            <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color, fontSize: 15 }}>${data.total.toFixed(2)}</Text>
-                                        </View>
-
-                                        {/* Items */}
-                                        {data.items.map(item => (
-                                            <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', padding: 12, marginBottom: 6 }}>
-                                                <View style={{ flex: 1 }}>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 14 }} numberOfLines={1}>
-                                                            {item.menu_items?.name ?? 'Item'}
-                                                        </Text>
-                                                        {(item.quantity ?? 1) > 1 && (
-                                                            <View style={{ backgroundColor: 'rgba(255,153,51,0.15)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
-                                                                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 11 }}>×{item.quantity}</Text>
+                        <View style={{ flex: 1 }}>
+                            {guestName && memberTotals[guestName] && (
+                                <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#262626' }}>
+                                    {(() => {
+                                        const name = guestName;
+                                        const data = memberTotals[name];
+                                        const color = getMemberColor(name, uniqueMembers);
+                                        const canRemove = isHost || name === guestName;
+                                        return (
+                                            <View>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                        <MemberAvatar name={name} color={color} size={28} avatarUrl={memberAvatarMap[name]} />
+                                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 15 }}>{name}</Text>
+                                                        {isHost && <Crown size={12} color="#FF9933" />}
+                                                    </View>
+                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color, fontSize: 15 }}>${data.total.toFixed(2)}</Text>
+                                                </View>
+                                                {data.items.map(item => (
+                                                    <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', padding: 12, marginBottom: 6 }}>
+                                                        <View style={{ flex: 1 }}>
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 14 }} numberOfLines={1}>
+                                                                    {item.menu_items?.name ?? 'Item'}
+                                                                </Text>
+                                                                {(item.quantity ?? 1) > 1 && (
+                                                                    <View style={{ backgroundColor: 'rgba(255,153,51,0.15)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 11 }}>×{item.quantity}</Text>
+                                                                    </View>
+                                                                )}
                                                             </View>
+                                                            <Text style={{ fontFamily: 'Manrope_500Medium', color: '#FF9933', fontSize: 13, marginTop: 2 }}>
+                                                                ${(Number(item.menu_items?.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
+                                                            </Text>
+                                                        </View>
+                                                        {canRemove && !submitted && (
+                                                            <Pressable
+                                                                onPress={() => {
+                                                                    Alert.alert(
+                                                                        'Remove Item',
+                                                                        `Remove "${item.menu_items?.name ?? 'this item'}" from the order?`,
+                                                                        [
+                                                                            { text: 'Cancel', style: 'cancel' },
+                                                                            { text: 'Remove', style: 'destructive', onPress: () => removeFromCart(item.id) },
+                                                                        ]
+                                                                    );
+                                                                }}
+                                                                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}
+                                                            >
+                                                                <Trash2 size={14} color="#EF4444" />
+                                                            </Pressable>
                                                         )}
                                                     </View>
-                                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#FF9933', fontSize: 13, marginTop: 2 }}>
-                                                        ${(Number(item.menu_items?.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
-                                                    </Text>
-                                                </View>
-                                                {canRemove && !submitted && (
-                                                    <Pressable
-                                                        onPress={() => {
-                                                            Alert.alert(
-                                                                'Remove Item',
-                                                                `Remove "${item.menu_items?.name ?? 'this item'}" from the order?`,
-                                                                [
-                                                                    { text: 'Cancel', style: 'cancel' },
-                                                                    { text: 'Remove', style: 'destructive', onPress: () => removeFromCart(item.id) },
-                                                                ]
-                                                            );
-                                                        }}
-                                                        style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}
-                                                    >
-                                                        <Trash2 size={14} color="#EF4444" />
-                                                    </Pressable>
-                                                )}
+                                                ))}
                                             </View>
-                                        ))}
-                                    </View>
-                                );
-                            })}
-                        </ScrollView>
+                                        );
+                                    })()}
+                                </View>
+                            )}
+                            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 180 }}>
+                                {Object.entries(memberTotals).filter(([name]) => name !== guestName).map(([name, data]) => {
+                                    const color = getMemberColor(name, uniqueMembers);
+                                    const canRemove = isHost || name === guestName;
+                                    return (
+                                        <View key={name} style={{ marginBottom: 16 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                    <MemberAvatar name={name} color={color} size={28} avatarUrl={memberAvatarMap[name]} />
+                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 15 }}>{name}</Text>
+                                                    {name === guestName && isHost && <Crown size={12} color="#FF9933" />}
+                                                </View>
+                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color, fontSize: 15 }}>${data.total.toFixed(2)}</Text>
+                                            </View>
+
+                                            {data.items.map(item => (
+                                                <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', padding: 12, marginBottom: 6 }}>
+                                                    <View style={{ flex: 1 }}>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                            <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 14 }} numberOfLines={1}>
+                                                                {item.menu_items?.name ?? 'Item'}
+                                                            </Text>
+                                                            {(item.quantity ?? 1) > 1 && (
+                                                                <View style={{ backgroundColor: 'rgba(255,153,51,0.15)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                                                    <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 11 }}>×{item.quantity}</Text>
+                                                                </View>
+                                                            )}
+                                                        </View>
+                                                        <Text style={{ fontFamily: 'Manrope_500Medium', color: '#FF9933', fontSize: 13, marginTop: 2 }}>
+                                                            ${(Number(item.menu_items?.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
+                                                        </Text>
+                                                    </View>
+                                                    {canRemove && !submitted && (
+                                                        <Pressable
+                                                            onPress={() => {
+                                                                Alert.alert(
+                                                                    'Remove Item',
+                                                                    `Remove "${item.menu_items?.name ?? 'this item'}" from the order?`,
+                                                                    [
+                                                                        { text: 'Cancel', style: 'cancel' },
+                                                                        { text: 'Remove', style: 'destructive', onPress: () => removeFromCart(item.id) },
+                                                                    ]
+                                                                );
+                                                            }}
+                                                            style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}
+                                                        >
+                                                            <Trash2 size={14} color="#EF4444" />
+                                                        </Pressable>
+                                                    )}
+                                                </View>
+                                            ))}
+                                        </View>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
                     ) : (
                         /* All Items View */
                         <FlatList

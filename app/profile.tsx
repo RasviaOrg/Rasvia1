@@ -1111,38 +1111,13 @@ export default function ProfileSettingsScreen() {
             </Text>
           </Animated.View>
 
-          {/* Admin Pulse + Admin Portal — only on preferences tab */}
+          {/* Admin Portal — only on preferences tab */}
           {isAdmin && activeTab === 'preferences' && (
             <Animated.View
               entering={FadeInDown.delay(0).duration(400)}
               className="mx-5 mb-4"
               style={{ gap: 10 }}
             >
-              <Pressable
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push("/admin-pulse" as any);
-                }}
-                style={{
-                  backgroundColor: "rgba(255,153,51,0.08)",
-                  borderWidth: 1,
-                  borderColor: "rgba(255,153,51,0.25)",
-                  borderRadius: 16,
-                  paddingVertical: 16,
-                  paddingHorizontal: 20,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Shield size={18} color="#FF9933" />
-                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 16, marginLeft: 10 }}>
-                    Admin Pulse
-                  </Text>
-                </View>
-                <ChevronRight size={18} color="#FF9933" />
-              </Pressable>
               <Pressable
                 onPress={() => {
                   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

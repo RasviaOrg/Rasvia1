@@ -38,7 +38,11 @@ export type NotificationEventType =
   | "review_report_submitted"
   | "review_report_new"
   | "review_report_declined"
-  | "review_report_deleted";
+  | "review_report_deleted"
+  | "menu_image_submitted"
+  | "menu_image_request_new"
+  | "menu_image_approved"
+  | "menu_image_rejected";
 
 type NotificationEventSource = "local" | "server";
 

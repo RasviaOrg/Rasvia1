@@ -69,6 +69,7 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
   const [anonymous, setAnonymous] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [selectedMimeType, setSelectedMimeType] = useState<string | null>(null);
 
   const prettifyName = (raw: string) => {
     const base = (raw || "").split("@")[0];
@@ -82,6 +83,7 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
 
   function reset() {
     setPhotoUri(null);
+    setSelectedMimeType(null);
     setAnonymous(false);
     setUploading(false);
     setSubmitted(false);
@@ -110,13 +112,24 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: "images",
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.75,
     });
     if (!result.canceled && result.assets[0]) {
       setPhotoUri(result.assets[0].uri);
+      setSelectedMimeType(result.assets[0].mimeType ?? null);
+    }
+  }
+
+  async function sendSubmissionNotifications(submissionId: string) {
+    try {
+      await supabase.rpc("notify_menu_image_submission", {
+        p_submission_id: submissionId,
+      });
+    } catch {
+      // Non-blocking: upload should still succeed even if notifications fail.
     }
   }
 
@@ -132,38 +145,47 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
     setUploading(true);
 
     try {
-      // 1. Read the image as a blob
+      // 1. Read the image bytes (RN blob polyfills are inconsistent on arrayBuffer support)
       const response = await fetch(photoUri);
-      const blob = await response.blob();
-      const ext = photoUri.split(".").pop()?.toLowerCase() ?? "jpg";
+      const responseMime = response.headers.get("content-type") || "";
+      const mime = (selectedMimeType || responseMime || "image/jpeg").toLowerCase();
+      const ext = mime.includes("png")
+        ? "png"
+        : mime.includes("webp")
+          ? "webp"
+          : mime.includes("heic")
+            ? "heic"
+            : "jpg";
       // Put auth uid first in path so common bucket RLS policies ("first folder = auth.uid()") pass.
       const filePath = `${session.user.id}/${restaurantId}/${item.id}/${Date.now()}.${ext}`;
+      const body = await response.arrayBuffer();
 
       // 2. Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from("community-images")
-        .upload(filePath, blob, { contentType: `image/${ext}`, upsert: false });
+        .upload(filePath, body, { contentType: mime, upsert: false });
 
       if (uploadError) throw uploadError;
 
-      // 3. Get public URL
-      const { data: urlData } = supabase.storage
-        .from("community-images")
-        .getPublicUrl(filePath);
-
-      // 4. Insert submission row
-      const { error: insertError } = await supabase
+      // 3. Insert submission row (store storage path, not a hardcoded URL)
+      const { data: insertedRows, error: insertError } = await supabase
         .from("community_menu_images")
         .insert({
           menu_item_id: Number(item.id),
           restaurant_id: Number(restaurantId),
           submitted_by: session.user.id,
           submitter_name: anonymous ? "Anonymous" : accountName,
-          image_url: urlData.publicUrl,
+          image_url: filePath,
           status: "pending",
-        });
+        })
+        .select("id")
+        .limit(1);
 
       if (insertError) throw insertError;
+      const submissionId = String((insertedRows as any)?.[0]?.id ?? "");
+      if (submissionId) {
+        await sendSubmissionNotifications(submissionId);
+      }
 
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSubmitted(true);

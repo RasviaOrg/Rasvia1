@@ -28,6 +28,7 @@ import {
   ShoppingCart,
   CheckCheck,
   XCircle,
+  Camera,
 } from "lucide-react-native";
 import Animated, {
   FadeIn,
@@ -187,6 +188,26 @@ const EVENT_CONFIG: Record<
     label: () => "Review report closed",
     color: "#22C55E",
     icon: Trash2,
+  },
+  menu_image_submitted: {
+    label: () => "Menu photo request submitted",
+    color: "#3B82F6",
+    icon: Camera,
+  },
+  menu_image_request_new: {
+    label: () => "New menu photo request",
+    color: "#FF9933",
+    icon: Camera,
+  },
+  menu_image_approved: {
+    label: () => "Menu photo approved",
+    color: "#22C55E",
+    icon: CheckCheck,
+  },
+  menu_image_rejected: {
+    label: () => "Menu photo declined",
+    color: "#EF4444",
+    icon: XCircle,
   },
 };
 

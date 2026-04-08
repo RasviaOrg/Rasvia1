@@ -429,6 +429,16 @@ export default function RestaurantDetail() {
       if (error) throw error;
       if (data) {
         const uiMenuItems = data.map(item => mapMenuItemToUI(item as SupabaseMenuItem));
+        const sortByImageFirst = (items: UIMenuItem[]) =>
+          items
+            .map((item, idx) => ({ item, idx }))
+            .sort((a, b) => {
+              const aHas = !!a.item.image?.trim();
+              const bHas = !!b.item.image?.trim();
+              if (aHas === bHas) return a.idx - b.idx; // stable for equal groups
+              return aHas ? -1 : 1; // images first
+            })
+            .map((x) => x.item);
 
         // Overlay approved community image credits (and fallback image where needed)
         try {
@@ -467,21 +477,31 @@ export default function RestaurantDetail() {
                   : /^https?:\/\//i.test(raw)
                     ? raw
                     : supabase.storage.from("community-images").getPublicUrl(raw).data.publicUrl;
+              const itemImage = String(item.image ?? "").trim();
+              const imageMatchesCommunity =
+                itemImage.length > 0 &&
+                communityImageUrl.length > 0 &&
+                itemImage === communityImageUrl;
 
               return {
                 ...item,
-                image: item.image?.trim() ? item.image : communityImageUrl,
-                communityImageCredit: ci.submitter_name ?? null,
+                image: itemImage.length > 0 ? itemImage : communityImageUrl,
+                communityImageCredit:
+                  !ci.submitter_name
+                    ? null
+                    : itemImage.length === 0 || imageMatchesCommunity
+                      ? ci.submitter_name
+                      : null,
               };
             });
-            setMenu(merged);
+            setMenu(sortByImageFirst(merged));
             return;
           }
         } catch {
           // community_menu_images table may not exist yet — silently skip
         }
 
-        setMenu(uiMenuItems);
+        setMenu(sortByImageFirst(uiMenuItems));
       }
     } catch (error) {
       console.error('Error fetching menu:', error);

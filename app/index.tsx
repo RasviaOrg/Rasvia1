@@ -1246,19 +1246,6 @@ export default function DiscoveryFeed() {
                       ? "Sorted for vegetarian-friendly options first."
                       : "Sorted for halal-friendly options first."}
                   </Text>
-                  {isHalalSortMode && (
-                    <Text
-                      style={{
-                        fontFamily: "Manrope_500Medium",
-                        color: "#a3a3a3",
-                        fontSize: 11,
-                        marginTop: 4,
-                        lineHeight: 15,
-                      }}
-                    >
-                      Opens soon — waitlist may already be open before dining hours.
-                    </Text>
-                  )}
                 </View>
               </View>
             </Animated.View>

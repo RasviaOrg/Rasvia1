@@ -461,6 +461,24 @@ export default function AdminPortalScreen() {
         <Text style={{ marginLeft: 8, fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5", flex: 1 }}>
           Admin Portal
         </Text>
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== "web") Haptics.selectionAsync();
+            router.push("/admin-pulse" as any);
+          }}
+          style={{
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: "rgba(255,153,51,0.35)",
+            backgroundColor: "rgba(255,153,51,0.12)",
+            paddingHorizontal: 12,
+            paddingVertical: 7,
+          }}
+        >
+          <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 11 }}>
+            Switch to Admin Pulse
+          </Text>
+        </Pressable>
       </View>
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
@@ -548,7 +566,7 @@ export default function AdminPortalScreen() {
         >
           <Settings2 size={14} color={adminMode === "settings" ? "#EAB308" : "#888"} />
           <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "settings" ? "#EAB308" : "#888" }}>
-            Settings
+            Review Reports
           </Text>
         </Pressable>
       </View>

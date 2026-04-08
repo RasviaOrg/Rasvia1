@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { Camera, Flame, Image as ImageIcon, Leaf, Trash2, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -121,7 +122,7 @@ export function MenuItemDetailSettingsModal({
       const publicUrl = await uploadMenuImageToStorage(item.id, asset.uri, asset.mimeType);
       const { error } = await supabase.from("menu_items").update({ image_url: publicUrl }).eq("id", Number(item.id));
       if (error) throw error;
-      onSaved({ ...item, image: publicUrl });
+      onSaved({ ...item, image: publicUrl, hasOfficialImage: true, communityImageCredit: null });
     } catch (err: any) {
       Alert.alert("Error", err.message || "Failed to update image.");
     } finally {
@@ -167,6 +168,7 @@ export function MenuItemDetailSettingsModal({
         mealTimes: formatMealTimesForDb(mealTimes),
         isVegetarian,
         spiceLevel,
+        communityImageCredit: item.hasOfficialImage ? null : item.communityImageCredit,
       });
       onClose();
     } catch (err: any) {
@@ -243,6 +245,13 @@ export function MenuItemDetailSettingsModal({
                   <Text style={[smallActionText, { color: "#EF4444" }]}>Delete</Text>
                 </Pressable>
               </View>
+              {!!item.image?.trim() && (
+                <Image
+                  source={{ uri: item.image }}
+                  style={{ width: "100%", height: 140, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: "#2f2f2f" }}
+                  resizeMode="cover"
+                />
+              )}
 
               <Text style={labelStyle}>Name</Text>
               <TextInput style={inputStyle} value={name} onChangeText={setName} placeholder="Name" placeholderTextColor="#666" />
