@@ -73,7 +73,7 @@ import {
   mapMenuItemToUI,
   haversineDistance,
   parseFavorites,
-  brandKey,
+  restaurantGroupKey,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
@@ -151,6 +151,7 @@ export default function RestaurantDetail() {
   const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
   const [communityImageTarget, setCommunityImageTarget] = useState<UIMenuItem | null>(null);
+  const [acceptCommunityImages, setAcceptCommunityImages] = useState(true);
   // Chain / multi-location picker
   const [chainLocations, setChainLocations] = useState<UIRestaurant[]>([]);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
@@ -406,15 +407,15 @@ export default function RestaurantDetail() {
         setLiveAvgRating(stats.average);
 
         // ── Fetch sibling locations for chains ──────────────────────────────
-        const thisBrandKey = brandKey(uiRestaurant.name);
+        const thisBrandKey = restaurantGroupKey(uiRestaurant);
         const { data: allRestaurants } = await supabase
           .from("restaurants")
-          .select("id, name, address, lat, long, image_url, current_wait_time, is_waitlist_open, is_enabled, waitlist_open, rating, price_range, cuisine_tags, owner_id, created_at, waitlist_early_open_enabled, waitlist_early_open_minutes, is_coming_soon")
+          .select("id, name, address, lat, long, image_url, current_wait_time, is_waitlist_open, is_enabled, waitlist_open, rating, price_range, cuisine_tags, owner_id, created_at, waitlist_early_open_enabled, waitlist_early_open_minutes, is_coming_soon, chain_group_key")
           .order("name", { ascending: true });
         if (allRestaurants) {
           const siblings = (allRestaurants as SupabaseRestaurant[])
-            .filter((r) => brandKey(r.name) === thisBrandKey)
             .map((r) => mapSupabaseToUI(r, userCoords))
+            .filter((r) => restaurantGroupKey(r) === thisBrandKey)
             .sort((a, b) => {
               const da = parseFloat((a.distance ?? "").replace(/[^0-9.]/g, "")) || Infinity;
               const db = parseFloat((b.distance ?? "").replace(/[^0-9.]/g, "")) || Infinity;
@@ -422,6 +423,20 @@ export default function RestaurantDetail() {
             });
           setChainLocations(siblings);
         }
+      }
+
+      // Owner-level contribution setting (column may not exist on older DBs; default to true).
+      try {
+        const { data: contribSettings, error: contribError } = await supabase
+          .from("restaurants")
+          .select("accept_community_image_contributions")
+          .eq("id", Number(id))
+          .maybeSingle();
+        if (!contribError) {
+          setAcceptCommunityImages((contribSettings as any)?.accept_community_image_contributions !== false);
+        }
+      } catch {
+        // noop
       }
 
       // Check if this restaurant is favorited by the current user
@@ -1934,7 +1949,7 @@ export default function RestaurantDetail() {
               }}
               onQuickAdd={(item) => handleAddToCart(item)}
               restaurantId={id}
-              onContributeImage={(item) => setCommunityImageTarget(item)}
+              onContributeImage={acceptCommunityImages ? (item) => setCommunityImageTarget(item) : undefined}
             />
           </View>
         </View>
@@ -2154,8 +2169,11 @@ export default function RestaurantDetail() {
           item={selectedItem}
           onClose={() => setSelectedItem(null)}
           onAddToCart={() => handleAddToCart(selectedItem)}
-          showContributeImage={!selectedItem.hasOfficialImage && !selectedItem.communityImageCredit}
-          onContributeImage={() => setCommunityImageTarget(selectedItem)}
+          showContributeImage={acceptCommunityImages && !selectedItem.hasOfficialImage && !selectedItem.communityImageCredit}
+          onContributeImage={() => {
+            if (!acceptCommunityImages) return;
+            setCommunityImageTarget(selectedItem);
+          }}
           onOpenSettings={
             canManage
               ? () => {
@@ -2499,6 +2517,7 @@ export default function RestaurantDetail() {
             address: restaurant.address,
             description: restaurant.description,
             cuisine: restaurant.tags.join(", "),
+            chainGroupKey: restaurant.chainGroupKey ?? "",
           }}
           onClose={() => {
             setShowEditModal(false);
@@ -2525,6 +2544,7 @@ export default function RestaurantDetail() {
                   description: updated.description,
                   cuisine: updated.cuisine,
                   tags: updated.cuisine.split(",").map((t) => t.trim()).filter(Boolean),
+                  chainGroupKey: updated.chainGroupKey ?? null,
                 }
                 : prev
             );
@@ -2587,7 +2607,9 @@ export default function RestaurantDetail() {
                 {/* Header */}
                 <View style={{ paddingHorizontal: 20, paddingVertical: 12 }}>
                   <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20, letterSpacing: -0.3 }}>
-                    {brandKey(restaurant.name)
+                    {restaurant.name
+                      .toLowerCase()
+                      .replace(/[-–—(|,].*/g, "")
                       .split(" ")
                       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
                       .join(" ")} Locations

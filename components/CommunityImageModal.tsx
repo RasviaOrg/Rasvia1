@@ -145,6 +145,16 @@ export function CommunityImageModal({ visible, item, restaurantId, onClose }: Pr
     setUploading(true);
 
     try {
+      // Respect restaurant-level owner toggle.
+      const { data: restaurantRow, error: restaurantError } = await supabase
+        .from("restaurants")
+        .select("accept_community_image_contributions")
+        .eq("id", Number(restaurantId))
+        .maybeSingle();
+      if (!restaurantError && (restaurantRow as any)?.accept_community_image_contributions === false) {
+        throw new Error("This restaurant is not accepting community image contributions right now.");
+      }
+
       // 1. Read the image bytes (RN blob polyfills are inconsistent on arrayBuffer support)
       const response = await fetch(photoUri);
       const responseMime = response.headers.get("content-type") || "";

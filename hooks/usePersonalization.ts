@@ -16,6 +16,7 @@ export interface LastOrderItem {
   name: string;
   quantity: number;
   mealPeriod: MealPeriod;
+  imageUrl: string | null;
 }
 
 export interface LastOrder {
@@ -86,16 +87,25 @@ export function usePersonalization(): PersonalizationData {
         const items: { menu_item_id?: number }[] = (o.order_items as any) ?? [];
         items.forEach(i => { if (i.menu_item_id) menuItemIds.add(i.menu_item_id); });
       }
-      // Build a map: menu_item_id → meal_period
+      // Build maps: menu_item_id → meal_period / image_url
       const mealPeriodMap: Record<number, MealPeriod> = {};
+      const menuImageMap: Record<number, string | null> = {};
       if (menuItemIds.size > 0) {
         const { data: menuRows } = await supabase
           .from("menu_items")
-          .select("id, meal_times")
+          .select("id, meal_times, image_url")
           .in("id", Array.from(menuItemIds));
         (menuRows ?? []).forEach((r: any) => {
           const first = Array.isArray(r.meal_times) ? r.meal_times[0] : (r.meal_times ?? null);
           mealPeriodMap[r.id] = (first ?? null) as MealPeriod;
+          const rawImage = typeof r.image_url === "string" ? r.image_url.trim() : "";
+          if (!rawImage) {
+            menuImageMap[r.id] = null;
+          } else if (/^https?:\/\//i.test(rawImage)) {
+            menuImageMap[r.id] = rawImage;
+          } else {
+            menuImageMap[r.id] = supabase.storage.from("community-images").getPublicUrl(rawImage).data.publicUrl;
+          }
         });
       }
 
@@ -138,6 +148,7 @@ export function usePersonalization(): PersonalizationData {
           name: i.name,
           quantity: i.quantity,
           mealPeriod: i.menu_item_id != null ? (mealPeriodMap[i.menu_item_id] ?? null) : null,
+          imageUrl: i.menu_item_id != null ? (menuImageMap[i.menu_item_id] ?? null) : null,
         }));
 
         lastOrderByRestaurant[rid] = {

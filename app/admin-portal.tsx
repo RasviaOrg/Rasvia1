@@ -37,6 +37,7 @@ type RestaurantRow = {
   waitlist_open: boolean | null;
   is_coming_soon: boolean | null;
   stripe_account_id: string | null;
+  chain_group_key: string | null;
 };
 
 type ProfileOption = {
@@ -88,6 +89,7 @@ function emptyForm(): Partial<RestaurantRow> {
     waitlist_open: true,
     is_coming_soon: false,
     stripe_account_id: "",
+    chain_group_key: "",
   };
 }
 
@@ -138,7 +140,7 @@ export default function AdminPortalScreen() {
   const [reviewReports, setReviewReports] = useState<ReviewReportView[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [adminMode, setAdminMode] = useState<"restaurants" | "users" | "settings">("restaurants");
+  const [adminMode, setAdminMode] = useState<"restaurants" | "groups" | "users" | "settings">("restaurants");
   const [selectedId, setSelectedId] = useState<number | "new" | null>(null);
   const [draft, setDraft] = useState<Partial<RestaurantRow>>(emptyForm());
   const [cuisineTagsText, setCuisineTagsText] = useState("");
@@ -153,6 +155,19 @@ export default function AdminPortalScreen() {
   const [declineTarget, setDeclineTarget] = useState<ReviewReportView | null>(null);
   const [declineMessage, setDeclineMessage] = useState("");
   const [declineSaving, setDeclineSaving] = useState(false);
+  const [showGroupEditorModal, setShowGroupEditorModal] = useState(false);
+  const [groupEditorMode, setGroupEditorMode] = useState<"create" | "edit">("create");
+  const [groupOriginalKey, setGroupOriginalKey] = useState<string | null>(null);
+  const [groupEditorName, setGroupEditorName] = useState("");
+  const [groupEditorRestaurantIds, setGroupEditorRestaurantIds] = useState<number[]>([]);
+  const [groupSaving, setGroupSaving] = useState(false);
+
+  const normalizeGroupKey = (value: string) =>
+    value
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-_]/g, "")
+      .replace(/\s+/g, "-");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -281,6 +296,23 @@ export default function AdminPortalScreen() {
     );
   }, [profiles, userSearch]);
 
+  const chainGroups = useMemo(() => {
+    const groups = new Map<string, RestaurantRow[]>();
+    for (const r of restaurants) {
+      const key = String(r.chain_group_key ?? "").trim();
+      if (!key) continue;
+      const list = groups.get(key) ?? [];
+      list.push(r);
+      groups.set(key, list);
+    }
+    return Array.from(groups.entries())
+      .map(([key, members]) => ({
+        key,
+        members: [...members].sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+  }, [restaurants]);
+
   const parseCoord = (s: string): number | null => {
     const t = s.trim();
     if (t === "" || t === "-" || t === "." || t === "-.") return null;
@@ -316,6 +348,7 @@ export default function AdminPortalScreen() {
       waitlist_open: draft.waitlist_open !== false,
       is_coming_soon: draft.is_coming_soon === true,
       stripe_account_id: draft.stripe_account_id?.trim() || null,
+      chain_group_key: draft.chain_group_key?.trim() || null,
     };
 
     setSaving(true);
@@ -387,6 +420,89 @@ export default function AdminPortalScreen() {
       Alert.alert("Error", e instanceof Error ? e.message : "Could not delete report");
     } finally {
       setReportActionLoadingId(null);
+    }
+  };
+
+  const openCreateGroupEditor = () => {
+    setGroupEditorMode("create");
+    setGroupOriginalKey(null);
+    setGroupEditorName("");
+    setGroupEditorRestaurantIds([]);
+    setShowGroupEditorModal(true);
+  };
+
+  const openEditGroupEditor = (groupKey: string, memberIds: number[]) => {
+    setGroupEditorMode("edit");
+    setGroupOriginalKey(groupKey);
+    setGroupEditorName(groupKey);
+    setGroupEditorRestaurantIds(memberIds);
+    setShowGroupEditorModal(true);
+  };
+
+  const handleSaveGroupEditor = async () => {
+    const groupKey = normalizeGroupKey(groupEditorName);
+    if (!groupKey) {
+      Alert.alert("Group name required", "Please enter a group name.");
+      return;
+    }
+    if (groupEditorRestaurantIds.length < 2) {
+      Alert.alert("Select restaurants", "Choose at least 2 restaurants for this group.");
+      return;
+    }
+
+    setGroupSaving(true);
+    try {
+      if (groupEditorMode === "edit" && groupOriginalKey) {
+        const previousMemberIds = restaurants
+          .filter((r) => String(r.chain_group_key ?? "").trim() === groupOriginalKey)
+          .map((r) => r.id);
+        if (previousMemberIds.length > 0) {
+          const { error: clearError } = await supabase
+            .from("restaurants")
+            .update({ chain_group_key: null })
+            .in("id", previousMemberIds);
+          if (clearError) throw clearError;
+        }
+      }
+
+      const { error } = await supabase
+        .from("restaurants")
+        .update({ chain_group_key: groupKey })
+        .in("id", groupEditorRestaurantIds);
+      if (error) throw error;
+
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowGroupEditorModal(false);
+      setGroupOriginalKey(null);
+      setGroupEditorName("");
+      setGroupEditorRestaurantIds([]);
+      await load();
+      Alert.alert(
+        groupEditorMode === "create" ? "Group created" : "Group updated",
+        `Assigned ${groupEditorRestaurantIds.length} restaurants to "${groupKey}".`,
+      );
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not save restaurant group.");
+    } finally {
+      setGroupSaving(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupKey: string) => {
+    setGroupSaving(true);
+    try {
+      const { error } = await supabase
+        .from("restaurants")
+        .update({ chain_group_key: null })
+        .eq("chain_group_key", groupKey);
+      if (error) throw error;
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await load();
+      Alert.alert("Group deleted", `Cleared group "${groupKey}" from all restaurants.`);
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not delete group.");
+    } finally {
+      setGroupSaving(false);
     }
   };
 
@@ -544,6 +660,28 @@ export default function AdminPortalScreen() {
         >
           <Users size={14} color={adminMode === "users" ? "#EAB308" : "#888"} />
           <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "users" ? "#EAB308" : "#888" }}>Users</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            haptic();
+            setAdminMode("groups");
+            setSelectedId(null);
+            setSelectedUserId(null);
+          }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingVertical: 8,
+            paddingHorizontal: 14,
+            borderRadius: 999,
+            backgroundColor: adminMode === "groups" ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.06)",
+            borderWidth: 1,
+            borderColor: adminMode === "groups" ? "rgba(234,179,8,0.45)" : "rgba(255,255,255,0.08)",
+          }}
+        >
+          <Users size={14} color={adminMode === "groups" ? "#EAB308" : "#888"} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "groups" ? "#EAB308" : "#888" }}>Groups</Text>
         </Pressable>
         <Pressable
           onPress={() => {
@@ -712,6 +850,109 @@ export default function AdminPortalScreen() {
               </ScrollView>
             </View>
           </Modal>
+        </View>
+      ) : adminMode === "groups" ? (
+        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4, paddingBottom: 10 }}>
+            <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>GROUPS</Text>
+            <Pressable
+              onPress={() => {
+                haptic();
+                openCreateGroupEditor();
+              }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(96,165,250,0.15)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 }}
+            >
+              <Plus size={14} color="#60A5FA" />
+              <Text style={{ color: "#60A5FA", fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>Create Group</Text>
+            </Pressable>
+          </View>
+
+          <FlatList
+            style={{ flex: 1 }}
+            data={chainGroups}
+            keyExtractor={(item) => item.key}
+            contentContainerStyle={{ paddingBottom: 20, flexGrow: 1 }}
+            renderItem={({ item }) => (
+              <View
+                style={{
+                  marginBottom: 10,
+                  backgroundColor: "#141414",
+                  borderWidth: 1,
+                  borderColor: "#2a2a2a",
+                  borderRadius: 12,
+                  padding: 12,
+                  gap: 8,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <Text style={{ color: "#60A5FA", fontFamily: "JetBrainsMono_600SemiBold", fontSize: 13, flex: 1 }} numberOfLines={1}>
+                    {item.key}
+                  </Text>
+                  <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>
+                    {item.members.length} restaurants
+                  </Text>
+                </View>
+                <Text style={{ color: "#b6b6b6", fontFamily: "Manrope_500Medium", fontSize: 12 }} numberOfLines={2}>
+                  {item.members.map((m) => m.name).join(", ")}
+                </Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={() => {
+                      haptic();
+                      openEditGroupEditor(item.key, item.members.map((m) => m.id));
+                    }}
+                    style={{
+                      flex: 1,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: "rgba(96,165,250,0.42)",
+                      backgroundColor: "rgba(96,165,250,0.16)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <Text style={{ color: "#60A5FA", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Edit</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      Alert.alert(
+                        "Delete group?",
+                        `Remove group "${item.key}" from all restaurants?`,
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Delete",
+                            style: "destructive",
+                            onPress: () => void handleDeleteGroup(item.key),
+                          },
+                        ],
+                      );
+                    }}
+                    disabled={groupSaving}
+                    style={{
+                      flex: 1,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: "rgba(239,68,68,0.42)",
+                      backgroundColor: "rgba(239,68,68,0.16)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      paddingVertical: 10,
+                      opacity: groupSaving ? 0.7 : 1,
+                    }}
+                  >
+                    <Text style={{ color: "#F87171", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Delete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+            ListEmptyComponent={
+              <Text style={{ color: "#666", textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
+                No groups yet. Tap Create Group.
+              </Text>
+            }
+          />
         </View>
       ) : adminMode === "settings" ? (
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
@@ -925,6 +1166,11 @@ export default function AdminPortalScreen() {
               >
                 <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>{r.name}</Text>
                 <Text style={{ color: "#666", fontSize: 11, marginTop: 2 }}>ID {r.id}</Text>
+                {r.chain_group_key ? (
+                  <Text style={{ color: "#60A5FA", fontSize: 11, marginTop: 2, fontFamily: "JetBrainsMono_600SemiBold" }}>
+                    Group: {r.chain_group_key}
+                  </Text>
+                ) : null}
               </Pressable>
             )}
             ListEmptyComponent={
@@ -1016,6 +1262,15 @@ export default function AdminPortalScreen() {
               <TextInput style={[inputStyle, { marginBottom: 12 }]} value={draft.price_range ?? "$$"} onChangeText={(t) => setDraft((d) => ({ ...d, price_range: t }))} />
               <Text style={labelStyle}>Cuisine tags (comma-separated)</Text>
               <TextInput style={[inputStyle, { marginBottom: 12 }]} value={cuisineTagsText} onChangeText={setCuisineTagsText} />
+              <Text style={labelStyle}>Chain group key</Text>
+              <TextInput
+                style={[inputStyle, { marginBottom: 12, fontFamily: "JetBrainsMono_600SemiBold" }]}
+                value={draft.chain_group_key ?? ""}
+                onChangeText={(t) => setDraft((d) => ({ ...d, chain_group_key: t }))}
+                autoCapitalize="none"
+                placeholder="e.g. saravanaa-bhavan"
+                placeholderTextColor="#555"
+              />
               <Text style={labelStyle}>Stripe account ID</Text>
               <TextInput
                 style={[inputStyle, { marginBottom: 12, fontFamily: "JetBrainsMono_600SemiBold" }]}
@@ -1062,8 +1317,113 @@ export default function AdminPortalScreen() {
               )}
             </View>
           </Modal>
+
         </View>
       )}
+
+      <Modal visible={showGroupEditorModal} animationType="slide" onRequestClose={() => setShowGroupEditorModal(false)}>
+        <View style={{ flex: 1, backgroundColor: "#0f0f0f", paddingTop: insets.top, paddingBottom: insets.bottom }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: "#2a2a2a",
+            }}
+          >
+            <Text style={{ color: "#f5f5f5", fontFamily: "BricolageGrotesque_700Bold", fontSize: 18 }}>
+              {groupEditorMode === "create" ? "Create Group" : "Edit Group"}
+            </Text>
+            <Pressable onPress={() => setShowGroupEditorModal(false)} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
+              <X size={24} color="#f5f5f5" />
+            </Pressable>
+          </View>
+
+          <View style={{ padding: 16 }}>
+            <Text style={labelStyle}>Group name / key</Text>
+            <TextInput
+              value={groupEditorName}
+              onChangeText={setGroupEditorName}
+              placeholder="e.g. saravanaa-bhavan"
+              placeholderTextColor="#555"
+              autoCapitalize="none"
+              style={[inputStyle, { marginBottom: 8 }]}
+            />
+            <Text style={{ color: "#777", fontSize: 11, fontFamily: "Manrope_500Medium", marginBottom: 12 }}>
+              Select restaurants and save.
+            </Text>
+          </View>
+
+          <FlatList
+            data={restaurants}
+            keyExtractor={(item) => String(item.id)}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
+            renderItem={({ item }) => {
+              const selected = groupEditorRestaurantIds.includes(item.id);
+              return (
+                <Pressable
+                  onPress={() => {
+                    haptic();
+                    setGroupEditorRestaurantIds((prev) =>
+                      prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id],
+                    );
+                  }}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: selected ? "rgba(96,165,250,0.45)" : "#2a2a2a",
+                    backgroundColor: selected ? "rgba(96,165,250,0.15)" : "#141414",
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 12,
+                    marginBottom: 6,
+                  }}
+                >
+                  <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>{item.name}</Text>
+                  <Text style={{ color: "#666", fontSize: 11, marginTop: 2 }}>ID {item.id}</Text>
+                </Pressable>
+              );
+            }}
+          />
+
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              borderTopWidth: 1,
+              borderTopColor: "#2a2a2a",
+              backgroundColor: "#0f0f0f",
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              paddingBottom: 12 + insets.bottom,
+            }}
+          >
+            <Pressable
+              onPress={() => void handleSaveGroupEditor()}
+              disabled={groupSaving}
+              style={{
+                backgroundColor: "#60A5FA",
+                borderRadius: 14,
+                paddingVertical: 14,
+                alignItems: "center",
+                opacity: groupSaving ? 0.75 : 1,
+              }}
+            >
+              {groupSaving ? (
+                <ActivityIndicator color="#0f0f0f" />
+              ) : (
+                <Text style={{ color: "#0f0f0f", fontFamily: "Manrope_700Bold", fontSize: 15 }}>
+                  {groupEditorMode === "create" ? "Create Group" : "Save Group"} ({groupEditorRestaurantIds.length} selected)
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={declineTarget != null} animationType="slide" onRequestClose={() => setDeclineTarget(null)}>
         <View

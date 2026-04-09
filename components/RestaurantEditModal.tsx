@@ -24,15 +24,17 @@ interface RestaurantEditModalProps {
     address: string;
     description: string;
     cuisine: string;
+    chainGroupKey?: string;
   };
   onClose: () => void;
-  onSaved?: (updated: { name: string; address: string; description: string; cuisine: string }) => void;
+  onSaved?: (updated: { name: string; address: string; description: string; cuisine: string; chainGroupKey?: string }) => void;
   onChangeLocation?: () => void;
   onHoursSaved?: () => void;
   openHoursOnMount?: boolean;
 }
 
-type HourRow = { day: number; open: string; close: string; closed: boolean };
+type TimeSlot = { id: string; open: string; close: string };
+type HourRow = { day: number; closed: boolean; slots: TimeSlot[] };
 type Mode = "details" | "hours";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -45,6 +47,7 @@ const toHHMM = (value: string | null | undefined, fallback: string) => {
 const toDbTime = (hhmm: string) => `${hhmm}:00`;
 const validHHMM = (value: string) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 const normalizeTag = (value: string) => value.trim().toLowerCase();
+const slotId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 export function RestaurantEditModal({
   restaurantId,
@@ -60,6 +63,7 @@ export function RestaurantEditModal({
   const [address, setAddress] = useState(initial?.address ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [cuisine, setCuisine] = useState(initial?.cuisine ?? "");
+  const [chainGroupKey, setChainGroupKey] = useState(initial?.chainGroupKey ?? "");
   const [isHalalTagged, setIsHalalTagged] = useState(true);
   const [isVegetarianTagged, setIsVegetarianTagged] = useState(false);
 
@@ -80,6 +84,7 @@ export function RestaurantEditModal({
     setAddress(initial?.address ?? "");
     setDescription(initial?.description ?? "");
     setCuisine(initial?.cuisine ?? "");
+    setChainGroupKey(initial?.chainGroupKey ?? "");
     const parsedTags = (initial?.cuisine ?? "")
       .split(",")
       .map(normalizeTag)
@@ -117,13 +122,24 @@ export function RestaurantEditModal({
         ),
       );
 
+      const groupedByDay = new Map<number, TimeSlot[]>();
+      for (const row of (data ?? []) as any[]) {
+        const day = Number(row.day_of_week);
+        if (!Number.isFinite(day)) continue;
+        const open = toHHMM(row.open_time, "");
+        const close = toHHMM(row.close_time, "");
+        if (!open || !close) continue;
+        const existing = groupedByDay.get(day) ?? [];
+        existing.push({ id: slotId(), open, close });
+        groupedByDay.set(day, existing);
+      }
+
       const next: HourRow[] = Array.from({ length: 7 }).map((_, day) => {
-        const row = (data ?? []).find((r: any) => r.day_of_week === day);
+        const slots = (groupedByDay.get(day) ?? []).sort((a, b) => a.open.localeCompare(b.open));
         return {
           day,
-          open: toHHMM(row?.open_time, "09:00"),
-          close: toHHMM(row?.close_time, "21:00"),
-          closed: !row,
+          closed: slots.length === 0,
+          slots: slots.length > 0 ? slots : [{ id: slotId(), open: "09:00", close: "21:00" }],
         };
       });
       setHoursRows(next);
@@ -166,7 +182,57 @@ export function RestaurantEditModal({
   };
 
   const updateHourRow = (day: number, patch: Partial<HourRow>) => {
-    setHoursRows((prev) => prev.map((r) => (r.day === day ? { ...r, ...patch } : r)));
+    setHoursRows((prev) =>
+      prev.map((r) => {
+        if (r.day !== day) return r;
+        const merged = { ...r, ...patch };
+        if (!merged.closed && (!merged.slots || merged.slots.length === 0)) {
+          merged.slots = [{ id: slotId(), open: "09:00", close: "21:00" }];
+        }
+        return merged;
+      }),
+    );
+  };
+
+  const updateSlot = (day: number, slotIdValue: string, patch: Partial<TimeSlot>) => {
+    setHoursRows((prev) =>
+      prev.map((r) =>
+        r.day !== day
+          ? r
+          : {
+            ...r,
+            slots: r.slots.map((s) => (s.id === slotIdValue ? { ...s, ...patch } : s)),
+          },
+      ),
+    );
+  };
+
+  const addSlot = (day: number) => {
+    setHoursRows((prev) =>
+      prev.map((r) => {
+        if (r.day !== day) return r;
+        const tail = r.slots[r.slots.length - 1];
+        return {
+          ...r,
+          closed: false,
+          slots: [...r.slots, { id: slotId(), open: tail?.close || "13:00", close: "21:00" }],
+        };
+      }),
+    );
+  };
+
+  const removeSlot = (day: number, slotIdValue: string) => {
+    setHoursRows((prev) =>
+      prev.map((r) => {
+        if (r.day !== day) return r;
+        const nextSlots = r.slots.filter((s) => s.id !== slotIdValue);
+        return {
+          ...r,
+          closed: nextSlots.length === 0,
+          slots: nextSlots.length > 0 ? nextSlots : [],
+        };
+      }),
+    );
   };
 
   const handleSave = async () => {
@@ -204,6 +270,7 @@ export function RestaurantEditModal({
           address: address.trim() || null,
           description: description.trim() || null,
           cuisine_tags: dedupedTags.length > 0 ? dedupedTags : null,
+          chain_group_key: chainGroupKey.trim() || null,
         })
         .eq("id", Number(restaurantId));
 
@@ -214,6 +281,7 @@ export function RestaurantEditModal({
         address: address.trim(),
         description: description.trim(),
         cuisine: dedupedTags.join(", "),
+        chainGroupKey: chainGroupKey.trim(),
       });
     } catch (err: any) {
       Alert.alert("Error", err.message || "Failed to save changes.");
@@ -225,9 +293,11 @@ export function RestaurantEditModal({
   const saveHours = async () => {
     for (const row of hoursRows) {
       if (row.closed) continue;
-      if (!validHHMM(row.open) || !validHHMM(row.close)) {
-        Alert.alert("Validation", `Invalid time on ${DAY_NAMES[row.day]}. Use HH:MM (24-hour).`);
-        return;
+      for (const slot of row.slots) {
+        if (!validHHMM(slot.open) || !validHHMM(slot.close)) {
+          Alert.alert("Validation", `Invalid time on ${DAY_NAMES[row.day]}. Use HH:MM (24-hour).`);
+          return;
+        }
       }
     }
 
@@ -241,12 +311,16 @@ export function RestaurantEditModal({
 
       const toInsert = hoursRows
         .filter((r) => !r.closed)
-        .map((r) => ({
-          restaurant_id: Number(restaurantId),
-          day_of_week: r.day,
-          open_time: toDbTime(r.open),
-          close_time: toDbTime(r.close),
-        }));
+        .flatMap((r) =>
+          r.slots
+            .filter((slot) => !!slot.open && !!slot.close)
+            .map((slot) => ({
+              restaurant_id: Number(restaurantId),
+              day_of_week: r.day,
+              open_time: toDbTime(slot.open),
+              close_time: toDbTime(slot.close),
+            })),
+        );
 
       if (toInsert.length > 0) {
         const { error: insError } = await supabase.from("restaurant_hours").insert(toInsert);
@@ -398,6 +472,21 @@ export function RestaurantEditModal({
                   />
                   <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11, marginTop: 6, marginLeft: 2 }}>
                     Separate multiple tags with commas
+                  </Text>
+                </View>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={labelStyle}>Chain Group Key</Text>
+                  <TextInput
+                    value={chainGroupKey}
+                    onChangeText={setChainGroupKey}
+                    style={inputStyle}
+                    placeholder="e.g. saravanaa-bhavan"
+                    placeholderTextColor="#555"
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11, marginTop: 6, marginLeft: 2 }}>
+                    Restaurants with the same key are grouped as one chain.
                   </Text>
                 </View>
                 <View style={{ marginBottom: 22 }}>
@@ -588,7 +677,11 @@ export function RestaurantEditModal({
                           <Pressable
                             onPress={() => {
                               haptic();
-                              updateHourRow(row.day, { closed: !row.closed });
+                              const willClose = !row.closed;
+                              updateHourRow(row.day, {
+                                closed: willClose,
+                                slots: willClose ? [] : (row.slots.length > 0 ? row.slots : [{ id: slotId(), open: "09:00", close: "21:00" }]),
+                              });
                             }}
                             style={{
                               backgroundColor: row.closed ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)",
@@ -606,58 +699,102 @@ export function RestaurantEditModal({
                         </View>
 
                         {!row.closed && (
-                          <View style={{ flexDirection: "row", gap: 10 }}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: "#555", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>
-                                Opens
+                          <View style={{ gap: 10 }}>
+                            {row.slots.map((slot, idx) => (
+                              <View key={slot.id} style={{ flexDirection: "row", gap: 10, alignItems: "flex-end" }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: "#555", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>
+                                    Opens
+                                  </Text>
+                                  <TextInput
+                                    value={slot.open}
+                                    onChangeText={(t) => updateSlot(row.day, slot.id, { open: t.replace(/[^\d:]/g, "").slice(0, 5) })}
+                                    placeholder="09:00"
+                                    placeholderTextColor="#444"
+                                    keyboardType="numbers-and-punctuation"
+                                    style={{
+                                      backgroundColor: "#0a0a0a",
+                                      borderColor: "#2a2a2a",
+                                      borderWidth: 1,
+                                      borderRadius: 10,
+                                      paddingHorizontal: 14,
+                                      paddingVertical: 11,
+                                      color: "#f5f5f5",
+                                      fontFamily: "JetBrainsMono_600SemiBold",
+                                      fontSize: 16,
+                                      textAlign: "center",
+                                    }}
+                                  />
+                                </View>
+                                <View style={{ justifyContent: "flex-end", paddingBottom: 14 }}>
+                                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#444", fontSize: 13 }}>to</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: "#555", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>
+                                    Closes
+                                  </Text>
+                                  <TextInput
+                                    value={slot.close}
+                                    onChangeText={(t) => updateSlot(row.day, slot.id, { close: t.replace(/[^\d:]/g, "").slice(0, 5) })}
+                                    placeholder="21:00"
+                                    placeholderTextColor="#444"
+                                    keyboardType="numbers-and-punctuation"
+                                    style={{
+                                      backgroundColor: "#0a0a0a",
+                                      borderColor: "#2a2a2a",
+                                      borderWidth: 1,
+                                      borderRadius: 10,
+                                      paddingHorizontal: 14,
+                                      paddingVertical: 11,
+                                      color: "#f5f5f5",
+                                      fontFamily: "JetBrainsMono_600SemiBold",
+                                      fontSize: 16,
+                                      textAlign: "center",
+                                    }}
+                                  />
+                                </View>
+                                {row.slots.length > 1 && (
+                                  <Pressable
+                                    onPress={() => {
+                                      haptic();
+                                      removeSlot(row.day, slot.id);
+                                    }}
+                                    style={{
+                                      borderWidth: 1,
+                                      borderColor: "rgba(239,68,68,0.35)",
+                                      backgroundColor: "rgba(239,68,68,0.12)",
+                                      borderRadius: 10,
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 11,
+                                    }}
+                                  >
+                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#EF4444", fontSize: 11 }}>
+                                      Remove
+                                    </Text>
+                                  </Pressable>
+                                )}
+                              </View>
+                            ))}
+
+                            <Pressable
+                              onPress={() => {
+                                haptic();
+                                addSlot(row.day);
+                              }}
+                              style={{
+                                alignSelf: "flex-start",
+                                borderWidth: 1,
+                                borderColor: "#2a2a2a",
+                                backgroundColor: "#141414",
+                                borderRadius: 10,
+                                paddingHorizontal: 12,
+                                paddingVertical: 8,
+                              }}
+                            >
+                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#d4d4d4", fontSize: 11 }}>
+                                + Add Time Period
                               </Text>
-                              <TextInput
-                                value={row.open}
-                                onChangeText={(t) => updateHourRow(row.day, { open: t.replace(/[^\d:]/g, "").slice(0, 5) })}
-                                placeholder="09:00"
-                                placeholderTextColor="#444"
-                                keyboardType="numbers-and-punctuation"
-                                style={{
-                                  backgroundColor: "#0a0a0a",
-                                  borderColor: "#2a2a2a",
-                                  borderWidth: 1,
-                                  borderRadius: 10,
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 11,
-                                  color: "#f5f5f5",
-                                  fontFamily: "JetBrainsMono_600SemiBold",
-                                  fontSize: 16,
-                                  textAlign: "center",
-                                }}
-                              />
-                            </View>
-                            <View style={{ justifyContent: "flex-end", paddingBottom: 14 }}>
-                              <Text style={{ fontFamily: "Manrope_500Medium", color: "#444", fontSize: 13 }}>to</Text>
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: "#555", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>
-                                Closes
-                              </Text>
-                              <TextInput
-                                value={row.close}
-                                onChangeText={(t) => updateHourRow(row.day, { close: t.replace(/[^\d:]/g, "").slice(0, 5) })}
-                                placeholder="21:00"
-                                placeholderTextColor="#444"
-                                keyboardType="numbers-and-punctuation"
-                                style={{
-                                  backgroundColor: "#0a0a0a",
-                                  borderColor: "#2a2a2a",
-                                  borderWidth: 1,
-                                  borderRadius: 10,
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 11,
-                                  color: "#f5f5f5",
-                                  fontFamily: "JetBrainsMono_600SemiBold",
-                                  fontSize: 16,
-                                  textAlign: "center",
-                                }}
-                              />
-                            </View>
+                            </Pressable>
                           </View>
                         )}
                       </View>

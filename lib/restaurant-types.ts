@@ -29,6 +29,8 @@ export interface SupabaseRestaurant {
     /** When true the restaurant shows a "Coming Soon" overlay instead of the full menu.
      *  DB default should be TRUE so new entries are gated until explicitly enabled. */
     is_coming_soon?: boolean;
+    /** Optional manual chain group key. Matching keys are treated as same brand chain. */
+    chain_group_key?: string | null;
 }
 
 // ==========================================
@@ -61,6 +63,8 @@ export interface UIRestaurant {
     waitlistEarlyOpenMinutes: number;
     /** Shows "Coming Soon" overlay on cards and blocks ordering/waitlist for non-admins */
     isComingSoon: boolean;
+    /** Resolved manual chain grouping key from DB, if provided */
+    chainGroupKey?: string | null;
 }
 
 // ==========================================
@@ -79,6 +83,15 @@ export function brandKey(name: string): string {
     .trim();
 }
 
+/** Resolve grouping key: manual DB key first, name heuristic fallback. */
+export function restaurantGroupKey(
+  restaurant: Pick<UIRestaurant, "name" | "chainGroupKey">,
+): string {
+  const manual = String(restaurant.chainGroupKey ?? "").trim().toLowerCase();
+  if (manual) return manual;
+  return brandKey(restaurant.name);
+}
+
 /**
  * Given an already-sorted list (nearest-first or any priority order), return
  * only the first representative of each chain brand.  The remaining locations
@@ -87,7 +100,7 @@ export function brandKey(name: string): string {
 export function deduplicateChains(restaurants: UIRestaurant[]): UIRestaurant[] {
   const seen = new Set<string>();
   return restaurants.filter((r) => {
-    const k = brandKey(r.name);
+    const k = restaurantGroupKey(r);
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
@@ -224,6 +237,7 @@ export function mapSupabaseToUI(
         ),
         // NULL → false (existing rows unaffected); true only when explicitly set in DB
         isComingSoon: restaurant.is_coming_soon === true,
+        chainGroupKey: restaurant.chain_group_key ?? null,
     };
 }
 

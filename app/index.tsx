@@ -10,6 +10,7 @@ import {
   Platform,
   RefreshControl,
   Animated as RNAnimated,
+  Image,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,6 +19,7 @@ import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, Chev
 import Animated, {
   FadeIn,
   FadeInDown,
+  FadeOutDown,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -1735,51 +1737,49 @@ export default function DiscoveryFeed() {
 
           {/* Favorites Section */}
           {favoritesRestaurants.length > 0 && (
-            <>
-              <Animated.View entering={FadeInDown.delay(320).duration(500)}>
-                <View className="px-5 mt-8 mb-4">
-                  <View className="flex-row items-center justify-between mb-1">
-                    <View className="flex-row items-center">
-                      <Heart size={18} color="#EF4444" />
-                      <Text
-                        style={{
-                          fontFamily: "BricolageGrotesque_800ExtraBold",
-                          color: "#f5f5f5",
-                          fontSize: 24,
-                          marginLeft: 8,
-                        }}
-                      >
-                        Favorites
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => openDiscoverSection("favorites")}
+            <Animated.View entering={FadeInDown.delay(320).duration(420)} exiting={FadeOutDown.duration(320)}>
+              <View className="px-5 mt-8 mb-4">
+                <View className="flex-row items-center justify-between mb-1">
+                  <View className="flex-row items-center">
+                    <Heart size={18} color="#EF4444" />
+                    <Text
                       style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        backgroundColor: "#242424",
-                        borderWidth: 1,
-                        borderColor: "#333",
-                        alignItems: "center",
-                        justifyContent: "center",
+                        fontFamily: "BricolageGrotesque_800ExtraBold",
+                        color: "#f5f5f5",
+                        fontSize: 24,
+                        marginLeft: 8,
                       }}
                     >
-                      <ChevronRight size={18} color="#f5f5f5" />
-                    </Pressable>
+                      Favorites
+                    </Text>
                   </View>
-                  <Text
+                  <Pressable
+                    onPress={() => openDiscoverSection("favorites")}
                     style={{
-                      fontFamily: "Manrope_500Medium",
-                      color: "#999999",
-                      fontSize: 14,
-                      marginTop: 2,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      backgroundColor: "#242424",
+                      borderWidth: 1,
+                      borderColor: "#333",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
                   >
-                    Your saved spots, sorted by wait
-                  </Text>
+                    <ChevronRight size={18} color="#f5f5f5" />
+                  </Pressable>
                 </View>
-              </Animated.View>
+                <Text
+                  style={{
+                    fontFamily: "Manrope_500Medium",
+                    color: "#999999",
+                    fontSize: 14,
+                    marginTop: 2,
+                  }}
+                >
+                  Your saved spots, sorted by wait
+                </Text>
+              </View>
               <FlatList
                 horizontal
                 data={favoritesRestaurants}
@@ -1801,7 +1801,7 @@ export default function DiscoveryFeed() {
                   />
                 )}
               />
-            </>
+            </Animated.View>
           )}
 
           {/* Filter Section */}
@@ -1972,6 +1972,10 @@ export default function DiscoveryFeed() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 12, paddingBottom: 4 }}>
                   {orderAgainRestaurants.slice(0, 6).map((restaurant) => {
                     const lastOrder = personalization.lastOrderByRestaurant[restaurant.id];
+                    const leadItemImage =
+                      lastOrder?.items?.find((entry) => !!entry.imageUrl)?.imageUrl ??
+                      lastOrder?.items?.[0]?.imageUrl ??
+                      null;
                     return (
                       <Pressable
                         key={restaurant.id}
@@ -1986,21 +1990,36 @@ export default function DiscoveryFeed() {
                           borderRadius: 18,
                           borderWidth: 1,
                           borderColor: restaurant.waitStatus === 'darkgrey' ? "#222" : "#2a2a2a",
-                          padding: 14,
-                          width: 200,
+                          width: 212,
                           opacity: restaurant.waitStatus === 'darkgrey' ? 0.7 : 1,
                           flexDirection: "column",
                           justifyContent: "space-between",
-                          minHeight: 90,
+                          minHeight: 186,
+                          overflow: "hidden",
                         }}
                       >
-                        <View>
-                          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: restaurant.waitStatus === 'darkgrey' ? "#555" : "#f5f5f5", fontSize: 15, marginBottom: 4 }} numberOfLines={1}>
+                        <Image
+                          source={
+                            leadItemImage
+                              ? { uri: leadItemImage }
+                              : require("@/assets/images/no-photo.png")
+                          }
+                          resizeMode="cover"
+                          style={{
+                            width: "100%",
+                            height: 88,
+                            backgroundColor: "#1f1f1f",
+                          }}
+                        />
+                        <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
+                          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: restaurant.waitStatus === 'darkgrey' ? "#555" : "#f5f5f5", fontSize: 15 }} numberOfLines={1}>
                             {restaurant.name}
                           </Text>
+                        </View>
+                        <View style={{ paddingHorizontal: 12, marginTop: 4 }}>
                           {lastOrder?.items?.length > 0 ? (
                             <View style={{ marginBottom: 0 }}>
-                              {lastOrder.items.map((item, idx) => {
+                              {lastOrder.items.slice(0, 2).map((item, idx) => {
                                 const mpColor =
                                   item.mealPeriod === 'breakfast' ? '#FBAB73' :
                                   item.mealPeriod === 'lunch'     ? '#7ADC9E' :
@@ -2030,7 +2049,7 @@ export default function DiscoveryFeed() {
                             </Text>
                           ) : null}
                         </View>
-                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, paddingHorizontal: 12, paddingBottom: 12 }}>
                           {restaurant.isComingSoon ? (
                             <View style={{ backgroundColor: "rgba(100,100,100,0.12)", borderRadius: 8, borderWidth: 1, borderColor: "rgba(100,100,100,0.2)", paddingHorizontal: 8, paddingVertical: 4 }}>
                               <Text style={{ fontFamily: "Manrope_700Bold", color: "#7a7a7a", fontSize: 11 }}>Coming soon</Text>

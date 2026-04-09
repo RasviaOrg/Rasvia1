@@ -145,7 +145,7 @@ export type SavedAccount = {
 export default function ProfileSettingsScreen() {
   const router = useRouter();
   const { session } = useAuth();
-  const { isAdmin, isRestaurantOwner } = useAdminMode();
+  const { isAdmin, isRestaurantOwner, effectiveOwnerRestaurantId } = useAdminMode();
   const { reloadLocationPrefs, setUserCoordsOverride } = useLocation();
   const [userEmail, setUserEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -156,6 +156,9 @@ export default function ProfileSettingsScreen() {
   const [tempLastName, setTempLastName] = useState("");
   const [tempPhone, setTempPhone] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [communityImagesEnabled, setCommunityImagesEnabled] = useState(true);
+  const [communityImagesSaving, setCommunityImagesSaving] = useState(false);
+  const [communityImagesSettingAvailable, setCommunityImagesSettingAvailable] = useState(true);
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -390,6 +393,30 @@ export default function ProfileSettingsScreen() {
     }
     loadPrefs();
   }, [session?.user?.id]);
+
+  useEffect(() => {
+    async function loadCommunityImageSetting() {
+      if (!isRestaurantOwner || !effectiveOwnerRestaurantId) return;
+      try {
+        const { data, error } = await supabase
+          .from("restaurants")
+          .select("accept_community_image_contributions")
+          .eq("id", Number(effectiveOwnerRestaurantId))
+          .maybeSingle();
+        if (error) {
+          if (error.message?.toLowerCase().includes("column") && error.message?.includes("accept_community_image_contributions")) {
+            setCommunityImagesSettingAvailable(false);
+          }
+          return;
+        }
+        setCommunityImagesSettingAvailable(true);
+        setCommunityImagesEnabled((data as any)?.accept_community_image_contributions !== false);
+      } catch {
+        // noop
+      }
+    }
+    loadCommunityImageSetting();
+  }, [isRestaurantOwner, effectiveOwnerRestaurantId]);
 
   // Track Location Changes
   useEffect(() => {
@@ -1260,6 +1287,91 @@ export default function ProfileSettingsScreen() {
                   thumbColor={notificationsEnabled ? "#FF9933" : "#666666"}
                 />
               </View>
+
+              {isRestaurantOwner && (
+                <>
+                  <Divider />
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 20,
+                      paddingVertical: 16,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 12,
+                        backgroundColor: "rgba(167, 139, 250, 0.14)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginRight: 14,
+                      }}
+                    >
+                      <Camera size={20} color="#A78BFA" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_600SemiBold",
+                          color: "#f5f5f5",
+                          fontSize: 15,
+                        }}
+                      >
+                        Community Menu Photos
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_500Medium",
+                          color: !communityImagesSettingAvailable
+                            ? "#F59E0B"
+                            : communityImagesEnabled
+                              ? "#22C55E"
+                              : "#EF4444",
+                          fontSize: 11,
+                          marginTop: 2,
+                        }}
+                      >
+                        {!communityImagesSettingAvailable
+                          ? "Setting unavailable (run DB migration)"
+                          : communityImagesEnabled
+                            ? "Accepting submissions"
+                            : "Submissions disabled"}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={communityImagesEnabled}
+                      disabled={communityImagesSaving || !communityImagesSettingAvailable || !effectiveOwnerRestaurantId}
+                      onValueChange={async (val) => {
+                        if (!effectiveOwnerRestaurantId) return;
+                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                        const prev = communityImagesEnabled;
+                        setCommunityImagesEnabled(val);
+                        setCommunityImagesSaving(true);
+                        try {
+                          const { error } = await supabase
+                            .from("restaurants")
+                            .update({ accept_community_image_contributions: val })
+                            .eq("id", Number(effectiveOwnerRestaurantId));
+                          if (error) throw error;
+                          if (Platform.OS !== "web") {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                          }
+                        } catch (err: any) {
+                          setCommunityImagesEnabled(prev);
+                          Alert.alert("Error", err?.message || "Could not update community image setting.");
+                        } finally {
+                          setCommunityImagesSaving(false);
+                        }
+                      }}
+                      trackColor={{ false: "#333333", true: "rgba(167,139,250,0.45)" }}
+                      thumbColor={communityImagesEnabled ? "#A78BFA" : "#666666"}
+                    />
+                  </View>
+                </>
+              )}
             </Animated.View>
           )}
 

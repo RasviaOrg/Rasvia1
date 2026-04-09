@@ -19,7 +19,7 @@ import Animated, {
 import * as Haptics from "expo-haptics";
 import { WaitBadge } from "@/components/WaitBadge";
 import { supabase } from "@/lib/supabase";
-import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineDistance, brandKey } from "@/lib/restaurant-types";
+import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineDistance, restaurantGroupKey } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
@@ -204,7 +204,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
     // ── Group into chains ─────────────────────────────────────────────────
     const groupMap = new Map<string, UIRestaurant[]>();
     for (const r of list) {
-      const k = brandKey(r.name);
+      const k = restaurantGroupKey(r);
       if (!groupMap.has(k)) groupMap.set(k, []);
       groupMap.get(k)!.push(r);
     }
