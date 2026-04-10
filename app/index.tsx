@@ -1009,21 +1009,6 @@ export default function DiscoveryFeed() {
           style={{ paddingTop: 0, paddingBottom: 4, backgroundColor: "#0f0f0f", zIndex: 10 }}
         >
           <View style={{ flex: 1, marginRight: 12 }}>
-            <View className="flex-row items-center mb-1">
-              <MapPin size={13} color="#FF9933" style={{ flexShrink: 0 }} />
-              <Text
-                numberOfLines={1}
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: "#999999",
-                  fontSize: 12,
-                  marginLeft: 4,
-                  flexShrink: 1,
-                }}
-              >
-                {locationLabel ?? "Set location…"}
-              </Text>
-            </View>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",

@@ -119,7 +119,7 @@ export default function EmailVerifyScreen() {
                 >
                     {[
                         "Enter the 6-digit code from your email to verify.",
-                        "The code expires in 60 minutes.",
+                        "The code expires in 60 seconds.",
                         "Don't see it? Check your spam folder.",
                     ].map((tip, i) => (
                         <View key={i} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>

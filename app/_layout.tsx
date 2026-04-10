@@ -8,6 +8,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { View, ActivityIndicator, Platform, Alert, LogBox, Image, Text } from "react-native";
 import { supabase } from "@/lib/supabase";
+import { authGateFlags } from "@/lib/auth-gate-flags";
 
 // Remote push token registration is unavailable in Expo Go SDK 53+.
 // Rasvia only uses local (scheduled) notifications so this is harmless.
@@ -107,16 +108,6 @@ function AuthGate() {
   const router = useRouter();
   const [showSlowLoadHint, setShowSlowLoadHint] = useState(false);
 
-  // Listen for PASSWORD_RECOVERY event from Supabase and navigate to reset-password screen
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        router.replace('/reset-password' as any);
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, [router]);
-
   useEffect(() => {
     if (!loading) {
       setShowSlowLoadHint(false);
@@ -128,6 +119,10 @@ function AuthGate() {
 
   useEffect(() => {
     if (loading) return;
+
+    // Skip redirect when a modal (e.g. ResetPasswordModal) is active
+    // and verifyOtp has created a temporary recovery session
+    if (authGateFlags.suppressRedirect) return;
 
     const inAuthScreen = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
@@ -286,6 +281,10 @@ function AuthGate() {
       />
       <Stack.Screen
         name="my-orders"
+        options={{ headerShown: false, animation: "slide_from_right" }}
+      />
+      <Stack.Screen
+        name="dining-preferences"
         options={{ headerShown: false, animation: "slide_from_right" }}
       />
       <Stack.Screen

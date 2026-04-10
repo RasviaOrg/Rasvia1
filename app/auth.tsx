@@ -797,7 +797,7 @@ export default function AuthScreen() {
                                     if (Platform.OS !== "web") Haptics.selectionAsync();
                                 }}
                                 onSubmitEditing={handleSignInWithPassword}
-                                secureTextEntry={!showPassword}
+                                secureTextEntry={!showPassword && password.length > 0}
                                 autoCapitalize="none"
                                 returnKeyType="go"
                                 keyboardAppearance="dark"
@@ -1146,7 +1146,7 @@ export default function AuthScreen() {
                                         onFocus={() => {
                                             if (Platform.OS !== "web") Haptics.selectionAsync();
                                         }}
-                                        secureTextEntry={!showPassword}
+                                        secureTextEntry={!showPassword && password.length > 0}
                                         autoCapitalize="none"
                                         keyboardAppearance="dark"
                                     />

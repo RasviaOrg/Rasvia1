@@ -254,7 +254,7 @@ export default function ResetPasswordScreen() {
                 placeholderTextColor="#666"
                 value={newPassword}
                 onChangeText={setNewPassword}
-                secureTextEntry={!showPassword}
+                secureTextEntry={!showPassword && newPassword.length > 0}
                 autoCapitalize="none"
                 keyboardAppearance="dark"
               />
@@ -299,7 +299,7 @@ export default function ResetPasswordScreen() {
                 placeholderTextColor="#666"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                secureTextEntry={!showConfirm}
+                secureTextEntry={!showConfirm && confirmPassword.length > 0}
                 autoCapitalize="none"
                 keyboardAppearance="dark"
                 onSubmitEditing={handleResetPassword}

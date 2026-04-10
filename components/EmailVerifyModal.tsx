@@ -82,8 +82,8 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
   }
 
   async function handleVerify() {
-    if (code.length < 6) {
-      setError("Please enter the full 6-digit code");
+    if (code.length < 7) {
+      setError("Please enter the full verification code");
       return;
     }
     setStep("verifying");
@@ -166,7 +166,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                       Verify Your Email
                     </Text>
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 14, textAlign: "center", lineHeight: 20 }}>
-                      Enter the 6-digit code sent to
+                      Enter the verification code sent to
                     </Text>
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 15, marginTop: 4 }}>
                       {email}
@@ -190,7 +190,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                       ref={codeInputRef}
                       value={code}
                       onChangeText={(text) => {
-                        setCode(text.replace(/\D/g, "").slice(0, 6));
+                        setCode(text.replace(/\D/g, "").slice(0, 7));
                         setError("");
                       }}
                       style={{
@@ -202,10 +202,10 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                         width: "100%",
                         height: "100%",
                       }}
-                      placeholder="------"
+                      placeholder="-------"
                       placeholderTextColor="#444"
                       keyboardType="number-pad"
-                      maxLength={6}
+                      maxLength={7}
                       autoFocus
                       keyboardAppearance="dark"
                       onSubmitEditing={handleVerify}
@@ -240,9 +240,9 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
 
                   <Pressable
                     onPress={handleVerify}
-                    disabled={step === "verifying" || code.length < 6}
+                    disabled={step === "verifying" || code.length < 7}
                     style={{
-                      backgroundColor: code.length >= 6 ? "#FF9933" : "#333",
+                      backgroundColor: code.length >= 7 ? "#FF9933" : "#333",
                       borderRadius: 16,
                       height: 52,
                       alignItems: "center",
@@ -256,7 +256,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                       <Text
                         style={{
                           fontFamily: "BricolageGrotesque_700Bold",
-                          color: code.length >= 6 ? "#0f0f0f" : "#888",
+                          color: code.length >= 7 ? "#0f0f0f" : "#888",
                           fontSize: 16,
                         }}
                       >
