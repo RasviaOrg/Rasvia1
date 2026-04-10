@@ -216,9 +216,14 @@ export default function MapScreen() {
     setShowNearbyList(false);
   };
 
-  const { userCoords: userLocation, isLiveLocationEnabled, hasSavedAddress } = useLocation();
+  const { userCoords: userLocation, isLiveLocationEnabled, hasSavedAddress, requestLocationPermission } = useLocation();
   const userLocationRef = useRef(userLocation);
   userLocationRef.current = userLocation;
+
+  // Request permission when user opens the map — they expect the dialog here
+  useEffect(() => {
+    requestLocationPermission();
+  }, [requestLocationPermission]);
   const { targetLat, targetLng, restaurantId, adjust } = useLocalSearchParams<{ targetLat?: string; targetLng?: string; restaurantId?: string; adjust?: string }>();
   const hasCenteredRef = useRef(false);
   const consumedAdjustRouteRef = useRef(false);

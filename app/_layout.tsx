@@ -7,6 +7,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { View, ActivityIndicator, Platform, Alert, LogBox, Image, Text } from "react-native";
+import { supabase } from "@/lib/supabase";
 
 // Remote push token registration is unavailable in Expo Go SDK 53+.
 // Rasvia only uses local (scheduled) notifications so this is harmless.
@@ -106,6 +107,16 @@ function AuthGate() {
   const router = useRouter();
   const [showSlowLoadHint, setShowSlowLoadHint] = useState(false);
 
+  // Listen for PASSWORD_RECOVERY event from Supabase and navigate to reset-password screen
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        router.replace('/reset-password' as any);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [router]);
+
   useEffect(() => {
     if (!loading) {
       setShowSlowLoadHint(false);
@@ -121,7 +132,7 @@ function AuthGate() {
     const inAuthScreen = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
     // Allow unauthenticated access to legal pages and email-verify landing
-    const inPublicRoute = inAuthScreen || (segments[0] as string) === "terms" || (segments[0] as string) === "privacy" || (segments[0] as string) === "email-verify";
+    const inPublicRoute = inAuthScreen || (segments[0] as string) === "terms" || (segments[0] as string) === "privacy" || (segments[0] as string) === "email-verify" || (segments[0] as string) === "reset-password";
 
     if (!session && !inPublicRoute) {
       router.replace("/auth");
@@ -284,6 +295,10 @@ function AuthGate() {
       <Stack.Screen
         name="terms"
         options={{ headerShown: false, animation: "slide_from_right" }}
+      />
+      <Stack.Screen
+        name="reset-password"
+        options={{ headerShown: false, animation: "fade" }}
       />
       <Stack.Screen
         name="privacy"

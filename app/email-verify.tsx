@@ -85,7 +85,7 @@ export default function EmailVerifyScreen() {
                         marginBottom: 12,
                     }}
                 >
-                    We sent a verification link to
+                    We sent a 6-digit verification code to
                 </Animated.Text>
 
                 {email ? (
@@ -118,8 +118,8 @@ export default function EmailVerifyScreen() {
                     }}
                 >
                     {[
-                        "Tap the link in the email to activate your account.",
-                        "Once verified, come back and sign in.",
+                        "Enter the 6-digit code from your email to verify.",
+                        "The code expires in 60 minutes.",
                         "Don't see it? Check your spam folder.",
                     ].map((tip, i) => (
                         <View key={i} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>

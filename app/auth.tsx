@@ -30,6 +30,9 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { upsertProfileFromAuthUser } from "@/lib/profile-sync";
 import { InAppNotification } from "@/components/InAppNotification";
+import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
+import { EmailVerifyModal } from "@/components/EmailVerifyModal";
+import { ResetPasswordModal } from "@/components/ResetPasswordModal";
 
 let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
@@ -38,6 +41,9 @@ const VERIFY_EMAIL_WEB_URL = "https://rasvia.com/verify-email";
 
 /** Create-account card, filler strip, and sticky footer — same value so gaps blend. */
 const SIGNUP_PANEL_BG = "rgba(26, 26, 26, 0.92)";
+
+/** Ref to store the normalized phone after sign-up so the PhoneVerifyModal can use it */
+let pendingSignupPhoneRef = "";
 
 function formatPhoneNumber(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 10);
@@ -80,6 +86,9 @@ export default function AuthScreen() {
         message: string;
         type: "error" | "success" | "info";
     }>({ visible: false, message: "", type: "error" });
+    const [showEmailVerify, setShowEmailVerify] = useState(false);
+    const [showResetPassword, setShowResetPassword] = useState(false);
+    const [pendingVerifyEmail, setPendingVerifyEmail] = useState("");
 
     const btnScale = useSharedValue(1);
     const btnStyle = useAnimatedStyle(() => ({
@@ -383,10 +392,9 @@ export default function AuthScreen() {
                 }
             }
 
-            router.replace({
-                pathname: "/email-verify" as any,
-                params: { email: email.trim() },
-            });
+            // Show email verification modal with 6-digit OTP
+            setPendingVerifyEmail(email.trim());
+            setShowEmailVerify(true);
         } catch (error: any) {
             const message = error.message || "Something went wrong.";
             let friendlyMessage = message;
@@ -405,38 +413,12 @@ export default function AuthScreen() {
     }
 
     async function handleForgotPassword() {
-        if (!email.trim()) return;
-        try {
-            setLoading(true);
-            const redirectTo =
-                Platform.OS === "web"
-                    ? Linking.createURL("auth/callback")
-                    : Linking.createURL("auth/callback", { scheme: "rasvia" });
-            const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-                redirectTo,
-            });
-            if (error) throw error;
-            if (Platform.OS !== "web") {
-                Alert.alert(
-                    "Check your email",
-                    "We sent a password reset link. Open it on your device to choose a new password."
-                );
-            } else {
-                setNotification({
-                    visible: true,
-                    message: "Password reset email sent. Check your inbox.",
-                    type: "success",
-                });
-            }
-        } catch (e: any) {
-            setNotification({
-                visible: true,
-                message: e?.message || "Could not send reset email.",
-                type: "error",
-            });
-        } finally {
-            setLoading(false);
+        if (!email.trim()) {
+            setNotification({ visible: true, message: "Please enter your email first.", type: "error" });
+            return;
         }
+        setPendingVerifyEmail(email.trim());
+        setShowResetPassword(true);
     }
 
     return (
@@ -1280,6 +1262,29 @@ export default function AuthScreen() {
                     </View>
                 )}
             </SafeAreaView>
+
+            {/* Email Verification Modal (6-digit OTP) */}
+            <EmailVerifyModal
+                visible={showEmailVerify}
+                email={pendingVerifyEmail}
+                onClose={() => setShowEmailVerify(false)}
+                onVerified={() => {
+                    setShowEmailVerify(false);
+                    setNotification({ visible: true, message: "Email verified! You can now sign in.", type: "success" });
+                    setAuthPhase("identifier");
+                }}
+            />
+
+            {/* Reset Password Modal (OTP-based) */}
+            <ResetPasswordModal
+                visible={showResetPassword}
+                initialEmail={pendingVerifyEmail}
+                onClose={() => setShowResetPassword(false)}
+                onSuccess={() => {
+                    setShowResetPassword(false);
+                    setNotification({ visible: true, message: "Password updated! Sign in with your new password.", type: "success" });
+                }}
+            />
         </View>
     );
 }

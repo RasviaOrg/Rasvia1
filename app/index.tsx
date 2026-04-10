@@ -11,11 +11,13 @@ import {
   RefreshControl,
   Animated as RNAnimated,
   Image,
+  TextInput,
+  ActivityIndicator,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -116,14 +118,118 @@ const LIVE_ORDER_ACCENT_SOLID = ["#F97316", "#3B82F6", "#14B8A6", "#22C55E"];
 
 export default function DiscoveryFeed() {
   const router = useRouter();
-  const { userCoords, locationLabel } = useLocation();
+  const { session } = useAuth();
   const {
     isAdmin,
     isRestaurantOwner,
     effectiveOwnerRestaurantId,
     loading: roleLoading,
   } = useAdminMode();
-  const { session } = useAuth();
+  const { userCoords, locationLabel, requestLocationPermission, setUserCoordsOverride, reloadLocationPrefs } = useLocation();
+  const [addressBarExpanded, setAddressBarExpanded] = useState(false);
+  const [addressInput, setAddressInput] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: number; lon: number }>>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
+  const addressSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const Location = require("expo-location");
+
+  // Nominatim address autocomplete
+  useEffect(() => {
+    if (addressSearchTimeout.current) clearTimeout(addressSearchTimeout.current);
+    if (addressInput.length < 3) {
+      setAddressSuggestions([]);
+      return;
+    }
+    setIsSearchingAddress(true);
+    addressSearchTimeout.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=4&q=${encodeURIComponent(addressInput)}`,
+          { headers: { "User-Agent": "RasviaApp/1.0" } }
+        );
+        const results = await res.json();
+        setAddressSuggestions(
+          results.map((r: any) => ({
+            display_name: r.display_name,
+            lat: parseFloat(r.lat),
+            lon: parseFloat(r.lon),
+          }))
+        );
+      } catch {
+        setAddressSuggestions([]);
+      } finally {
+        setIsSearchingAddress(false);
+      }
+    }, 500);
+  }, [addressInput]);
+
+  const handleDetectLocation = useCallback(async () => {
+    setIsDetectingLocation(true);
+    try {
+      const granted = await requestLocationPermission();
+      if (!granted) {
+        Alert.alert("Location Access", "Please enable location access in your device settings.");
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+      setUserCoordsOverride(coords);
+
+      // Reverse geocode for display
+      const results = await Location.reverseGeocodeAsync(coords);
+      if (results?.length > 0) {
+        const r = results[0];
+        const display = [r.name, r.street, r.city, r.region].filter(Boolean).join(", ");
+        setAddressInput(display);
+      }
+
+      // Save to profile
+      if (session?.user?.id) {
+        const displayAddr = addressInput || "GPS Location";
+        await supabase.from("profiles").update({
+          home_lat: coords.latitude,
+          home_long: coords.longitude,
+          saved_address: displayAddr,
+        }).eq("id", session.user.id);
+        await reloadLocationPrefs();
+      }
+
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAddressBarExpanded(false);
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Could not detect location.");
+    } finally {
+      setIsDetectingLocation(false);
+    }
+  }, [requestLocationPermission, session, addressInput, reloadLocationPrefs]);
+
+  const handleSaveAddress = useCallback(async (addr: { display_name: string; lat: number; lon: number }) => {
+    setIsSavingAddress(true);
+    try {
+      const coords = { latitude: addr.lat, longitude: addr.lon };
+      setUserCoordsOverride(coords);
+
+      if (session?.user?.id) {
+        await supabase.from("profiles").update({
+          home_lat: addr.lat,
+          home_long: addr.lon,
+          saved_address: addr.display_name,
+        }).eq("id", session.user.id);
+        await reloadLocationPrefs();
+      }
+
+      setAddressInput("");
+      setAddressSuggestions([]);
+      setAddressBarExpanded(false);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Could not save address.");
+    } finally {
+      setIsSavingAddress(false);
+    }
+  }, [session, reloadLocationPrefs]);
   const { notificationBadgeCount } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
@@ -915,7 +1021,7 @@ export default function DiscoveryFeed() {
                   flexShrink: 1,
                 }}
               >
-                {locationLabel ?? "Locating…"}
+                {locationLabel ?? "Set location…"}
               </Text>
             </View>
             <Text
@@ -1050,6 +1156,178 @@ export default function DiscoveryFeed() {
             </Pressable>
           </View>
         </Animated.View>
+
+        {/* ── Address Bar ── */}
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== "web") Haptics.selectionAsync();
+            setAddressBarExpanded(!addressBarExpanded);
+          }}
+          style={{
+            marginHorizontal: 16,
+            marginTop: 4,
+            marginBottom: 6,
+            backgroundColor: "#1a1a1a",
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: addressBarExpanded ? "rgba(255,153,51,0.3)" : "#2a2a2a",
+            paddingHorizontal: 14,
+            paddingVertical: 11,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <MapPin size={16} color="#FF9933" />
+          <Text
+            numberOfLines={1}
+            style={{
+              flex: 1,
+              fontFamily: "Manrope_500Medium",
+              color: locationLabel ? "#ccc" : "#666",
+              fontSize: 14,
+            }}
+          >
+            {locationLabel ?? "Set your delivery address…"}
+          </Text>
+          <ChevronDown
+            size={14}
+            color="#999"
+            style={{ transform: [{ rotate: addressBarExpanded ? "180deg" : "0deg" }] }}
+          />
+        </Pressable>
+
+        {/* ── Address Bar Expanded Panel ── */}
+        {addressBarExpanded && (
+          <Animated.View
+            entering={FadeInDown.duration(250)}
+            style={{
+              marginHorizontal: 16,
+              marginBottom: 8,
+              backgroundColor: "#1a1a1a",
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+              padding: 14,
+              zIndex: 20,
+            }}
+          >
+            {/* Address Input + Detect button */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  backgroundColor: "#262626",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: "#333",
+                  paddingHorizontal: 12,
+                  height: 44,
+                }}
+              >
+                <Search size={16} color="#666" />
+                <TextInput
+                  style={{
+                    flex: 1,
+                    color: "#f5f5f5",
+                    fontFamily: "Manrope_500Medium",
+                    fontSize: 14,
+                    marginLeft: 8,
+                  }}
+                  placeholder="Search address..."
+                  placeholderTextColor="#666"
+                  value={addressInput}
+                  onChangeText={setAddressInput}
+                  autoCorrect={false}
+                  keyboardAppearance="dark"
+                  returnKeyType="search"
+                  autoFocus
+                />
+                {addressInput.length > 0 && (
+                  <Pressable onPress={() => { setAddressInput(""); setAddressSuggestions([]); }} hitSlop={10}>
+                    <X size={16} color="#888" />
+                  </Pressable>
+                )}
+              </View>
+
+              {/* Detect Location Button */}
+              <Pressable
+                onPress={handleDetectLocation}
+                disabled={isDetectingLocation}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: "rgba(255,153,51,0.12)",
+                  borderWidth: 1,
+                  borderColor: "rgba(255,153,51,0.3)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {isDetectingLocation ? (
+                  <ActivityIndicator size="small" color="#FF9933" />
+                ) : (
+                  <Navigation size={18} color="#FF9933" />
+                )}
+              </Pressable>
+            </View>
+
+            {/* Loading indicator */}
+            {isSearchingAddress && (
+              <Text style={{ color: "#666", fontSize: 11, fontFamily: "Manrope_500Medium", marginTop: 8, marginLeft: 4 }}>Searching...</Text>
+            )}
+
+            {/* Suggestions */}
+            {addressSuggestions.length > 0 && (
+              <View
+                style={{
+                  backgroundColor: "#222",
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "#2a2a2a",
+                  marginTop: 10,
+                  overflow: "hidden",
+                  maxHeight: 200,
+                }}
+              >
+                <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {addressSuggestions.map((item, idx) => (
+                    <Pressable
+                      key={idx}
+                      style={{
+                        padding: 12,
+                        borderBottomWidth: idx < addressSuggestions.length - 1 ? 1 : 0,
+                        borderColor: "#3a3a3a",
+                      }}
+                      onPress={() => {
+                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                        handleSaveAddress(item);
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                        <MapPin size={14} color="#FF9933" style={{ marginTop: 2 }} />
+                        <Text style={{ flex: 1, color: "#f5f5f5", fontFamily: "Manrope_500Medium", fontSize: 13, lineHeight: 18 }}>
+                          {item.display_name}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Saving indicator */}
+            {isSavingAddress && (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 10, gap: 8 }}>
+                <ActivityIndicator size="small" color="#FF9933" />
+                <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 12 }}>Saving...</Text>
+              </View>
+            )}
+          </Animated.View>
+        )}
 
         {(isRestaurantOwner || isAdmin) && (
           <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 }}>

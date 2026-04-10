@@ -11,6 +11,8 @@ interface LocationContextType {
     hasSavedAddress: boolean;
     reloadLocationPrefs: () => Promise<void>;
     setUserCoordsOverride: (coords: {latitude: number; longitude: number} | null) => void;
+    /** Request location permission from the user. Returns true if granted. Call this only on user interaction (e.g. map open, detect-location button). */
+    requestLocationPermission: () => Promise<boolean>;
 }
 
 const LocationContext = createContext<LocationContextType>({
@@ -20,6 +22,7 @@ const LocationContext = createContext<LocationContextType>({
     hasSavedAddress: false,
     reloadLocationPrefs: async () => {},
     setUserCoordsOverride: () => {},
+    requestLocationPermission: async () => false,
 });
 
 async function reverseGeocodeLabel(coords: { latitude: number; longitude: number }): Promise<string | null> {
@@ -84,6 +87,24 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const [savedAddress, setSavedAddress] = useState<string | null>(null);
     const [hasSavedAddress, setHasSavedAddress] = useState(false);
     const liveRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    /** Tracks whether location permission has been granted (without triggering prompts). */
+    const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
+
+    /**
+     * On-demand location permission request. Call this when the user explicitly
+     * interacts with a location feature (e.g. tapping the detect-location button
+     * or opening the map screen). This is the ONLY place permissions are prompted.
+     */
+    const requestLocationPermission = useCallback(async (): Promise<boolean> => {
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            const granted = status === 'granted';
+            setLocationPermissionGranted(granted);
+            return granted;
+        } catch {
+            return false;
+        }
+    }, []);
 
     const reloadLocationPrefs = useCallback(async () => {
         try {
@@ -180,11 +201,15 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         };
 
         (async () => {
-            const { status } = await Location.requestForegroundPermissionsAsync();
+            // Check-only: do NOT prompt the user. If permission isn't granted yet,
+            // fall back to saved address / city center. The user can grant it later
+            // by tapping detect-location or opening the map.
+            const { status } = await Location.getForegroundPermissionsAsync();
             if (!isActive || status !== "granted") {
-                if (status !== "granted") console.warn("📍 Location permission denied");
+                if (status !== "granted") console.log("📍 Location permission not yet granted — using fallback");
                 return;
             }
+            setLocationPermissionGranted(true);
 
             try {
                 // Get initial position with Balanced accuracy to reduce timeout/simulator exceptions
@@ -259,7 +284,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                 liveRefreshIntervalRef.current = null;
             }
         };
-    }, [isLiveLocationEnabled, isLoaded]);
+    }, [isLiveLocationEnabled, isLoaded, locationPermissionGranted]);
 
     return (
         <LocationContext.Provider value={{
@@ -268,7 +293,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             locationLabel,
             hasSavedAddress,
             reloadLocationPrefs,
-            setUserCoordsOverride: setUserCoords
+            setUserCoordsOverride: setUserCoords,
+            requestLocationPermission,
         }}>
             {children}
         </LocationContext.Provider>

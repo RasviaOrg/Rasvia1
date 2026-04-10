@@ -21,6 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import {
   User,
   LogOut,
@@ -51,9 +52,14 @@ import {
   Users,
   Building2,
   X,
-  Plus
+  Plus,
+  Lock,
+  Key,
+  Mail,
 } from "lucide-react-native";
 import { RolesModal } from "@/components/RolesModal";
+import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { isolatedSupabase } from "@/lib/isolated-supabase";
 import Animated, {
   FadeIn,
@@ -164,6 +170,9 @@ export default function ProfileSettingsScreen() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [showRoles, setShowRoles] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [showPhoneVerify, setShowPhoneVerify] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   // Admin tab state (only used when isAdmin)
   const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug' | 'accounts'>('preferences');
@@ -374,6 +383,7 @@ export default function ProfileSettingsScreen() {
           setFullName(data.full_name || "");
           setPhoneNumber(formatPhoneNumber((data as any).phone_number || ""));
           setCreatedAt(data.created_at);
+          setPhoneVerified(!!(data as any).phone_verified);
           if ((data as any).avatar_url) {
             setAvatarUrl((data as any).avatar_url);
           }
@@ -1123,6 +1133,41 @@ export default function ProfileSettingsScreen() {
               >
                 {phoneNumber || "Tap ✏️ to add phone number"}
               </Text>
+              {phoneNumber ? (
+                phoneVerified ? (
+                  <View style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: "rgba(34,197,94,0.12)",
+                    borderRadius: 10,
+                    paddingHorizontal: 7,
+                    paddingVertical: 3,
+                    gap: 3,
+                  }}>
+                    <ShieldCheck size={10} color="#22C55E" />
+                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#22C55E", fontSize: 10 }}>Verified</Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setShowPhoneVerify(true);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: "rgba(255,153,51,0.12)",
+                      borderRadius: 10,
+                      paddingHorizontal: 7,
+                      paddingVertical: 3,
+                      gap: 3,
+                    }}
+                  >
+                    <ShieldCheck size={10} color="#FF9933" />
+                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 10 }}>Verify</Text>
+                  </Pressable>
+                )
+              ) : null}
             </View>
 
             <Text
@@ -1204,6 +1249,17 @@ export default function ProfileSettingsScreen() {
                   onPress={() => {
                     if (Platform.OS !== "web") Haptics.selectionAsync();
                     router.push("/my-orders" as any);
+                  }}
+                />
+                <Divider />
+                {/* Change Password Row */}
+                <SettingsRow
+                  icon={<Key size={20} color="#60A5FA" />}
+                  label="Change Password"
+                  hasChevron
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    setShowChangePassword(true);
                   }}
                 />
                 <Divider />
@@ -2692,6 +2748,26 @@ export default function ProfileSettingsScreen() {
         </Modal>
       </SafeAreaView>
       {showRoles && <RolesModal onClose={() => setShowRoles(false)} />}
+
+      {/* Phone Verification Modal */}
+      <PhoneVerifyModal
+        visible={showPhoneVerify}
+        phone={phoneNumber.replace(/\D/g, "")}
+        onClose={() => setShowPhoneVerify(false)}
+        onVerified={() => {
+          setPhoneVerified(true);
+          setShowPhoneVerify(false);
+        }}
+      />
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        visible={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        onSuccess={() => {
+          setShowChangePassword(false);
+        }}
+      />
     </View>
   );
 }

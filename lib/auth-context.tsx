@@ -18,7 +18,7 @@ const AuthContext = createContext<AuthContextType>({
     setNeedsOnboarding: () => { },
 });
 
-const AUTH_TIMEOUT_MS = 6000;
+const AUTH_TIMEOUT_MS = 3000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
@@ -26,6 +26,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [needsOnboarding, setNeedsOnboarding] = useState(false);
     const initialised = useRef(false);
     const loadingRef = useRef(true);
+    /** Prevents the listener and the IIFE from both processing the initial session. */
+    const bootstrapResolved = useRef(false);
 
     useEffect(() => {
         loadingRef.current = loading;
@@ -67,18 +69,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }, AUTH_TIMEOUT_MS);
 
         // ── Handle invalid refresh token errors on listener errors ──
-        // Supabase fires onAuthStateChange with event='SIGNED_OUT' when a
-        // refresh token is invalid/expired.  The AuthApiError is emitted as
-        // a console error by the Supabase client.  We additionally handle it
-        // at the app level by subscribing to the refreshed-session error path.
         const handleInvalidToken = async (err: any) => {
             const msg: string = err?.message ?? '';
             if (
                 msg.toLowerCase().includes('refresh token') ||
                 msg.toLowerCase().includes('invalid_grant')
             ) {
-                // Clear all persisted auth keys so AsyncStorage is clean
-                // SecureStore manages its own isolated keys, relying purely on signOut now.
                 await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
                 if (!cancelled) {
                     setSession(null);
@@ -105,16 +101,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 return;
             }
 
+            // Skip duplicated INITIAL_SESSION events — the IIFE handles bootstrap
+            if ((event === 'INITIAL_SESSION' || (event === 'SIGNED_IN' && !initialised.current)) && bootstrapResolved.current) {
+                return;
+            }
+
             setSession(newSession);
 
             if (newSession?.user?.id) {
-                try {
-                    await upsertProfileFromAuthUser(newSession.user);
-                } catch (error: any) {
-                    // Check if this is an invalid refresh token error
-                    await handleInvalidToken(error);
-                    if (!newSession) return; // was cleared
-                    console.log('Profile sync skipped:', error?.message ?? 'unknown');
+                // Profile sync is non-blocking during initial bootstrap to avoid stalls
+                if (!initialised.current) {
+                    upsertProfileFromAuthUser(newSession.user).catch((e: any) => {
+                        console.log('Profile sync skipped:', e?.message ?? 'unknown');
+                    });
+                } else {
+                    try {
+                        await upsertProfileFromAuthUser(newSession.user);
+                    } catch (error: any) {
+                        await handleInvalidToken(error);
+                        if (!newSession) return;
+                        console.log('Profile sync skipped:', error?.message ?? 'unknown');
+                    }
                 }
 
                 if (event === 'SIGNED_IN' && initialised.current) {
@@ -148,11 +155,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setSession(initialSession);
 
                 if (initialSession?.user?.id) {
-                    try {
-                        await upsertProfileFromAuthUser(initialSession.user);
-                    } catch (profileErr: any) {
-                        await handleInvalidToken(profileErr);
-                    }
+                    // Non-blocking profile sync during bootstrap — don't let it stall loading
+                    upsertProfileFromAuthUser(initialSession.user).catch((profileErr: any) => {
+                        handleInvalidToken(profileErr);
+                    });
                     if (!cancelled) {
                         await checkOnboardingStatus(initialSession.user.id);
                     }
@@ -163,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 await handleInvalidToken(err);
             } finally {
                 if (!cancelled) {
+                    bootstrapResolved.current = true;
                     initialised.current = true;
                     setLoading(false);
                 }
