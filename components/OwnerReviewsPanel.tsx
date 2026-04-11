@@ -187,6 +187,7 @@ export function OwnerReviewsPanel({
   return (
     <View
       style={{
+        flex: 1,
         backgroundColor: "#171717",
         borderWidth: 1,
         borderColor: "#2f2f2f",
@@ -251,7 +252,7 @@ export function OwnerReviewsPanel({
         </View>
       ) : (
         <ScrollView
-          style={{ maxHeight: 420 }}
+          style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
           refreshControl={
             <RefreshControl

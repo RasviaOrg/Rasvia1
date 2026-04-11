@@ -89,6 +89,7 @@ type PulseItemBreakdown = {
     revenue: number;
     orderCount: number;
     dateOfOrder?: string;
+    lastSoldAt?: string;
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -111,6 +112,7 @@ function getWaitColor(mins: number) {
 function statusColor(status: string) {
     switch (status) {
         case "pending":
+        case "pending_payment":
         case "active": return ORANGE;
         case "preparing": return "#F59E0B";
         case "ready": return "#22C55E";
@@ -123,6 +125,46 @@ function statusColor(status: string) {
 
 function formatOrderType(type: string) {
     return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatOrderStatus(status: string) {
+    if (status === "pending_payment") return "Pending";
+    return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatOrderCreatedAt(createdAt: string) {
+    const d = new Date(createdAt);
+    if (Number.isNaN(d.getTime())) return "";
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfOrderDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const dayDiff = Math.round((startOfToday.getTime() - startOfOrderDay.getTime()) / 86400000);
+    const timeLabel = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+    if (dayDiff === 0) return `Today at ${timeLabel}`;
+    if (dayDiff === 1) return `Yesterday at ${timeLabel}`;
+
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${timeLabel} on ${mm}/${dd}`;
+}
+
+function formatLastSoldAt(createdAt?: string) {
+    if (!createdAt) return null;
+    const d = new Date(createdAt);
+    if (Number.isNaN(d.getTime())) return null;
+    let timeWithZone = "";
+    try {
+        timeWithZone = d.toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+            timeZoneName: "short",
+        });
+    } catch {
+        timeWithZone = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+    return `Last sold at ${timeWithZone}`;
 }
 
 const ownerOrderListRowStyles = StyleSheet.create({
@@ -166,6 +208,13 @@ const ownerOrderListRowStyles = StyleSheet.create({
         color: "#9ca3af",
         marginTop: 3,
     },
+    subMeta: {
+        fontFamily: "Manrope_500Medium",
+        fontSize: 11,
+        lineHeight: 15,
+        color: "#6b7280",
+        marginTop: 2,
+    },
     rightCol: {
         flexDirection: "row",
         alignItems: "center",
@@ -199,6 +248,7 @@ function OrderListRow({
 }) {
     const sc = statusColor(order.status);
     const typePrice = `${formatOrderType(order.order_type)} · $${(order.subtotal ?? 0).toFixed(2)}`;
+    const timeMeta = formatOrderCreatedAt(order.created_at);
     const androidText = Platform.OS === "android" ? { includeFontPadding: false } : undefined;
     return (
         <Pressable
@@ -224,6 +274,15 @@ function OrderListRow({
                     >
                         {typePrice}
                     </Text>
+                    {!!timeMeta && (
+                        <Text
+                            style={[ownerOrderListRowStyles.subMeta, androidText]}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                        >
+                            {timeMeta}
+                        </Text>
+                    )}
                 </View>
                 <View style={ownerOrderListRowStyles.rightCol}>
                     <View
@@ -239,7 +298,7 @@ function OrderListRow({
                             style={[ownerOrderListRowStyles.pillText, { color: sc }]}
                             numberOfLines={1}
                         >
-                            {order.status.toUpperCase()}
+                            {formatOrderStatus(order.status)}
                         </Text>
                     </View>
                     <View style={{ marginLeft: 6 }}>
@@ -312,9 +371,23 @@ function TimingsBanner({
 }
 
 // ── Order Detail Modal ───────────────────────────────────────────────────────
-function OrderDetailModal({ order, onClose }: { order: Order; onClose: () => void }) {
+function OrderDetailModal({
+    order,
+    onClose,
+    onOrderUpdated,
+}: {
+    order: Order;
+    onClose: () => void;
+    onOrderUpdated?: (next: Order) => void;
+}) {
+    const [currentOrder, setCurrentOrder] = useState<Order>(order);
     const [items, setItems] = useState<OrderItem[]>(order.items ?? []);
     const [loadingItems, setLoadingItems] = useState(!order.items);
+    const [cancellingOrder, setCancellingOrder] = useState(false);
+
+    useEffect(() => {
+        setCurrentOrder(order);
+    }, [order]);
 
     useEffect(() => {
         if (order.items) return;
@@ -328,6 +401,50 @@ function OrderDetailModal({ order, onClose }: { order: Order; onClose: () => voi
             });
     }, [order.id, order.items]);
 
+    const cancelableStatuses = new Set(["pending", "pending_payment", "active"]);
+    const canCancelOrder = cancelableStatuses.has(currentOrder.status);
+
+    const handleCancelOrder = useCallback(() => {
+        if (!canCancelOrder || cancellingOrder) return;
+        Alert.alert(
+            `Cancel Order #${currentOrder.id}?`,
+            "This action will mark the order as cancelled.",
+            [
+                { text: "Keep Order", style: "cancel" },
+                {
+                    text: "Cancel Order",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            setCancellingOrder(true);
+                            const { data, error } = await supabase
+                                .from("orders")
+                                .update({ status: "cancelled" })
+                                .eq("id", currentOrder.id)
+                                .in("status", ["pending", "pending_payment", "active"])
+                                .select("id, customer_name, status, subtotal, created_at, order_type")
+                                .maybeSingle();
+                            if (error) throw error;
+                            if (!data) {
+                                Alert.alert("Order Not Cancelled", "Only pending orders can be cancelled.");
+                                return;
+                            }
+                            const nextOrder = data as Order;
+                            setCurrentOrder(nextOrder);
+                            onOrderUpdated?.(nextOrder);
+                            if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        } catch (e: any) {
+                            Alert.alert("Could Not Cancel Order", e?.message || "Please try again.");
+                            if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        } finally {
+                            setCancellingOrder(false);
+                        }
+                    },
+                },
+            ]
+        );
+    }, [canCancelOrder, cancellingOrder, currentOrder, onOrderUpdated]);
+
     return (
         <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
             <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top", "bottom"]}>
@@ -337,7 +454,7 @@ function OrderDetailModal({ order, onClose }: { order: Order; onClose: () => voi
                     borderBottomWidth: 1, borderBottomColor: "#2a2a2a",
                 }}>
                     <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
-                        Order #{order.id}
+                        Order #{currentOrder.id}
                     </Text>
                     <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
                         <X size={22} color="#aaa" />
@@ -346,9 +463,9 @@ function OrderDetailModal({ order, onClose }: { order: Order; onClose: () => voi
                 <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }}>
                     <View style={{ ...CARD, padding: 16, marginBottom: 20 }}>
                         {[
-                            ["Customer", order.customer_name || "Guest"],
-                            ["Type", formatOrderType(order.order_type)],
-                            ["Time", new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })],
+                            ["Customer", currentOrder.customer_name || "Guest"],
+                            ["Type", formatOrderType(currentOrder.order_type)],
+                            ["Time", new Date(currentOrder.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })],
                         ].map(([label, value]) => (
                             <View key={label} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
                                 <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#777" }}>{label}</Text>
@@ -357,12 +474,41 @@ function OrderDetailModal({ order, onClose }: { order: Order; onClose: () => voi
                         ))}
                         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                             <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#777" }}>Status</Text>
-                            <View style={{ backgroundColor: `${statusColor(order.status)}20`, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${statusColor(order.status)}40` }}>
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 12, color: statusColor(order.status) }}>
-                                    {order.status.toUpperCase()}
+                            <View style={{ backgroundColor: `${statusColor(currentOrder.status)}20`, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${statusColor(currentOrder.status)}40` }}>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 12, color: statusColor(currentOrder.status) }}>
+                                    {formatOrderStatus(currentOrder.status)}
                                 </Text>
                             </View>
                         </View>
+                        {canCancelOrder && (
+                            <View style={{ alignItems: "flex-end", marginTop: 12 }}>
+                                <Pressable
+                                    onPress={handleCancelOrder}
+                                    disabled={cancellingOrder}
+                                    style={{
+                                        alignSelf: "flex-end",
+                                        minWidth: 0,
+                                        height: 28,
+                                        borderRadius: 9,
+                                        paddingHorizontal: 8,
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        borderWidth: 1.5,
+                                        borderColor: "#EF4444",
+                                        backgroundColor: "rgba(239,68,68,0.24)",
+                                        opacity: cancellingOrder ? 0.7 : 1,
+                                    }}
+                                >
+                                    {cancellingOrder ? (
+                                        <ActivityIndicator size="small" color="#FCA5A5" />
+                                    ) : (
+                                        <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 10, color: "#FCA5A5" }}>
+                                            Cancel Order
+                                        </Text>
+                                    )}
+                                </Pressable>
+                            </View>
+                        )}
                     </View>
 
                     <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: "#f5f5f5", marginBottom: 12 }}>Items</Text>
@@ -391,7 +537,7 @@ function OrderDetailModal({ order, onClose }: { order: Order; onClose: () => voi
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#2a2a2a" }}>
                         <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: "#f5f5f5" }}>Total</Text>
                         <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: ORANGE }}>
-                            ${(order.subtotal ?? 0).toFixed(2)}
+                            ${(currentOrder.subtotal ?? 0).toFixed(2)}
                         </Text>
                     </View>
                 </ScrollView>
@@ -405,6 +551,7 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [statusFilter, setStatusFilter] = useState<"all" | string>("all");
 
     useEffect(() => {
         supabase
@@ -415,6 +562,30 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
             .limit(50)
             .then(({ data }) => { setOrders((data as Order[]) ?? []); setLoading(false); });
     }, [restaurantId]);
+
+    const availableStatuses = React.useMemo(() => {
+        const set = new Set<string>();
+        orders.forEach((o) => {
+            if (o.status) set.add(o.status);
+        });
+        const preferredOrder = [
+            "pending_payment",
+            "pending",
+            "preparing",
+            "ready",
+            "served",
+            "completed",
+            "cancelled",
+        ];
+        const ordered = preferredOrder.filter((s) => set.has(s));
+        const extras = Array.from(set).filter((s) => !preferredOrder.includes(s)).sort();
+        return [...ordered, ...extras];
+    }, [orders]);
+
+    const filteredOrders = React.useMemo(
+        () => (statusFilter === "all" ? orders : orders.filter((o) => o.status === statusFilter)),
+        [orders, statusFilter]
+    );
 
     return (
         <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -440,23 +611,85 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
                                 No orders yet
                             </Text>
                         ) : (
-                            <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
-                                {orders.map((order, index) => (
-                                    <OrderListRow
-                                        key={order.id}
-                                        order={order}
-                                        isLast={index === orders.length - 1}
-                                        onPress={() => {
-                                            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                            setSelectedOrder(order);
+                            <>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={{ paddingBottom: 12, gap: 8 }}
+                                    style={{ marginBottom: 8 }}
+                                >
+                                    <Pressable
+                                        onPress={() => setStatusFilter("all")}
+                                        style={{
+                                            borderRadius: 999,
+                                            borderWidth: 1,
+                                            borderColor: statusFilter === "all" ? `${ORANGE}99` : "#2a2a2a",
+                                            backgroundColor: statusFilter === "all" ? "rgba(255,153,51,0.14)" : "#171717",
+                                            paddingHorizontal: 12,
+                                            paddingVertical: 7,
                                         }}
-                                    />
-                                ))}
-                            </View>
+                                    >
+                                        <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: statusFilter === "all" ? ORANGE : "#cfcfcf" }}>
+                                            All
+                                        </Text>
+                                    </Pressable>
+                                    {availableStatuses.map((status) => {
+                                        const active = statusFilter === status;
+                                        const sc = statusColor(status);
+                                        return (
+                                            <Pressable
+                                                key={status}
+                                                onPress={() => setStatusFilter(status)}
+                                                style={{
+                                                    borderRadius: 999,
+                                                    borderWidth: 1,
+                                                    borderColor: active ? `${sc}99` : "#2a2a2a",
+                                                    backgroundColor: active ? `${sc}22` : "#171717",
+                                                    paddingHorizontal: 12,
+                                                    paddingVertical: 7,
+                                                }}
+                                            >
+                                                <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? sc : "#cfcfcf" }}>
+                                                    {formatOrderStatus(status)}
+                                                </Text>
+                                            </Pressable>
+                                        );
+                                    })}
+                                </ScrollView>
+
+                                {filteredOrders.length === 0 ? (
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", marginTop: 24 }}>
+                                        No orders match this status
+                                    </Text>
+                                ) : (
+                                    <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
+                                        {filteredOrders.map((order, index) => (
+                                            <OrderListRow
+                                                key={order.id}
+                                                order={order}
+                                                isLast={index === filteredOrders.length - 1}
+                                                onPress={() => {
+                                                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                    setSelectedOrder(order);
+                                                }}
+                                            />
+                                        ))}
+                                    </View>
+                                )}
+                            </>
                         )}
                     </ScrollView>
                 )}
-                {selectedOrder && <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />}
+                {selectedOrder && (
+                    <OrderDetailModal
+                        order={selectedOrder}
+                        onClose={() => setSelectedOrder(null)}
+                        onOrderUpdated={(next) => {
+                            setSelectedOrder(next);
+                            setOrders((prev) => prev.map((o) => (o.id === next.id ? next : o)));
+                        }}
+                    />
+                )}
             </SafeAreaView>
         </Modal>
     );
@@ -506,17 +739,11 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
 
                 const agg = new Map<string, PulseItemBreakdown>();
                 const byOrder = new Map<string, Set<number>>();
-
-                const shouldGroupByDay = period !== "Today" && period !== "Custom";
-                const orderDates = new Map<number, string>();
+                const orderCreatedAt = new Map<number, string>();
                 parsedOrders.forEach((o) => {
                     const d = new Date(o.created_at);
                     if (isNaN(d.getTime())) return;
-                    // Provide a nice long date format. Fallbacks for hermes lacking Intl.
-                    const month = d.toLocaleString('en-US', { month: 'short' });
-                    const day = d.getDate();
-                    const year = d.getFullYear();
-                    orderDates.set(o.id, `${month} ${day}, ${year}`);
+                    orderCreatedAt.set(o.id, o.created_at);
                 });
 
                 for (const row of ((orderItemsData as any[]) ?? [])) {
@@ -527,18 +754,23 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                     const price = Number(row.price ?? 0);
                     const orderId = Number(row.order_id);
 
-                    const dateStr = orderDates.get(orderId) || "";
-                    const loopKey = shouldGroupByDay && dateStr ? `${key}|||${dateStr}` : key;
+                    const loopKey = key;
 
                     const existing = agg.get(loopKey) ?? {
                         name: rawName,
                         quantity: 0,
                         revenue: 0,
                         orderCount: 0,
-                        ...(shouldGroupByDay && dateStr ? { dateOfOrder: dateStr } : {}),
+                        lastSoldAt: undefined,
                     };
                     existing.quantity += quantity;
                     existing.revenue += quantity * price;
+                    const soldAt = orderCreatedAt.get(orderId);
+                    if (soldAt) {
+                        if (!existing.lastSoldAt || new Date(soldAt).getTime() > new Date(existing.lastSoldAt).getTime()) {
+                            existing.lastSoldAt = soldAt;
+                        }
+                    }
                     agg.set(loopKey, existing);
 
                     const seenOrders = byOrder.get(loopKey) ?? new Set<number>();
@@ -594,18 +826,14 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                 {/* Period Selector Tabs */}
                 <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6 }}>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                        {(["All", "Last Month", "Last Week", "Today", "Custom"] as const).map((p) => {
+                        {(["All", "Today", "Last Week", "Last Month"] as const).map((p) => {
                             const isSelected = period === p;
                             return (
                                 <Pressable
                                     key={p}
                                     onPress={() => {
                                         if (Platform.OS !== "web") Haptics.selectionAsync();
-                                        if (p === "Custom") {
-                                            setShowDatePicker(true);
-                                        } else {
-                                            setShowDatePicker(false);
-                                        }
+                                        setShowDatePicker(false);
                                         setPeriod(p);
                                     }}
                                     style={{
@@ -620,17 +848,50 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                         gap: 6,
                                     }}
                                 >
-                                    {p === "Custom" && <Calendar size={14} color={isSelected ? ORANGE : "#888"} />}
                                     <Text style={{
                                         fontFamily: "Manrope_600SemiBold",
                                         fontSize: 13,
                                         color: isSelected ? ORANGE : "#aaa"
                                     }}>
-                                        {p === "Custom" && period === "Custom" ? customDate.toLocaleDateString() : p}
+                                        {p}
                                     </Text>
                                 </Pressable>
                             );
                         })}
+                    </View>
+                    <View style={{ flexDirection: "row", marginTop: 8 }}>
+                        {(() => {
+                            const isSelected = period === "Custom";
+                            return (
+                                <Pressable
+                                    onPress={() => {
+                                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                                        setShowDatePicker(true);
+                                        setPeriod("Custom");
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 16,
+                                        paddingVertical: 8,
+                                        borderRadius: 999,
+                                        backgroundColor: isSelected ? "rgba(255,153,51,0.15)" : "#1a1a1a",
+                                        borderWidth: 1,
+                                        borderColor: isSelected ? ORANGE : "#2a2a2a",
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        gap: 6,
+                                    }}
+                                >
+                                    <Calendar size={14} color={isSelected ? ORANGE : "#888"} />
+                                    <Text style={{
+                                        fontFamily: "Manrope_600SemiBold",
+                                        fontSize: 13,
+                                        color: isSelected ? ORANGE : "#aaa"
+                                    }}>
+                                        {period === "Custom" ? customDate.toLocaleDateString() : "Custom"}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })()}
                     </View>
                 </View>
 
@@ -790,20 +1051,26 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                         }}
                                     >
                                         <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14 }}>{item.name}</Text>
-                                        <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 5 }}>
+                                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "stretch", marginTop: 5 }}>
                                             <View>
                                                 <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12 }}>
                                                     {item.quantity} sold · {item.orderCount} orders
                                                 </Text>
-                                                {item.dateOfOrder && (
+                                                {item.lastSoldAt ? (
+                                                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 2 }}>
+                                                        {formatLastSoldAt(item.lastSoldAt)}
+                                                    </Text>
+                                                ) : item.dateOfOrder ? (
                                                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 2 }}>
                                                         {item.dateOfOrder}
                                                     </Text>
-                                                )}
+                                                ) : null}
                                             </View>
-                                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#22C55E", fontSize: 13 }}>
-                                                ${item.revenue.toFixed(2)}
-                                            </Text>
+                                            <View style={{ justifyContent: "center", alignItems: "flex-end", minWidth: 96, paddingLeft: 10 }}>
+                                                <Text style={{ fontFamily: "Manrope_700Bold", color: "#22C55E", fontSize: 15, lineHeight: 18 }}>
+                                                    ${item.revenue.toFixed(2)}
+                                                </Text>
+                                            </View>
                                         </View>
                                     </View>
                                 ))}
@@ -827,7 +1094,16 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                     </ScrollView>
                 )}
 
-                {selectedOrder && <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />}
+                {selectedOrder && (
+                    <OrderDetailModal
+                        order={selectedOrder}
+                        onClose={() => setSelectedOrder(null)}
+                        onOrderUpdated={(next) => {
+                            setSelectedOrder(next);
+                            setOrders((prev) => prev.map((o) => (o.id === next.id ? next : o)));
+                        }}
+                    />
+                )}
             </SafeAreaView>
         </Modal>
     );
@@ -1559,7 +1835,7 @@ export function OwnerHomeContent({
                 {/* ── Section 2: Today's Pulse ── */}
                 <View style={{ marginBottom: 20 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1, marginRight: 10 }}>
                             <BarChart3 size={18} color={ORANGE} />
                             <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
                                 Today&apos;s Pulse
@@ -1572,22 +1848,22 @@ export function OwnerHomeContent({
                             }}
                             hitSlop={10}
                             style={({ pressed }) => ({
-                                opacity: pressed ? 0.65 : 1,
-                                backgroundColor: "rgba(255,153,51,0.15)",
-                                borderColor: "rgba(255,153,51,0.35)",
-                                borderWidth: 1,
-                                borderRadius: 999,
-                                paddingHorizontal: 12,
-                                paddingVertical: 7,
-                                flexDirection: "row",
+                                paddingHorizontal: 4,
+                                paddingVertical: 2,
                                 alignItems: "center",
-                                gap: 6,
+                                justifyContent: "center",
+                                alignSelf: "flex-end",
+                                opacity: pressed ? 0.65 : 1,
                             })}
                         >
-                            <BarChart3 size={13} color={ORANGE} />
-                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: ORANGE }}>
-                                Breakdown
-                            </Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+                                <Text numberOfLines={1} style={{ fontFamily: "Manrope_700Bold", fontSize: 12, lineHeight: 14, color: ORANGE }}>
+                                    Breakdown
+                                </Text>
+                                <View style={{ marginLeft: 4 }}>
+                                    <BarChart3 size={13} color={ORANGE} />
+                                </View>
+                            </View>
                         </Pressable>
                     </View>
                     <View
@@ -1644,21 +1920,26 @@ export function OwnerHomeContent({
                             }}
                             style={({ pressed }) => ({
                                 marginTop: 8,
-                                borderRadius: 12,
+                                borderRadius: 14,
                                 borderWidth: 1,
-                                borderColor: pressed ? "#3f3f3f" : "#2f2f2f",
-                                backgroundColor: pressed ? "#1a1a1a" : "#131313",
-                                paddingHorizontal: 16,
-                                paddingVertical: combinedBreakdownVerticalPadding,
-                                flexDirection: "row",
-                                alignItems: "center",
+                                borderColor: pressed ? "#8a8a8a" : "#747474",
+                                backgroundColor: pressed ? "#434343" : "#3A3A3A",
+                                paddingHorizontal: 14,
+                                paddingVertical: 12,
                             })}
                         >
-                            <View style={{ flex: 1 }}>
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: "#f5f5f5" }}>
+                            <View style={{
+                                borderRadius: 10,
+                                borderWidth: 1,
+                                borderColor: "#8A8A8A",
+                                backgroundColor: "rgba(20,20,20,0.26)",
+                                paddingHorizontal: 12,
+                                paddingVertical: 10,
+                            }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: "#f5f5f5", marginBottom: 3 }}>
                                     Open combined breakdown
                                 </Text>
-                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 4 }}>
+                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#D0D0D0" }}>
                                     Item + order insights in one place
                                 </Text>
                             </View>
@@ -1764,7 +2045,14 @@ export function OwnerHomeContent({
                 <AllOrdersModal restaurantId={effectiveOwnerRestaurantId} onClose={() => setShowAllOrders(false)} />
             )}
             {selectedOrder && (
-                <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
+                <OrderDetailModal
+                    order={selectedOrder}
+                    onClose={() => setSelectedOrder(null)}
+                    onOrderUpdated={(next) => {
+                        setSelectedOrder(next);
+                        setRecentOrders((prev) => prev.map((o) => (o.id === next.id ? next : o)));
+                    }}
+                />
             )}
             {showHoursSettings && effectiveOwnerRestaurantId && (
                 <RestaurantEditModal
@@ -1828,12 +2116,12 @@ export function OwnerHomeContent({
                             <X size={24} color="#f5f5f5" />
                         </Pressable>
                     </View>
-                    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30 }}>
+                    <View style={{ flex: 1, padding: 16, paddingBottom: 16 }}>
                         <OwnerReviewsPanel
                             restaurantId={effectiveOwnerRestaurantId ?? ""}
                             isAdminView={isAdmin}
                         />
-                    </ScrollView>
+                    </View>
                     </View>
                 </View>
             </Modal>
