@@ -254,8 +254,10 @@ export default function ResetPasswordScreen() {
                 placeholderTextColor="#666"
                 value={newPassword}
                 onChangeText={setNewPassword}
-                secureTextEntry={!showPassword && newPassword.length > 0}
+                secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="newPassword"
                 keyboardAppearance="dark"
               />
               <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
@@ -299,8 +301,10 @@ export default function ResetPasswordScreen() {
                 placeholderTextColor="#666"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                secureTextEntry={!showConfirm && confirmPassword.length > 0}
+                secureTextEntry={!showConfirm}
                 autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="newPassword"
                 keyboardAppearance="dark"
                 onSubmitEditing={handleResetPassword}
               />

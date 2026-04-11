@@ -724,6 +724,45 @@ export default function RestaurantDetail() {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setJoining(true);
     try {
+      let maxWaitlistSize = 15;
+      let activeCount: number | null = null;
+
+      const { data: capacityData, error: capacityErr } = await supabase.rpc(
+        "get_waitlist_capacity_snapshot",
+        { p_restaurant_id: Number(restaurant?.id) }
+      );
+
+      if (!capacityErr && capacityData) {
+        const row = Array.isArray(capacityData) ? capacityData[0] : capacityData;
+        maxWaitlistSize = Math.max(1, Math.min(200, Number((row as any)?.max_waitlist_size) || 15));
+        activeCount = Number((row as any)?.active_count ?? 0);
+      } else {
+        const [{ data: restData, error: restErr }, { count, error: countErr }] = await Promise.all([
+          supabase
+            .from("restaurants")
+            .select("max_waitlist_size")
+            .eq("id", Number(restaurant?.id))
+            .maybeSingle(),
+          supabase
+            .from("waitlist_entries")
+            .select("id", { count: "exact", head: true })
+            .eq("restaurant_id", Number(restaurant?.id))
+            .in("status", ["waiting", "notified"]),
+        ]);
+        if (restErr) throw restErr;
+        if (countErr) throw countErr;
+        maxWaitlistSize = Math.max(1, Math.min(200, Number(restData?.max_waitlist_size) || 15));
+        activeCount = count ?? 0;
+      }
+
+      if ((activeCount ?? 0) >= maxWaitlistSize) {
+        Alert.alert(
+          "Waitlist Full",
+          "This waitlist is currently full. Please call the restaurant directly for the latest availability."
+        );
+        return;
+      }
+
       const { data, error } = await supabase
         .from("waitlist_entries")
         .insert({
@@ -757,7 +796,15 @@ export default function RestaurantDetail() {
 
       router.push(`/waitlist/${restaurant?.id}?entry_id=${data.id}&party_size=${size}` as any);
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Could not join waitlist.");
+      const text = String(err?.message || err?.details || err?.hint || "").toUpperCase();
+      if (text.includes("WAITLIST_FULL") || text.includes("WAITLIST IS CURRENTLY FULL")) {
+        Alert.alert(
+          "Waitlist Full",
+          "This waitlist is currently full. Please call the restaurant directly for the latest availability."
+        );
+      } else {
+        Alert.alert("Error", err.message || "Could not join waitlist.");
+      }
     } finally {
       setJoining(false);
     }

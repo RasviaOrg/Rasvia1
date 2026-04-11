@@ -95,6 +95,15 @@ serve(async (req: Request) => {
       const orderType = order.order_type
       const partySessionId = order.party_session_id
 
+      // Mark the order as paid now that Stripe confirms payment.
+      const { error: updateErr } = await supabase
+        .from('orders')
+        .update({ status: 'paid' })
+        .eq('id', orderId)
+      if (updateErr) {
+        console.error('Failed to mark order as paid:', updateErr)
+      }
+
       // Type cast the relation since we know it's a single object from inner join
       const restaurantRel: any = order.restaurants
       const restaurantName = restaurantRel?.name || 'Restaurant'

@@ -17,7 +17,7 @@ import {
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation, Camera } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -55,6 +55,7 @@ import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { usePersonalization } from "@/hooks/usePersonalization";
 import { OwnerHomeContent } from "@/components/OwnerHomeContent";
 import { BrandedLoader } from "@/components/BrandedLoader";
+import { withTimeout } from "@/lib/with-timeout";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -348,6 +349,14 @@ export default function DiscoveryFeed() {
   const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
   const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    if (!loading) return;
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 9000);
+    return () => clearTimeout(safetyTimer);
+  }, [loading]);
+
   // ==================================================
   // THE "CHALO" REALTIME ENGINE
   // ==================================================
@@ -500,10 +509,15 @@ export default function DiscoveryFeed() {
 
   async function fetchRestaurants() {
     try {
-      const { data, error } = await supabase
-        .from('restaurants')
-        .select('*')
-        .order('current_wait_time', { ascending: true }); // Show fastest first
+      const restaurantsResponse: any = await withTimeout(
+        (supabase
+          .from('restaurants')
+          .select('*')
+          .order('current_wait_time', { ascending: true })) as any,
+        8000,
+        "Timed out while loading restaurants."
+      );
+      const { data, error } = restaurantsResponse;
 
       if (error) {
         console.error('❌ Supabase Error:', error);
@@ -518,9 +532,13 @@ export default function DiscoveryFeed() {
         const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userCoordsRef.current));
         setRestaurants(uiRestaurants);
         // Overlay live review stats (count + average) from restaurant_reviews
-        const ids = uiRestaurants.map((r) => r.id);
-        const statsMap = await fetchBatchReviewStats(ids);
-        setRestaurants(uiRestaurants.map((r) => {
+        const ids = uiRestaurants.map((r: UIRestaurant) => r.id);
+        const statsMap = await withTimeout(
+          fetchBatchReviewStats(ids),
+          6000,
+          "Timed out while loading review stats."
+        );
+        setRestaurants(uiRestaurants.map((r: UIRestaurant) => {
           const s = statsMap.get(r.id);
           if (!s) return r;
           return { ...r, rating: s.average, reviewCount: s.count };
@@ -2261,19 +2279,33 @@ export default function DiscoveryFeed() {
                           overflow: "hidden",
                         }}
                       >
-                        <Image
-                          source={
-                            leadItemImage
-                              ? { uri: leadItemImage }
-                              : require("@/assets/images/no-photo.png")
-                          }
-                          resizeMode="cover"
-                          style={{
-                            width: "100%",
-                            height: 88,
-                            backgroundColor: "#1f1f1f",
-                          }}
-                        />
+                        {leadItemImage ? (
+                          <Image
+                            source={{ uri: leadItemImage }}
+                            resizeMode="cover"
+                            style={{
+                              width: "100%",
+                              height: 88,
+                              backgroundColor: "#1f1f1f",
+                            }}
+                          />
+                        ) : (
+                          <View
+                            style={{
+                              width: "100%",
+                              height: 88,
+                              backgroundColor: "#1b1b1b",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: 4,
+                            }}
+                          >
+                            <Camera size={22} color="#7a7a7a" />
+                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 11 }}>
+                              No image available
+                            </Text>
+                          </View>
+                        )}
                         <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
                           <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: restaurant.waitStatus === 'darkgrey' ? "#555" : "#f5f5f5", fontSize: 15 }} numberOfLines={1}>
                             {restaurant.name}

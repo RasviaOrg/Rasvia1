@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { upsertProfileFromAuthUser } from './profile-sync';
 import * as SecureStore from 'expo-secure-store';
+import { withTimeout } from './with-timeout';
 
 interface AuthContextType {
     session: Session | null;
@@ -18,7 +19,8 @@ const AuthContext = createContext<AuthContextType>({
     setNeedsOnboarding: () => { },
 });
 
-const AUTH_TIMEOUT_MS = 3000;
+const AUTH_TIMEOUT_MS = 8000;
+const ONBOARDING_LOOKUP_TIMEOUT_MS = 3500;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
@@ -28,11 +30,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const checkOnboarding = useCallback(async (userId: string): Promise<boolean> => {
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('onboarding_completed')
-                .eq('id', userId)
-                .maybeSingle();
+            const profileResp: any = await withTimeout(
+                (supabase
+                    .from('profiles')
+                    .select('onboarding_completed')
+                    .eq('id', userId)
+                    .maybeSingle()) as any,
+                ONBOARDING_LOOKUP_TIMEOUT_MS,
+                'Onboarding lookup timed out'
+            );
+            const { data, error } = profileResp ?? {};
             if (error || !data) return true; // needs onboarding
             return !data.onboarding_completed;
         } catch {

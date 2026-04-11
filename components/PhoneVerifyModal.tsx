@@ -15,6 +15,8 @@ import Animated, { FadeIn, FadeInDown, FadeInUp } from "react-native-reanimated"
 import { Phone, ShieldCheck, ArrowLeft, CheckCircle, RefreshCw, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
+import { parseEdgeFunctionError } from "@/lib/edge-function-error";
+import { withTimeout } from "@/lib/with-timeout";
 
 interface PhoneVerifyModalProps {
   visible: boolean;
@@ -26,6 +28,7 @@ interface PhoneVerifyModalProps {
 }
 
 type VerifyStep = "ready" | "code-sent" | "verifying" | "success";
+const SMS_REQUEST_TIMEOUT_MS = 12000;
 
 export function PhoneVerifyModal({ visible, phone, onClose, onVerified, allowSkip = false }: PhoneVerifyModalProps) {
   const [step, setStep] = useState<VerifyStep>("ready");
@@ -75,14 +78,37 @@ export function PhoneVerifyModal({ visible, phone, onClose, onVerified, allowSki
   }
 
   async function handleSendCode() {
+    if (rawDigits.length !== 10) {
+      setError("Please enter a valid 10-digit phone number.");
+      return;
+    }
     setSending(true);
     setError("");
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("sms-verify", {
-        body: { action: "send-code", phone: rawDigits },
-      });
+      const { data: authData, error: authError } = await withTimeout(
+        supabase.auth.getSession(),
+        SMS_REQUEST_TIMEOUT_MS,
+        "Timed out while validating your session. Please reopen the app and try again."
+      );
+      if (authError) throw authError;
+      const accessToken = authData?.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Your session expired. Please sign in again.");
+      }
 
-      if (fnError) throw new Error(fnError.message || "Failed to send code");
+      const { data, error: fnError } = await withTimeout(
+        supabase.functions.invoke("sms-verify", {
+          body: { action: "send-code", phone: rawDigits },
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        SMS_REQUEST_TIMEOUT_MS,
+        "Timed out while sending your verification code. Please try again."
+      );
+
+      if (fnError) {
+        const parsed = await parseEdgeFunctionError(fnError, "Failed to send verification code.");
+        throw new Error(parsed.message);
+      }
       if (data?.error) throw new Error(data.error);
 
       setStep("code-sent");
@@ -104,11 +130,30 @@ export function PhoneVerifyModal({ visible, phone, onClose, onVerified, allowSki
     setStep("verifying");
     setError("");
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("sms-verify", {
-        body: { action: "check-code", phone: rawDigits, code },
-      });
+      const { data: authData, error: authError } = await withTimeout(
+        supabase.auth.getSession(),
+        SMS_REQUEST_TIMEOUT_MS,
+        "Timed out while validating your session. Please reopen the app and try again."
+      );
+      if (authError) throw authError;
+      const accessToken = authData?.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Your session expired. Please sign in again.");
+      }
 
-      if (fnError) throw new Error(fnError.message || "Verification failed");
+      const { data, error: fnError } = await withTimeout(
+        supabase.functions.invoke("sms-verify", {
+          body: { action: "check-code", phone: rawDigits, code },
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        SMS_REQUEST_TIMEOUT_MS,
+        "Timed out while checking the verification code. Please try again."
+      );
+
+      if (fnError) {
+        const parsed = await parseEdgeFunctionError(fnError, "Verification failed.");
+        throw new Error(parsed.message);
+      }
       if (data?.error) throw new Error(data.error);
 
       if (data?.status === "approved" && data?.valid) {

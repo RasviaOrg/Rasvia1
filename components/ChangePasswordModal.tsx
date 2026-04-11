@@ -33,6 +33,7 @@ type Step =
   | "new-password"
   | "updating"
   | "success";
+const CHANGE_CODE_LENGTH = 7;
 
 export function ChangePasswordModal({ visible, email, onClose, onSuccess }: ChangePasswordModalProps) {
   const [step, setStep] = useState<Step>("choose-method");
@@ -130,7 +131,7 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
   }
 
   async function handleVerifyOtp() {
-    if (code.length < 7) {
+    if (code.length < CHANGE_CODE_LENGTH) {
       setError("Please enter the full verification code");
       return;
     }
@@ -313,8 +314,9 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
                       placeholderTextColor="#555"
                       value={currentPassword}
                       onChangeText={(t) => { setCurrentPassword(t); setError(""); setStatusMsg(""); }}
-                      secureTextEntry={!showCurrentPassword && currentPassword.length > 0}
+                      secureTextEntry={!showCurrentPassword}
                       autoCapitalize="none"
+                      autoCorrect={false}
                       keyboardAppearance="dark"
                       autoFocus
                       onSubmitEditing={handleVerifyPassword}
@@ -356,21 +358,50 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
 
                   {renderStatus()}
 
-                  <View style={codeWrap(!!error)}>
+                  <Pressable
+                    onPress={() => codeInputRef.current?.focus()}
+                    style={{ marginBottom: 12 }}
+                  >
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+                      {Array.from({ length: CHANGE_CODE_LENGTH }).map((_, idx) => {
+                        const digit = code[idx] ?? "";
+                        const isFocused = code.length === idx || (code.length >= CHANGE_CODE_LENGTH && idx === CHANGE_CODE_LENGTH - 1);
+                        return (
+                          <View
+                            key={`change-code-${idx}`}
+                            style={{
+                              flex: 1,
+                              height: 56,
+                              borderRadius: 14,
+                              borderWidth: 1.5,
+                              borderColor: error ? "#EF4444" : isFocused ? "#FF9933" : "#2a2a2a",
+                              backgroundColor: "#1a1a1a",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 22 }}>
+                              {digit || " "}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
                     <TextInput
                       ref={codeInputRef}
                       value={code}
-                      onChangeText={(text) => { setCode(text.replace(/\D/g, "").slice(0, 7)); setError(""); setStatusMsg(""); }}
-                      style={codeField}
-                      placeholder="· · · · · · ·"
-                      placeholderTextColor="#444"
+                      onChangeText={(text) => { setCode(text.replace(/\D/g, "").slice(0, CHANGE_CODE_LENGTH)); setError(""); setStatusMsg(""); }}
+                      style={hiddenCodeInput}
                       keyboardType="number-pad"
-                      maxLength={7}
+                      maxLength={CHANGE_CODE_LENGTH}
                       autoFocus
                       keyboardAppearance="dark"
+                      textContentType="oneTimeCode"
+                      autoComplete="sms-otp"
+                      caretHidden
                       onSubmitEditing={handleVerifyOtp}
                     />
-                  </View>
+                  </Pressable>
 
                   {renderError()}
 
@@ -389,13 +420,13 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
 
                   <Pressable
                     onPress={handleVerifyOtp}
-                    disabled={code.length < 7 || step === "verifying-code"}
-                    style={{ ...primaryBtn, backgroundColor: code.length >= 7 ? "#FF9933" : "#333", opacity: step === "verifying-code" ? 0.7 : 1 }}
+                    disabled={code.length < CHANGE_CODE_LENGTH || step === "verifying-code"}
+                    style={{ ...primaryBtn, backgroundColor: code.length >= CHANGE_CODE_LENGTH ? "#FF9933" : "#333", opacity: step === "verifying-code" ? 0.7 : 1 }}
                   >
                     {step === "verifying-code" ? (
                       <ActivityIndicator color="#0f0f0f" />
                     ) : (
-                      <Text style={{ ...btnText, color: code.length >= 7 ? "#0f0f0f" : "#888" }}>Verify Code</Text>
+                      <Text style={{ ...btnText, color: code.length >= CHANGE_CODE_LENGTH ? "#0f0f0f" : "#888" }}>Verify Code</Text>
                     )}
                   </Pressable>
                 </Animated.View>
@@ -421,8 +452,10 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
                       placeholderTextColor="#555"
                       value={newPassword}
                       onChangeText={(t) => { setNewPassword(t); setError(""); setStatusMsg(""); }}
-                      secureTextEntry={!showNewPassword && newPassword.length > 0}
+                      secureTextEntry={!showNewPassword}
                       autoCapitalize="none"
+                      autoCorrect={false}
+                      textContentType="newPassword"
                       keyboardAppearance="dark"
                       autoFocus
                     />
@@ -440,8 +473,10 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
                       placeholderTextColor="#555"
                       value={confirmPassword}
                       onChangeText={(t) => { setConfirmPassword(t); setError(""); setStatusMsg(""); }}
-                      secureTextEntry={!showNewPassword && confirmPassword.length > 0}
+                      secureTextEntry={!showNewPassword}
                       autoCapitalize="none"
+                      autoCorrect={false}
+                      textContentType="newPassword"
                       keyboardAppearance="dark"
                       onSubmitEditing={handleUpdatePassword}
                     />
@@ -513,16 +548,11 @@ const inputRow = (err: boolean) => ({
 
 const inputField = { flex: 1, color: "#f5f5f5", fontFamily: "Manrope_500Medium", fontSize: 15, marginLeft: 12 };
 
-const codeWrap = (err: boolean) => ({
-  backgroundColor: "#1a1a1a", borderRadius: 16, borderWidth: 1.5,
-  borderColor: err ? "#EF4444" : "#2a2a2a",
-  height: 60, alignItems: "center" as const, justifyContent: "center" as const, marginBottom: 12,
-});
-
-const codeField = {
-  color: "#f5f5f5", fontFamily: "JetBrainsMono_600SemiBold",
-  fontSize: 26, letterSpacing: 10, textAlign: "center" as const,
-  width: "100%" as any, height: "100%" as any,
+const hiddenCodeInput = {
+  position: "absolute" as const,
+  opacity: 0,
+  width: 1,
+  height: 1,
 };
 
 const primaryBtn = {

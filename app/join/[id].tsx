@@ -20,7 +20,7 @@ import {
     Star, Clock, Leaf, Flame, ChevronDown, ChevronUp,
     CheckCircle2, Users, DollarSign, Trash2, Send,
     Crown, Search, Filter, CreditCard, Share2,
-    Truck, UtensilsCrossed, Wallet,
+    Truck, UtensilsCrossed, Wallet, SlidersHorizontal,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeIn, FadeInUp } from 'react-native-reanimated';
 
@@ -38,9 +38,31 @@ const MEMBER_COLORS = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#
 const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
 type PaymentMode = 'host_pays' | 'split' | 'assign';
+const SPLIT_META_PREFIX = '__rasvia_split:';
+type ItemSplitMeta = { type: 'equal'; members: string[] };
 
 function normalizePaymentMode(mode: unknown): PaymentMode {
     return mode === 'split' || mode === 'assign' || mode === 'host_pays' ? mode : 'host_pays';
+}
+
+function isWaitlistFullError(error: any): boolean {
+    const text = String(error?.message || error?.details || error?.hint || '').toUpperCase();
+    return text.includes('WAITLIST_FULL') || text.includes('WAITLIST IS CURRENTLY FULL');
+}
+
+function parseItemSplitMeta(raw: unknown): ItemSplitMeta | null {
+    if (typeof raw !== 'string' || !raw.startsWith(SPLIT_META_PREFIX)) return null;
+    try {
+        const parsed = JSON.parse(raw.slice(SPLIT_META_PREFIX.length));
+        if (!parsed || parsed.type !== 'equal' || !Array.isArray(parsed.members)) return null;
+        const members = parsed.members
+            .map((m: unknown) => String(m || '').trim())
+            .filter(Boolean);
+        if (members.length === 0) return null;
+        return { type: 'equal', members: Array.from(new Set(members)) };
+    } catch {
+        return null;
+    }
 }
 
 function MealPeriodTag({ period }: { period: MealPeriod }) {
@@ -119,12 +141,25 @@ export default function JoinPartyScreen() {
     const [groupPartySize, setGroupPartySize] = useState(2);
     const [paymentMode, setPaymentMode] = useState<PaymentMode>('host_pays');
     const [assignedPayer, setAssignedPayer] = useState<string | null>(null);
+    const [paymentModeSyncing, setPaymentModeSyncing] = useState(false);
     const [payingMyShare, setPayingMyShare] = useState(false);
+    const [splitPaidMembers, setSplitPaidMembers] = useState<string[]>([]);
+    const [splitEditItem, setSplitEditItem] = useState<any | null>(null);
+    const [showMemberSplitOverlay, setShowMemberSplitOverlay] = useState(false);
+    const [splitSelectedMembers, setSplitSelectedMembers] = useState<string[]>([]);
+    const [savingSplitDraft, setSavingSplitDraft] = useState(false);
 
     const channelRef = useRef<any>(null);
     const fetchCartRef = useRef<() => Promise<void>>(async () => { });
     const sessionId = typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
     const userId = session?.user?.id ?? '';
+    const closeCartModal = useCallback(() => {
+        if (Platform.OS !== "web") Haptics.selectionAsync();
+        setSplitEditItem(null);
+        setShowMemberSplitOverlay(false);
+        setSplitSelectedMembers([]);
+        setShowCartModal(false);
+    }, []);
 
     // User-scoped storage keys so multiple accounts on one device never collide
     const nameKey = userId ? `party_name_${userId}_${sessionId}` : `party_name_anon_${sessionId}`;
@@ -142,7 +177,32 @@ export default function JoinPartyScreen() {
         return Array.from(names);
     }, [cartItems]);
 
-    const splitAmount = uniqueMembers.length > 0 ? totalPrice / uniqueMembers.length : totalPrice;
+    const normalizeMemberName = useCallback((name: string) => name.trim().toLowerCase(), []);
+    const splitPaidMemberSet = useMemo(
+        () => new Set(splitPaidMembers.map((name) => normalizeMemberName(name))),
+        [splitPaidMembers, normalizeMemberName]
+    );
+    const memberUserIdMap = useMemo<Record<string, string>>(() => {
+        const out: Record<string, string> = {};
+        cartItems.forEach((item) => {
+            const name = String(item.added_by_name || '').trim();
+            if (!name) return;
+            const userId = typeof item.added_by_user_id === 'string' ? item.added_by_user_id : '';
+            if (userId && !out[name]) out[name] = userId;
+        });
+        return out;
+    }, [cartItems]);
+    const membersWithAppIdentity = useMemo(
+        () => uniqueMembers.filter((name) => !!memberUserIdMap[name]),
+        [uniqueMembers, memberUserIdMap]
+    );
+    const assignableMembers = useMemo(() => {
+        const set = new Set(membersWithAppIdentity);
+        if (guestName && userId && uniqueMembers.includes(guestName)) {
+            set.add(guestName);
+        }
+        return Array.from(set);
+    }, [guestName, membersWithAppIdentity, uniqueMembers, userId]);
 
     // Avatar map: name → url (only populated for current user right now)
     const memberAvatarMap = useMemo<Record<string, string | null>>(() => {
@@ -152,26 +212,51 @@ export default function JoinPartyScreen() {
 
     const memberTotals = useMemo(() => {
         const totals: Record<string, { items: any[]; total: number }> = {};
-        cartItems.forEach(item => {
-            const name = item.added_by_name || 'Unknown';
-            if (!totals[name]) totals[name] = { items: [], total: 0 };
-            const unitPrice = Number(item.menu_items?.price ?? item.price ?? 0);
-            const qty = item.quantity ?? 1;
-            totals[name].total += unitPrice * qty;
+        uniqueMembers.forEach((name) => {
+            totals[name] = { items: [], total: 0 };
+        });
 
-            const aggKey = item.menu_item_id != null
-                ? `id:${item.menu_item_id}`
-                : `name:${(item.menu_items?.name ?? item.name ?? 'item').toLowerCase()}:${unitPrice}`;
-            const existing = totals[name].items.find((x: any) => x.__aggKey === aggKey);
-            if (existing) {
-                existing.quantity = (existing.quantity ?? 1) + qty;
-            } else {
-                totals[name].items.push({ ...item, __aggKey: aggKey });
-            }
+        cartItems.forEach(item => {
+            const owner = String(item.added_by_name || 'Unknown');
+            const unitPrice = Number(item.menu_items?.price ?? item.price ?? 0);
+            const qty = Math.max(1, Number(item.quantity ?? 1));
+            const totalCents = Math.max(0, Math.round(unitPrice * qty * 100));
+            const splitMeta = parseItemSplitMeta(item.special_requests);
+            const splitMembers = splitMeta?.members?.filter((m) => uniqueMembers.includes(m)) ?? [];
+            const payers = splitMembers.length >= 2 ? splitMembers : [owner];
+            const base = Math.floor(totalCents / payers.length);
+            let remainder = totalCents - base * payers.length;
+
+            payers.forEach((name) => {
+                if (!totals[name]) totals[name] = { items: [], total: 0 };
+                const cents = base + (remainder > 0 ? 1 : 0);
+                if (remainder > 0) remainder -= 1;
+                totals[name].total += cents / 100;
+                totals[name].items.push({
+                    ...item,
+                    __allocatedCents: cents,
+                    __splitMembers: payers,
+                });
+            });
         });
         return totals;
-    }, [cartItems]);
+    }, [cartItems, uniqueMembers]);
+    const splitRequiredMembers = useMemo(
+        () => uniqueMembers.filter((name) => (memberTotals[name]?.total ?? 0) > 0),
+        [uniqueMembers, memberTotals]
+    );
+    const canUseMultiPayerModes = uniqueMembers.length > 1;
+    const splitAllPaid = useMemo(
+        () => splitRequiredMembers.every((name) => splitPaidMemberSet.has(normalizeMemberName(name))),
+        [splitRequiredMembers, splitPaidMemberSet, normalizeMemberName]
+    );
+    const unpaidSplitMembers = useMemo(
+        () => splitRequiredMembers.filter((name) => !splitPaidMemberSet.has(normalizeMemberName(name))),
+        [splitRequiredMembers, splitPaidMemberSet, normalizeMemberName]
+    );
     const myShareTotal = guestName ? (memberTotals[guestName]?.total ?? 0) : 0;
+    const mySharePaid = guestName ? splitPaidMemberSet.has(normalizeMemberName(guestName)) : false;
+    const isAssignedPayerValid = paymentMode !== 'assign' || (!!assignedPayer && assignableMembers.includes(assignedPayer));
 
     const combinedAllItems = useMemo(() => {
         const combined = new Map<string, {
@@ -230,6 +315,13 @@ export default function JoinPartyScreen() {
         return filtered;
     }, [menu, selectedCategory, searchQuery]);
 
+    useEffect(() => {
+        if (showCartModal) return;
+        setSplitEditItem(null);
+        setShowMemberSplitOverlay(false);
+        setSplitSelectedMembers([]);
+    }, [showCartModal]);
+
     // Cart fetcher stored in a ref so subscriptions always call the latest version
     // without causing effect dependency changes
     const doFetchCart = useCallback(async () => {
@@ -245,6 +337,68 @@ export default function JoinPartyScreen() {
             // silently ignore cart fetch errors
         }
     }, [sessionId]);
+
+    const fetchSplitPaidMembers = useCallback(async () => {
+        if (!sessionId) return;
+        try {
+            const { data } = await supabase
+                .from('orders')
+                .select('customer_name,status,party_session_id')
+                .eq('party_session_id', sessionId)
+                .in('status', ['paid', 'ready', 'served']);
+
+            const paid = Array.from(
+                new Set(
+                    (data ?? [])
+                        .map((row: any) => String(row?.customer_name ?? '').trim())
+                        .filter(Boolean)
+                )
+            );
+            setSplitPaidMembers(paid);
+        } catch {
+            // ignore; split payment state will remain best-effort
+        }
+    }, [sessionId]);
+
+    const openSplitEditor = useCallback((item: any) => {
+        const fallbackOwner = String(item?.added_by_name || '').trim();
+        const splitMeta = parseItemSplitMeta(item?.special_requests);
+        const selected = splitMeta?.members?.filter((name) => uniqueMembers.includes(name))
+            ?? (fallbackOwner ? [fallbackOwner] : []);
+        setSplitSelectedMembers(Array.from(new Set(selected)));
+        setSplitEditItem(item);
+    }, [uniqueMembers]);
+
+    const saveSplitEditor = useCallback(async () => {
+        if (!splitEditItem || !sessionId || !isHost) return;
+        const selected = Array.from(new Set(splitSelectedMembers.map((name) => String(name || '').trim()).filter(Boolean)));
+        if (selected.length === 0) {
+            Alert.alert('Invalid Split', 'Select at least one member.');
+            return;
+        }
+        const splitMetaValue = selected.length >= 2
+            ? `${SPLIT_META_PREFIX}${JSON.stringify({ type: 'equal', members: selected })}`
+            : null;
+
+        setSavingSplitDraft(true);
+        try {
+            const { error: updateErr } = await supabase
+                .from('party_items')
+                .update({
+                    special_requests: splitMetaValue,
+                })
+                .eq('id', splitEditItem.id);
+            if (updateErr) throw updateErr;
+
+            setSplitEditItem(null);
+            setSplitSelectedMembers([]);
+            await doFetchCart();
+        } catch (e: any) {
+            Alert.alert('Split Update Failed', e?.message || 'Could not save split changes.');
+        } finally {
+            setSavingSplitDraft(false);
+        }
+    }, [doFetchCart, isHost, sessionId, splitEditItem, splitSelectedMembers]);
 
     fetchCartRef.current = doFetchCart;
 
@@ -329,6 +483,7 @@ export default function JoinPartyScreen() {
                     .order('created_at', { ascending: true });
 
                 setCartItems(cartData ?? []);
+                fetchSplitPaidMembers();
             } catch (e) {
                 console.error('initializeParty error:', e);
                 if (active) setSessionError(true);
@@ -339,7 +494,7 @@ export default function JoinPartyScreen() {
 
         init();
         return () => { active = false; };
-    }, [sessionId, userId, nameKey]);
+    }, [sessionId, userId, nameKey, fetchSplitPaidMembers]);
 
     // Real-time subscriptions — only depends on sessionId (stable string)
     // Uses ref for fetchCart so it never causes re-subscription
@@ -370,6 +525,24 @@ export default function JoinPartyScreen() {
             channelRef.current = null;
         };
     }, [sessionId]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+        const paymentsChannel = supabase
+            .channel(`party-payments-${sessionId}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'orders', filter: `party_session_id=eq.${sessionId}` },
+                () => {
+                    fetchSplitPaidMembers();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(paymentsChannel);
+        };
+    }, [fetchSplitPaidMembers, sessionId]);
 
     // Refs for deep-link handler to avoid re-subscribing on cart changes
     const cartItemsRef = useRef(cartItems);
@@ -489,12 +662,19 @@ export default function JoinPartyScreen() {
             };
             setCartItems(prev => [...prev, optimistic]);
 
-            const { error } = await supabase.from('party_items').insert({
+            const insertPayload: Record<string, any> = {
                 session_id: sessionId,
                 menu_item_id: item.id,
                 added_by_name: guestName,
                 quantity,
-            });
+                added_by_user_id: userId || null,
+            };
+            let { error } = await supabase.from('party_items').insert(insertPayload);
+            if (error) {
+                const { added_by_user_id, ...fallbackPayload } = insertPayload;
+                const fallback = await supabase.from('party_items').insert(fallbackPayload);
+                error = fallback.error;
+            }
 
             if (error) {
                 setCartItems(prev => prev.filter(i => i.id !== tempId));
@@ -591,6 +771,27 @@ export default function JoinPartyScreen() {
         // If dine-in group order, add to waitlist automatically
         if (groupOrderType === 'dine_in' && restaurantId) {
             try {
+                const [{ data: restData }, { count: activeCount }] = await Promise.all([
+                    supabase
+                        .from('restaurants')
+                        .select('max_waitlist_size')
+                        .eq('id', restaurantId)
+                        .maybeSingle(),
+                    supabase
+                        .from('waitlist_entries')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('restaurant_id', restaurantId)
+                        .in('status', ['waiting', 'notified']),
+                ]);
+                const maxWaitlistSize = Math.max(1, Math.min(200, Number((restData as any)?.max_waitlist_size) || 15));
+                if ((activeCount ?? 0) >= maxWaitlistSize) {
+                    Alert.alert(
+                        'Waitlist Full',
+                        'This waitlist is currently full. Please call the restaurant directly for the latest availability.'
+                    );
+                    return;
+                }
+
                 const { data: entry } = await supabase
                     .from('waitlist_entries')
                     .insert({
@@ -606,17 +807,30 @@ export default function JoinPartyScreen() {
                 if (entry) {
                     router.push(`/waitlist/${restaurantId}?entry_id=${entry.id}&party_size=${groupPartySize}` as any);
                 }
-            } catch (e) {
-                console.error('Waitlist auto-add error:', e);
+            } catch (e: any) {
+                if (isWaitlistFullError(e)) {
+                    Alert.alert(
+                        'Waitlist Full',
+                        'This waitlist is currently full. Please call the restaurant directly for the latest availability.'
+                    );
+                } else {
+                    console.error('Waitlist auto-add error:', e);
+                }
             }
         }
     };
 
     const syncPaymentModeToSession = useCallback(async (nextMode: PaymentMode, nextAssignedPayer: string | null) => {
+        if (paymentModeSyncing) return;
+        if ((nextMode === 'split' || nextMode === 'assign') && !canUseMultiPayerModes) return;
+        setPaymentModeSyncing(true);
         setPaymentMode(nextMode);
         setAssignedPayer(nextAssignedPayer);
 
-        if (!isHost || !sessionId) return;
+        if (!isHost || !sessionId) {
+            setPaymentModeSyncing(false);
+            return;
+        }
 
         const { error } = await supabase
             .from('party_sessions')
@@ -627,21 +841,67 @@ export default function JoinPartyScreen() {
             .eq('id', sessionId);
 
         if (error) {
+            setPaymentModeSyncing(false);
             throw error;
         }
-    }, [isHost, sessionId]);
+        setPaymentModeSyncing(false);
+    }, [canUseMultiPayerModes, isHost, paymentModeSyncing, sessionId]);
+
+    useEffect(() => {
+        if (canUseMultiPayerModes) return;
+        if (paymentMode === 'host_pays') return;
+        setPaymentMode('host_pays');
+        setAssignedPayer(null);
+        if (isHost && sessionId) {
+            supabase
+                .from('party_sessions')
+                .update({ payment_mode: 'host_pays', assigned_payer_name: null })
+                .eq('id', sessionId)
+                .then(() => { });
+        }
+    }, [canUseMultiPayerModes, isHost, paymentMode, sessionId]);
 
     const buildCartMetaForPayer = useCallback((payerName?: string) => {
-        const sourceItems = payerName ? cartItems.filter((ci) => ci.added_by_name === payerName) : cartItems;
-        return sourceItems.map((ci) => ({
-            name: ci.menu_items?.name ?? 'Unknown',
-            price: Number(ci.menu_items?.price ?? 0),
-            quantity: ci.quantity ?? 1,
-            menu_item_id: ci.menu_item_id,
-            is_vegetarian: ci.menu_items?.is_vegetarian ?? false,
-            added_by: ci.added_by_name || guestName || '',
-        }));
-    }, [cartItems, guestName]);
+        if (!payerName) {
+            return cartItems.map((ci) => ({
+                name: ci.menu_items?.name ?? 'Unknown',
+                price: Number(ci.menu_items?.price ?? 0),
+                quantity: ci.quantity ?? 1,
+                menu_item_id: ci.menu_item_id,
+                is_vegetarian: ci.menu_items?.is_vegetarian ?? false,
+                added_by: ci.added_by_name || guestName || '',
+            }));
+        }
+
+        const payerItems = cartItems.flatMap((ci) => {
+            const owner = String(ci.added_by_name || '');
+            const splitMeta = parseItemSplitMeta(ci.special_requests);
+            const splitMembers = splitMeta?.members?.filter((m) => uniqueMembers.includes(m)) ?? [];
+            const payers = splitMembers.length >= 2 ? splitMembers : [owner];
+            if (!payers.includes(payerName)) return [];
+
+            const totalCents = Math.max(0, Math.round(Number(ci.menu_items?.price ?? ci.price ?? 0) * Math.max(1, Number(ci.quantity ?? 1)) * 100));
+            const base = Math.floor(totalCents / payers.length);
+            let remainder = totalCents - base * payers.length;
+            let payerCents = 0;
+            payers.forEach((name) => {
+                const cents = base + (remainder > 0 ? 1 : 0);
+                if (remainder > 0) remainder -= 1;
+                if (name === payerName) payerCents = cents;
+            });
+
+            return [{
+                name: payers.length >= 2 ? `${ci.menu_items?.name ?? 'Unknown'} (split)` : (ci.menu_items?.name ?? 'Unknown'),
+                price: payerCents / 100,
+                quantity: 1,
+                menu_item_id: ci.menu_item_id,
+                is_vegetarian: ci.menu_items?.is_vegetarian ?? false,
+                added_by: payerName,
+            }];
+        });
+
+        return payerItems.filter((item) => item.price > 0);
+    }, [cartItems, guestName, uniqueMembers]);
 
     const createCheckoutSessionUrl = useCallback(async (requestBody: Record<string, unknown>) => {
         const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
@@ -740,20 +1000,22 @@ export default function JoinPartyScreen() {
         return getCheckoutUrlOrThrow(fnData);
     }, []);
 
-    const handlePayMyShare = async () => {
+    const handlePayMyShare = useCallback(async () => {
         if (!sessionId || !restaurantId || !guestName || myShareTotal <= 0) return;
+        if (Platform.OS !== "web") Haptics.selectionAsync();
 
         setPayingMyShare(true);
         try {
-            const { data: restData, error: restError } = await withTimeout(
-                supabase
+            const restResponse: any = await withTimeout(
+                (supabase
                     .from('restaurants')
                     .select('stripe_account_id')
                     .eq('id', restaurantId)
-                    .single(),
+                    .single()) as any,
                 PAYMENT_REQUEST_TIMEOUT_MS,
                 'Request timed out while loading payment settings.'
             );
+            const { data: restData, error: restError } = restResponse;
 
             if (restError) throw restError;
 
@@ -798,6 +1060,7 @@ export default function JoinPartyScreen() {
                 } else {
                     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     Alert.alert('Payment Complete', `You paid $${myShareTotal.toFixed(2)} for your items.`);
+                    fetchSplitPaidMembers();
                 }
             }
         } catch (e: unknown) {
@@ -810,31 +1073,41 @@ export default function JoinPartyScreen() {
         } finally {
             setPayingMyShare(false);
         }
-    };
+    }, [buildCartMetaForPayer, createCheckoutSessionUrl, fetchSplitPaidMembers, guestName, groupOrderType, myShareTotal, restaurantId, restaurantName, session?.user?.id, sessionId]);
 
     // ── Main Pay / Submit handler ────────────────────────────────────────
     const handlePayment = async () => {
         if (!isHost || cartItems.length === 0) return;
+        if (Platform.OS !== "web") Haptics.selectionAsync();
 
         if (paymentMode === 'split') {
+            if (splitRequiredMembers.length <= 1) {
+                Alert.alert('Split Checkout', 'Split mode works best with multiple members. Add more members or switch payment mode.');
+                return;
+            }
+            if (!splitAllPaid) {
+                Alert.alert(
+                    'Waiting On Payments',
+                    `The order can be submitted after everyone pays.\n\nPending: ${unpaidSplitMembers.join(', ')}`
+                );
+                return;
+            }
             Alert.alert(
-                'Enable Split Checkout',
-                'Everyone will pay exactly for the items they added. Members will see their amount and a pay button.',
+                'Submit Group Order',
+                `All members paid. Submit ${totalItems} items · $${totalPrice.toFixed(2)} now?`,
                 [
                     { text: 'Cancel', style: 'cancel' },
                     {
-                        text: 'Enable',
+                        text: 'Submit',
                         style: 'default',
                         onPress: async () => {
                             setSubmitting(true);
                             try {
-                                await syncPaymentModeToSession('split', null);
-                                setShowCartModal(false);
-                                Alert.alert('Split Checkout Enabled', 'Group members can now pay directly from their own device.');
+                                await finaliseSubmit();
                             } catch (e: unknown) {
                                 const parsedError = await parseEdgeFunctionError(
                                     e,
-                                    'Could not enable split checkout.'
+                                    'Could not submit the order.'
                                 );
                                 Alert.alert('Update Failed', parsedError.message);
                             } finally {
@@ -843,6 +1116,14 @@ export default function JoinPartyScreen() {
                         },
                     },
                 ]
+            );
+            return;
+        }
+
+        if (paymentMode === 'assign' && !isAssignedPayerValid) {
+            Alert.alert(
+                'Select Eligible Payer',
+                'Please choose an app member as payer in Assign mode.'
             );
             return;
         }
@@ -872,15 +1153,16 @@ export default function JoinPartyScreen() {
 
                             await syncPaymentModeToSession(paymentMode, paymentMode === 'assign' ? assignedPayer : null);
 
-                            const { data: restData, error: restError } = await withTimeout(
-                                supabase
+                            const restResponse: any = await withTimeout(
+                                (supabase
                                     .from('restaurants')
                                     .select('stripe_account_id')
                                     .eq('id', restaurantId)
-                                    .single(),
+                                    .single()) as any,
                                 PAYMENT_REQUEST_TIMEOUT_MS,
                                 'Request timed out while loading payment settings.'
                             );
+                            const { data: restData, error: restError } = restResponse;
 
                             if (restError) throw restError;
 
@@ -1466,7 +1748,16 @@ export default function JoinPartyScreen() {
             )}
 
             {/* Cart Modal */}
-            <Modal visible={showCartModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCartModal(false)}>
+            <Modal
+                visible={showCartModal}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={closeCartModal}
+                onDismiss={() => {
+                    setSplitEditItem(null);
+                    setSplitSelectedMembers([]);
+                }}
+            >
                 <View style={{ flex: 1, backgroundColor: '#0f0f0f' }}>
                     {/* Modal Header */}
                     <View style={{ paddingTop: 20, paddingBottom: 16, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#1e1e1e' }}>
@@ -1497,54 +1788,78 @@ export default function JoinPartyScreen() {
                                     </Pressable>
                                 </View>
                             )}
-                            <Pressable onPress={() => setShowCartModal(false)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' }}>
+                            <Pressable onPress={closeCartModal} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' }}>
                                 <X size={18} color="#f5f5f5" />
                             </Pressable>
                         </View>
                     </View>
 
-                    {/* ── Order Type Toggle (host only) ── */}
-                    {isHost && (
-                        <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 }}>
-                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Order Type</Text>
-                            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+                    <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 }}>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <View style={{ flex: 1 }}>
                                 <Pressable
-                                    onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setGroupOrderType('dine_in'); }}
-                                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, backgroundColor: groupOrderType === 'dine_in' ? 'rgba(255,153,51,0.12)' : '#1a1a1a', borderColor: groupOrderType === 'dine_in' ? '#FF9933' : '#2a2a2a' }}
+                                    onPress={() => {
+                                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                        setGroupOrderType((prev) => (prev === 'dine_in' ? 'takeout' : 'dine_in'));
+                                    }}
+                                    style={{
+                                        height: 58,
+                                        borderRadius: 12,
+                                        borderWidth: 1.5,
+                                        borderColor: groupOrderType === 'dine_in' ? '#FF9933' : '#14B8A6',
+                                        backgroundColor: groupOrderType === 'dine_in' ? 'rgba(255,153,51,0.12)' : 'rgba(20,184,166,0.12)',
+                                        paddingHorizontal: 12,
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                    }}
                                 >
-                                    <UtensilsCrossed size={16} color={groupOrderType === 'dine_in' ? '#FF9933' : '#666'} />
-                                    <Text style={{ fontFamily: groupOrderType === 'dine_in' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: groupOrderType === 'dine_in' ? '#FF9933' : '#777', fontSize: 14 }}>Dine In</Text>
-                                </Pressable>
-                                <Pressable
-                                    onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setGroupOrderType('takeout'); }}
-                                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, backgroundColor: groupOrderType === 'takeout' ? 'rgba(20,184,166,0.12)' : '#1a1a1a', borderColor: groupOrderType === 'takeout' ? '#14B8A6' : '#2a2a2a' }}
-                                >
-                                    <Truck size={16} color={groupOrderType === 'takeout' ? '#14B8A6' : '#666'} />
-                                    <Text style={{ fontFamily: groupOrderType === 'takeout' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: groupOrderType === 'takeout' ? '#14B8A6' : '#777', fontSize: 14 }}>Takeout</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                                        {groupOrderType === 'dine_in' ? (
+                                            <UtensilsCrossed size={16} color="#FF9933" />
+                                        ) : (
+                                            <Truck size={16} color="#14B8A6" />
+                                        )}
+                                        <Text style={{ fontFamily: 'Manrope_700Bold', color: groupOrderType === 'dine_in' ? '#FF9933' : '#14B8A6', fontSize: 14 }}>
+                                            {groupOrderType === 'dine_in' ? 'Dine In' : 'Takeout'}
+                                        </Text>
+                                    </View>
+                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#9ca3af', fontSize: 9, marginTop: 5 }}>
+                                        {groupOrderType === 'dine_in' ? 'Tap for takeout' : 'Tap for dine in'}
+                                    </Text>
                                 </Pressable>
                             </View>
-                            {groupOrderType === 'dine_in' && (
-                                <Text style={{ fontFamily: 'Manrope_500Medium', color: '#666', fontSize: 11, marginTop: 6 }}>
-                                    Use the +/- Party controls in the top bar.
-                                </Text>
-                            )}
+                            <View style={{ flex: 1 }}>
+                                <Pressable
+                                    onPress={() => {
+                                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                        setShowMemberBreakdown((prev) => !prev);
+                                    }}
+                                    style={{
+                                        height: 58,
+                                        borderRadius: 10,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        backgroundColor: '#1a1a1a',
+                                        borderWidth: 1,
+                                        borderColor: '#2a2a2a'
+                                    }}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                        {showMemberBreakdown ? (
+                                            <Users size={14} color={showMemberBreakdown ? '#FF9933' : '#999'} />
+                                        ) : (
+                                            <ShoppingCart size={14} color={showMemberBreakdown ? '#FF9933' : '#999'} />
+                                        )}
+                                        <Text style={{ fontFamily: 'Manrope_700Bold', color: showMemberBreakdown ? '#FF9933' : '#999', fontSize: 12 }}>
+                                            {showMemberBreakdown ? 'By Member' : 'All Items'}
+                                        </Text>
+                                    </View>
+                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#9ca3af', fontSize: 8, marginTop: 4 }}>
+                                        {showMemberBreakdown ? 'Tap for all items' : 'Tap for by member'}
+                                    </Text>
+                                </Pressable>
+                            </View>
                         </View>
-                    )}
-
-                    {/* View Toggle */}
-                    <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 12, gap: 8 }}>
-                        <Pressable
-                            onPress={() => setShowMemberBreakdown(true)}
-                            style={{ flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: showMemberBreakdown ? 'rgba(255,153,51,0.15)' : '#1a1a1a', borderWidth: 1, borderColor: showMemberBreakdown ? '#FF9933' : '#2a2a2a' }}
-                        >
-                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: showMemberBreakdown ? '#FF9933' : '#999', fontSize: 13 }}>By Member</Text>
-                        </Pressable>
-                        <Pressable
-                            onPress={() => setShowMemberBreakdown(false)}
-                            style={{ flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: !showMemberBreakdown ? 'rgba(255,153,51,0.15)' : '#1a1a1a', borderWidth: 1, borderColor: !showMemberBreakdown ? '#FF9933' : '#2a2a2a' }}
-                        >
-                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: !showMemberBreakdown ? '#FF9933' : '#999', fontSize: 13 }}>All Items</Text>
-                        </Pressable>
                     </View>
 
                     <View style={{ flex: 1 }}>
@@ -1556,98 +1871,59 @@ export default function JoinPartyScreen() {
                         </View>
                     ) : showMemberBreakdown ? (
                         /* By Member View */
-                        <View style={{ flex: 1 }}>
-                            {guestName && memberTotals[guestName] && (
-                                <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#262626' }}>
-                                    {(() => {
-                                        const name = guestName;
-                                        const data = memberTotals[name];
-                                        const color = getMemberColor(name, uniqueMembers);
-                                        const canRemove = isHost || name === guestName;
-                                        return (
-                                            <View>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 }}>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                                        <MemberAvatar name={name} color={color} size={28} avatarUrl={memberAvatarMap[name]} />
-                                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 15 }}>{name}</Text>
-                                                        {isHost && <Crown size={12} color="#FF9933" />}
+                        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 180 }}>
+                            {Object.entries(memberTotals).map(([name, data]) => {
+                                const color = getMemberColor(name, uniqueMembers);
+                                return (
+                                    <View key={name} style={{ marginBottom: 16 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <MemberAvatar name={name} color={color} size={28} avatarUrl={memberAvatarMap[name]} />
+                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 15 }}>{name}</Text>
+                                                {name === guestName && isHost && <Crown size={12} color="#FF9933" />}
+                                                {paymentMode === 'split' && splitPaidMemberSet.has(normalizeMemberName(name)) && (
+                                                    <View style={{ backgroundColor: 'rgba(34,197,94,0.2)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                                        <Text style={{ fontFamily: 'Manrope_700Bold', color: '#22C55E', fontSize: 10 }}>Paid</Text>
                                                     </View>
-                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color, fontSize: 15 }}>${data.total.toFixed(2)}</Text>
-                                                </View>
-                                                {data.items.map(item => (
-                                                    <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', padding: 12, marginBottom: 6 }}>
-                                                        <View style={{ flex: 1 }}>
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 14 }} numberOfLines={1}>
-                                                                    {item.menu_items?.name ?? 'Item'}
-                                                                </Text>
-                                                                {(item.quantity ?? 1) > 1 && (
-                                                                    <View style={{ backgroundColor: 'rgba(255,153,51,0.15)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
-                                                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 11 }}>×{item.quantity}</Text>
-                                                                    </View>
-                                                                )}
+                                                )}
+                                            </View>
+                                            <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color, fontSize: 15 }}>${data.total.toFixed(2)}</Text>
+                                        </View>
+                                        {data.items.map((item: any) => (
+                                            <View key={`${item.id}-${name}`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', padding: 12, marginBottom: 6 }}>
+                                                <View style={{ flex: 1 }}>
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 14 }} numberOfLines={1}>
+                                                            {item.menu_items?.name ?? 'Item'}
+                                                        </Text>
+                                                        {(item.quantity ?? 1) > 1 && !item.__splitMembers?.length && (
+                                                            <View style={{ backgroundColor: 'rgba(255,153,51,0.15)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                                                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 11 }}>×{item.quantity}</Text>
                                                             </View>
-                                                            <Text style={{ fontFamily: 'Manrope_500Medium', color: '#FF9933', fontSize: 13, marginTop: 2 }}>
-                                                                ${(Number(item.menu_items?.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
-                                                            </Text>
-                                                        </View>
-                                                        {canRemove && !submitted && (
-                                                            <Pressable
-                                                                onPress={() => {
-                                                                    Alert.alert(
-                                                                        'Remove Item',
-                                                                        `Remove "${item.menu_items?.name ?? 'this item'}" from the order?`,
-                                                                        [
-                                                                            { text: 'Cancel', style: 'cancel' },
-                                                                            { text: 'Remove', style: 'destructive', onPress: () => removeFromCart(item.id) },
-                                                                        ]
-                                                                    );
-                                                                }}
-                                                                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}
-                                                            >
-                                                                <Trash2 size={14} color="#EF4444" />
-                                                            </Pressable>
+                                                        )}
+                                                        {item.__splitMembers?.length >= 2 && (
+                                                            <View style={{ backgroundColor: 'rgba(129,140,248,0.15)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                                                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#818CF8', fontSize: 10 }}>
+                                                                    Split {item.__splitMembers.length} ways
+                                                                </Text>
+                                                            </View>
                                                         )}
                                                     </View>
-                                                ))}
-                                            </View>
-                                        );
-                                    })()}
-                                </View>
-                            )}
-                            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 180 }}>
-                                {Object.entries(memberTotals).filter(([name]) => name !== guestName).map(([name, data]) => {
-                                    const color = getMemberColor(name, uniqueMembers);
-                                    const canRemove = isHost || name === guestName;
-                                    return (
-                                        <View key={name} style={{ marginBottom: 16 }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                                    <MemberAvatar name={name} color={color} size={28} avatarUrl={memberAvatarMap[name]} />
-                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 15 }}>{name}</Text>
-                                                    {name === guestName && isHost && <Crown size={12} color="#FF9933" />}
+                                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#FF9933', fontSize: 13, marginTop: 2 }}>
+                                                        ${((Number(item.__allocatedCents ?? 0)) / 100).toFixed(2)}
+                                                    </Text>
                                                 </View>
-                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color, fontSize: 15 }}>${data.total.toFixed(2)}</Text>
-                                            </View>
-
-                                            {data.items.map(item => (
-                                                <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', padding: 12, marginBottom: 6 }}>
-                                                    <View style={{ flex: 1 }}>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                            <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 14 }} numberOfLines={1}>
-                                                                {item.menu_items?.name ?? 'Item'}
-                                                            </Text>
-                                                            {(item.quantity ?? 1) > 1 && (
-                                                                <View style={{ backgroundColor: 'rgba(255,153,51,0.15)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
-                                                                    <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#FF9933', fontSize: 11 }}>×{item.quantity}</Text>
-                                                                </View>
-                                                            )}
-                                                        </View>
-                                                        <Text style={{ fontFamily: 'Manrope_500Medium', color: '#FF9933', fontSize: 13, marginTop: 2 }}>
-                                                            ${(Number(item.menu_items?.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
-                                                        </Text>
-                                                    </View>
-                                                    {canRemove && !submitted && (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 10 }}>
+                                                    {isHost && paymentMode === 'split' && uniqueMembers.length > 1 && (
+                                                        <Pressable
+                                                            onPress={() => openSplitEditor(item)}
+                                                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(99,102,241,0.4)', backgroundColor: 'rgba(99,102,241,0.12)', paddingHorizontal: 8, paddingVertical: 6 }}
+                                                        >
+                                                            <SlidersHorizontal size={12} color="#818CF8" />
+                                                            <Text style={{ fontFamily: 'Manrope_700Bold', color: '#818CF8', fontSize: 10 }}>Modify</Text>
+                                                        </Pressable>
+                                                    )}
+                                                    {(isHost || item.added_by_name === guestName) && !submitted && (
                                                         <Pressable
                                                             onPress={() => {
                                                                 Alert.alert(
@@ -1659,18 +1935,18 @@ export default function JoinPartyScreen() {
                                                                     ]
                                                                 );
                                                             }}
-                                                            style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}
+                                                            style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)', alignItems: 'center', justifyContent: 'center' }}
                                                         >
                                                             <Trash2 size={14} color="#EF4444" />
                                                         </Pressable>
                                                     )}
                                                 </View>
-                                            ))}
-                                        </View>
-                                    );
-                                })}
-                            </ScrollView>
-                        </View>
+                                            </View>
+                                        ))}
+                                    </View>
+                                );
+                            })}
+                        </ScrollView>
                     ) : (
                         /* All Items View */
                         <FlatList
@@ -1710,94 +1986,41 @@ export default function JoinPartyScreen() {
                     {/* Footer */}
                     <View style={{ padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 20, borderTopWidth: 1, borderTopColor: '#1e1e1e', backgroundColor: '#0f0f0f' }}>
                         {/* Total */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                             <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 14 }}>Group Total</Text>
-                            <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 20 }}>${totalPrice.toFixed(2)}</Text>
-                        </View>
-
-                        {/* ── Payment Mode Selector (host only) ── */}
-                        {isHost && cartItems.length > 0 && (
-                            <View style={{ marginBottom: 16 }}>
-                                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Payment</Text>
-                                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
-                                    {/* I'll Pay */}
-                                    <Pressable
-                                        onPress={() => {
-                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
-                                            syncPaymentModeToSession('host_pays', null).catch((e) => {
-                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
-                                            });
-                                        }}
-                                        style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'host_pays' ? 'rgba(34,197,94,0.12)' : '#1a1a1a', borderColor: paymentMode === 'host_pays' ? '#22C55E' : '#2a2a2a' }}
-                                    >
-                                        <Wallet size={16} color={paymentMode === 'host_pays' ? '#22C55E' : '#666'} style={{ marginBottom: 4 }} />
-                                        <Text style={{ fontFamily: paymentMode === 'host_pays' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'host_pays' ? '#22C55E' : '#777', fontSize: 12, textAlign: 'center' }}>I&apos;ll Pay</Text>
-                                    </Pressable>
-                                    {/* Split By Person */}
-                                    <Pressable
-                                        onPress={() => {
-                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
-                                            syncPaymentModeToSession('split', null).catch((e) => {
-                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
-                                            });
-                                        }}
-                                        style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'split' ? 'rgba(129,140,248,0.12)' : '#1a1a1a', borderColor: paymentMode === 'split' ? '#818CF8' : '#2a2a2a' }}
-                                    >
-                                        <Users size={16} color={paymentMode === 'split' ? '#818CF8' : '#666'} style={{ marginBottom: 4 }} />
-                                        <Text style={{ fontFamily: paymentMode === 'split' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'split' ? '#818CF8' : '#777', fontSize: 12, textAlign: 'center' }}>Split by Person</Text>
-                                    </Pressable>
-                                    {/* Assign Payer */}
-                                    <Pressable
-                                        onPress={() => {
-                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
-                                            const fallbackPayer = assignedPayer || guestName || uniqueMembers[0] || null;
-                                            syncPaymentModeToSession('assign', fallbackPayer).catch((e) => {
-                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
-                                            });
-                                        }}
-                                        style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'assign' ? 'rgba(249,115,22,0.12)' : '#1a1a1a', borderColor: paymentMode === 'assign' ? '#F97316' : '#2a2a2a' }}
-                                    >
-                                        <Crown size={16} color={paymentMode === 'assign' ? '#F97316' : '#666'} style={{ marginBottom: 4 }} />
-                                        <Text style={{ fontFamily: paymentMode === 'assign' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'assign' ? '#F97316' : '#777', fontSize: 12, textAlign: 'center' }}>Assign</Text>
-                                    </Pressable>
-                                </View>
-
-                                {/* Split breakdown */}
-                                {paymentMode === 'split' && uniqueMembers.length > 1 && (
-                                    <View style={{ backgroundColor: 'rgba(129,140,248,0.08)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(129,140,248,0.2)', padding: 12, marginBottom: 4 }}>
-                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#818CF8', fontSize: 12, marginBottom: 8 }}>Each member pays:</Text>
-                                        {uniqueMembers.map(name => {
-                                            const color = getMemberColor(name, uniqueMembers);
-                                            const memberShare = memberTotals[name]?.total ?? 0;
-                                            return (
-                                                <View key={name} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                        <MemberAvatar name={name} color={color} size={20} avatarUrl={memberAvatarMap[name]} />
-                                                        <Text style={{ fontFamily: 'Manrope_500Medium', color: '#ccc', fontSize: 13 }}>{name}</Text>
-                                                    </View>
-                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#818CF8', fontSize: 14 }}>${memberShare.toFixed(2)}</Text>
-                                                </View>
-                                            );
-                                        })}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 20 }}>${totalPrice.toFixed(2)}</Text>
+                                {paymentMode === 'split' && !splitAllPaid && unpaidSplitMembers.length > 0 && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(165,180,252,0.45)', backgroundColor: 'rgba(165,180,252,0.12)', paddingHorizontal: 7, paddingVertical: 3 }}>
+                                        <Clock size={11} color="#A5B4FC" />
+                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#A5B4FC', fontSize: 10 }}>
+                                            {unpaidSplitMembers.length} pending
+                                        </Text>
                                     </View>
                                 )}
+                            </View>
+                        </View>
 
+                        {isHost && cartItems.length > 0 && (
+                            <View style={{ marginBottom: 10 }}>
                                 {/* Assign payer selector */}
                                 {paymentMode === 'assign' && (
-                                    <View style={{ backgroundColor: 'rgba(249,115,22,0.08)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(249,115,22,0.2)', padding: 12, marginBottom: 4 }}>
+                                    <View style={{ backgroundColor: 'rgba(249,115,22,0.08)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(249,115,22,0.2)', padding: 12, marginBottom: 8 }}>
                                         <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#F97316', fontSize: 12, marginBottom: 8 }}>Who pays the full bill?</Text>
-                                        {uniqueMembers.map(name => {
+                                        {assignableMembers.map(name => {
                                             const color = getMemberColor(name, uniqueMembers);
                                             const isSelected = assignedPayer === name;
                                             return (
                                                 <Pressable
                                                     key={name}
                                                     onPress={() => {
+                                                        if (paymentModeSyncing) return;
                                                         if (Platform.OS !== 'web') Haptics.selectionAsync();
                                                         syncPaymentModeToSession('assign', name).catch((e) => {
                                                             parseEdgeFunctionError(e, 'Could not update assigned payer.').then((err) => Alert.alert('Update Failed', err.message));
                                                         });
                                                     }}
+                                                    disabled={paymentModeSyncing}
                                                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10, backgroundColor: isSelected ? 'rgba(249,115,22,0.15)' : 'transparent', marginBottom: 4 }}
                                                 >
                                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1811,53 +2034,117 @@ export default function JoinPartyScreen() {
                                                 </Pressable>
                                             );
                                         })}
+                                        {assignableMembers.length < uniqueMembers.length && (
+                                            <Text style={{ fontFamily: 'Manrope_500Medium', color: '#f59e0b', fontSize: 11, marginTop: 6 }}>
+                                                Web-only participants cannot be assigned as payer yet.
+                                            </Text>
+                                        )}
                                     </View>
                                 )}
                             </View>
                         )}
 
-                        {isHost ? (
-                            <Pressable
-                                onPress={handlePayment}
-                                disabled={submitting || cartItems.length === 0 || (paymentMode === 'assign' && !assignedPayer)}
-                                style={{ backgroundColor: (cartItems.length === 0 || (paymentMode === 'assign' && !assignedPayer)) ? '#333' : '#22C55E', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: submitting ? 0.6 : 1 }}
-                            >
-                                {submitting ? (
-                                    <ActivityIndicator color="#fff" />
-                                ) : (
-                                    <>
-                                        <CreditCard size={18} color="#fff" />
-                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 17 }}>
-                                            {paymentMode === 'split'
-                                                ? 'Enable Split Checkout'
-                                                : paymentMode === 'assign' && assignedPayer
+                        {paymentMode === 'split' && uniqueMembers.length > 1 && (
+                            <View style={{ marginBottom: 10 }}>
+                                <Pressable
+                                    onPress={() => {
+                                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                        setShowMemberSplitOverlay(true);
+                                    }}
+                                    style={{ borderRadius: 12, borderWidth: 1, borderColor: 'rgba(129,140,248,0.4)', backgroundColor: 'rgba(129,140,248,0.12)', paddingVertical: 11, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+                                >
+                                    <Users size={14} color="#A5B4FC" />
+                                    <Text style={{ fontFamily: 'Manrope_700Bold', color: '#A5B4FC', fontSize: 12 }}>
+                                        Show Member Split
+                                    </Text>
+                                </Pressable>
+                            </View>
+                        )}
+
+                        <View style={{ gap: 10 }}>
+                            {isHost && cartItems.length > 0 && (
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                    <Pressable
+                                        onPress={() => {
+                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                            syncPaymentModeToSession('host_pays', null).catch((e) => {
+                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
+                                            });
+                                        }}
+                                        disabled={paymentModeSyncing}
+                                        style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 7, borderRadius: 10, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'host_pays' ? 'rgba(34,197,94,0.12)' : '#1a1a1a', borderColor: paymentMode === 'host_pays' ? '#22C55E' : '#2a2a2a', opacity: paymentModeSyncing ? 0.55 : 1 }}
+                                    >
+                                        <Wallet size={14} color={paymentMode === 'host_pays' ? '#22C55E' : '#666'} style={{ marginBottom: 3 }} />
+                                        <Text style={{ fontFamily: paymentMode === 'host_pays' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'host_pays' ? '#22C55E' : '#777', fontSize: 12, textAlign: 'center' }}>I&apos;ll Pay</Text>
+                                    </Pressable>
+                                    <Pressable
+                                        onPress={() => {
+                                            if (!canUseMultiPayerModes) return;
+                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                            syncPaymentModeToSession('split', null).catch((e) => {
+                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
+                                            });
+                                        }}
+                                        disabled={paymentModeSyncing || !canUseMultiPayerModes}
+                                        style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 7, borderRadius: 10, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'split' ? 'rgba(129,140,248,0.12)' : '#1a1a1a', borderColor: paymentMode === 'split' ? '#818CF8' : '#2a2a2a', opacity: (!canUseMultiPayerModes || paymentModeSyncing) ? 0.45 : 1 }}
+                                    >
+                                        <Users size={14} color={paymentMode === 'split' ? '#818CF8' : '#666'} style={{ marginBottom: 3 }} />
+                                        <Text style={{ fontFamily: paymentMode === 'split' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'split' ? '#818CF8' : '#777', fontSize: 12, textAlign: 'center' }}>Split by Person</Text>
+                                    </Pressable>
+                                    <Pressable
+                                        onPress={() => {
+                                            if (!canUseMultiPayerModes) return;
+                                            if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                            const fallbackPayer = assignedPayer || guestName || assignableMembers[0] || null;
+                                            syncPaymentModeToSession('assign', fallbackPayer).catch((e) => {
+                                                parseEdgeFunctionError(e, 'Could not update payment mode.').then((err) => Alert.alert('Update Failed', err.message));
+                                            });
+                                        }}
+                                        disabled={paymentModeSyncing || !canUseMultiPayerModes}
+                                        style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 7, borderRadius: 10, borderWidth: 1.5, alignItems: 'center', backgroundColor: paymentMode === 'assign' ? 'rgba(249,115,22,0.12)' : '#1a1a1a', borderColor: paymentMode === 'assign' ? '#F97316' : '#2a2a2a', opacity: (!canUseMultiPayerModes || paymentModeSyncing) ? 0.45 : 1 }}
+                                    >
+                                        <Crown size={14} color={paymentMode === 'assign' ? '#F97316' : '#666'} style={{ marginBottom: 3 }} />
+                                        <Text style={{ fontFamily: paymentMode === 'assign' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMode === 'assign' ? '#F97316' : '#777', fontSize: 12, textAlign: 'center' }}>Assign</Text>
+                                    </Pressable>
+                                </View>
+                            )}
+
+                            {isHost && paymentMode !== 'split' ? (
+                                <Pressable
+                                    onPress={handlePayment}
+                                    disabled={
+                                        submitting ||
+                                        cartItems.length === 0 ||
+                                        !isAssignedPayerValid
+                                    }
+                                    style={{
+                                        backgroundColor:
+                                            (cartItems.length === 0 || !isAssignedPayerValid)
+                                                ? '#333'
+                                                : '#22C55E',
+                                        borderRadius: 16,
+                                        paddingVertical: 16,
+                                        alignItems: 'center',
+                                        flexDirection: 'row',
+                                        justifyContent: 'center',
+                                        gap: 8,
+                                        opacity: submitting ? 0.6 : 1,
+                                    }}
+                                >
+                                    {submitting ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <>
+                                            <CreditCard size={18} color="#fff" />
+                                            <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 17 }}>
+                                                {paymentMode === 'assign' && assignedPayer
                                                     ? `${assignedPayer} Pays · $${totalPrice.toFixed(2)}`
                                                     : `Pay & Submit · $${totalPrice.toFixed(2)}`}
-                                        </Text>
-                                    </>
-                                )}
-                            </Pressable>
-                        ) : null}
-
-                        {paymentMode === 'split' && myShareTotal > 0 ? (
-                            <Pressable
-                                onPress={handlePayMyShare}
-                                disabled={payingMyShare}
-                                style={{ marginTop: isHost ? 10 : 0, backgroundColor: '#6366F1', borderRadius: 16, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: payingMyShare ? 0.6 : 1 }}
-                            >
-                                {payingMyShare ? (
-                                    <ActivityIndicator color="#fff" />
-                                ) : (
-                                    <>
-                                        <CreditCard size={17} color="#fff" />
-                                        <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 16 }}>
-                                            Pay My Share · ${myShareTotal.toFixed(2)}
-                                        </Text>
-                                    </>
-                                )}
-                            </Pressable>
-                        ) : (
-                            !isHost && (
+                                            </Text>
+                                        </>
+                                    )}
+                                </Pressable>
+                            ) : !isHost ? (
                                 <View style={{ backgroundColor: '#1a1a1a', borderRadius: 16, borderWidth: 1, borderColor: '#2a2a2a', paddingVertical: 16, alignItems: 'center' }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                         <Crown size={16} color="#FF9933" />
@@ -1869,9 +2156,222 @@ export default function JoinPartyScreen() {
                                         Keep adding items while you wait
                                     </Text>
                                 </View>
-                            )
-                        )}
+                            ) : null
+                            }
+
+                            {paymentMode === 'split' ? (
+                                myShareTotal > 0 ? (
+                                    <Pressable
+                                        onPress={handlePayMyShare}
+                                        disabled={payingMyShare || mySharePaid}
+                                        style={{ backgroundColor: '#6366F1', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: (payingMyShare || mySharePaid) ? 0.6 : 1 }}
+                                    >
+                                        {payingMyShare ? (
+                                            <ActivityIndicator color="#fff" />
+                                        ) : (
+                                            <>
+                                                {mySharePaid ? <CheckCircle2 size={18} color="#fff" /> : <CreditCard size={18} color="#fff" />}
+                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 17 }}>
+                                                    {mySharePaid ? 'My Share Paid' : `Pay My Share · $${myShareTotal.toFixed(2)}`}
+                                                </Text>
+                                            </>
+                                        )}
+                                    </Pressable>
+                                ) : (
+                                    <View style={{ borderRadius: 16, borderWidth: 1, borderColor: 'rgba(99,102,241,0.3)', backgroundColor: 'rgba(99,102,241,0.12)', paddingVertical: 16, alignItems: 'center', justifyContent: 'center' }}>
+                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#A5B4FC', fontSize: 13 }}>
+                                            {isHost ? `Waiting on ${unpaidSplitMembers.length} payment${unpaidSplitMembers.length === 1 ? '' : 's'}` : 'No split amount yet'}
+                                        </Text>
+                                    </View>
+                                )
+                            ) : null}
+                        </View>
                     </View>
+
+                    {showCartModal && showMemberSplitOverlay && (
+                        <View
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0,0,0,0.72)',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 20,
+                            }}
+                        >
+                            <View style={{ width: '100%', maxWidth: 420, maxHeight: '78%', backgroundColor: '#141414', borderRadius: 18, borderWidth: 1, borderColor: '#2a2a2a', padding: 16 }}>
+                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 18 }}>
+                                    Member Split
+                                </Text>
+                                <Text style={{ fontFamily: 'Manrope_500Medium', color: '#999', fontSize: 13, marginTop: 4 }}>
+                                    Detailed split by member
+                                </Text>
+
+                                <ScrollView style={{ marginTop: 12, maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                                    <View style={{ gap: 8 }}>
+                                        {uniqueMembers.map((name) => {
+                                            const color = getMemberColor(name, uniqueMembers);
+                                            const memberShare = memberTotals[name]?.total ?? 0;
+                                            const hasPaid = splitPaidMemberSet.has(normalizeMemberName(name));
+                                            return (
+                                                <View
+                                                    key={`member-split-${name}`}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        backgroundColor: '#1a1a1a',
+                                                        borderRadius: 12,
+                                                        borderWidth: 1,
+                                                        borderColor: '#2a2a2a',
+                                                        paddingHorizontal: 10,
+                                                        paddingVertical: 10,
+                                                    }}
+                                                >
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                        <MemberAvatar name={name} color={color} size={22} avatarUrl={memberAvatarMap[name]} />
+                                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ddd', fontSize: 13 }}>{name}</Text>
+                                                        {hasPaid && (
+                                                            <Text style={{ fontFamily: 'Manrope_700Bold', color: '#22C55E', fontSize: 10 }}>Paid</Text>
+                                                        )}
+                                                    </View>
+                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#A5B4FC', fontSize: 14 }}>
+                                                        ${memberShare.toFixed(2)}
+                                                    </Text>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                </ScrollView>
+
+                                {!splitAllPaid && unpaidSplitMembers.length > 0 && (
+                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#a5b4fc', fontSize: 12, marginTop: 10 }}>
+                                        Pending payment: {unpaidSplitMembers.join(', ')}
+                                    </Text>
+                                )}
+
+                                <Pressable
+                                    onPress={() => {
+                                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                        setShowMemberSplitOverlay(false);
+                                    }}
+                                    style={{ marginTop: 14, borderRadius: 12, borderWidth: 1, borderColor: '#333', backgroundColor: '#1f1f1f', paddingVertical: 11, alignItems: 'center' }}
+                                >
+                                    <Text style={{ fontFamily: 'Manrope_700Bold', color: '#ddd', fontSize: 13 }}>Close</Text>
+                                </Pressable>
+                            </View>
+                        </View>
+                    )}
+
+                    {showCartModal && !!splitEditItem && (
+                        <View
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0,0,0,0.72)',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 20,
+                            }}
+                        >
+                            <View style={{ width: '100%', maxHeight: '86%', backgroundColor: '#141414', borderRadius: 18, borderWidth: 1, borderColor: '#2a2a2a', padding: 16 }}>
+                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 18 }}>
+                                    Modify Split
+                                </Text>
+                                <Text style={{ fontFamily: 'Manrope_500Medium', color: '#999', fontSize: 13, marginTop: 4 }}>
+                                    {splitEditItem?.menu_items?.name ?? 'Item'} · Qty {splitEditItem?.quantity ?? 1}
+                                </Text>
+                                <Text style={{ fontFamily: 'Manrope_500Medium', color: '#818CF8', fontSize: 12, marginTop: 8 }}>
+                                    Select members to split equally.
+                                </Text>
+
+                                <ScrollView style={{ marginTop: 12, maxHeight: 300 }} showsVerticalScrollIndicator={false}>
+                                    <View style={{ gap: 8, paddingBottom: 2 }}>
+                                        {uniqueMembers.map((name) => {
+                                            const color = getMemberColor(name, uniqueMembers);
+                                            const isSelected = splitSelectedMembers.includes(name);
+                                            return (
+                                                <Pressable
+                                                    key={`split-edit-${name}`}
+                                                    onPress={() => {
+                                                        setSplitSelectedMembers((prev) => {
+                                                            if (prev.includes(name)) return prev.filter((n) => n !== name);
+                                                            return [...prev, name];
+                                                        });
+                                                    }}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        backgroundColor: isSelected ? 'rgba(99,102,241,0.15)' : '#1a1a1a',
+                                                        borderRadius: 12,
+                                                        borderWidth: 1,
+                                                        borderColor: isSelected ? 'rgba(99,102,241,0.45)' : '#2a2a2a',
+                                                        paddingHorizontal: 10,
+                                                        paddingVertical: 10,
+                                                    }}
+                                                >
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                        <MemberAvatar name={name} color={color} size={22} avatarUrl={memberAvatarMap[name]} />
+                                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ddd', fontSize: 13 }}>{name}</Text>
+                                                    </View>
+                                                    <View
+                                                        style={{
+                                                            width: 20,
+                                                            height: 20,
+                                                            borderRadius: 10,
+                                                            borderWidth: 2,
+                                                            borderColor: isSelected ? '#818CF8' : '#444',
+                                                            backgroundColor: isSelected ? '#818CF8' : 'transparent',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                        }}
+                                                    >
+                                                        {isSelected ? <CheckCircle2 size={12} color="#fff" /> : null}
+                                                    </View>
+                                                </Pressable>
+                                            );
+                                        })}
+                                    </View>
+                                </ScrollView>
+
+                                {splitSelectedMembers.length >= 1 && (
+                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#a5b4fc', fontSize: 12, marginTop: 10 }}>
+                                        Each selected member pays ${((Number(splitEditItem?.menu_items?.price ?? 0) * Math.max(1, Number(splitEditItem?.quantity ?? 1))) / splitSelectedMembers.length).toFixed(2)}.
+                                    </Text>
+                                )}
+
+                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                                    <Pressable
+                                        onPress={() => {
+                                            setSplitEditItem(null);
+                                            setSplitSelectedMembers([]);
+                                        }}
+                                        style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: '#333', backgroundColor: '#1f1f1f', paddingVertical: 11, alignItems: 'center' }}
+                                    >
+                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#aaa', fontSize: 13 }}>Cancel</Text>
+                                    </Pressable>
+                                    <Pressable
+                                        onPress={saveSplitEditor}
+                                        disabled={savingSplitDraft}
+                                        style={{ flex: 1, borderRadius: 12, backgroundColor: '#6366F1', paddingVertical: 11, alignItems: 'center', opacity: savingSplitDraft ? 0.6 : 1 }}
+                                    >
+                                        {savingSplitDraft ? (
+                                            <ActivityIndicator color="#fff" />
+                                        ) : (
+                                            <Text style={{ fontFamily: 'Manrope_700Bold', color: '#fff', fontSize: 13 }}>Save Split</Text>
+                                        )}
+                                    </Pressable>
+                                </View>
+                            </View>
+                        </View>
+                    )}
                 </View>
             </Modal>
         </View>

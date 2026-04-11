@@ -74,6 +74,7 @@ export function RestaurantEditModal({
   const [hoursRows, setHoursRows] = useState<HourRow[]>([]);
   const [waitlistEarlyEnabled, setWaitlistEarlyEnabled] = useState(false);
   const [waitlistEarlyMinutes, setWaitlistEarlyMinutes] = useState("30");
+  const [maxWaitlistSize, setMaxWaitlistSize] = useState("15");
 
   const haptic = () => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -112,7 +113,7 @@ export function RestaurantEditModal({
 
       const { data: restEarly } = await supabase
         .from("restaurants")
-        .select("waitlist_early_open_enabled, waitlist_early_open_minutes")
+        .select("waitlist_early_open_enabled, waitlist_early_open_minutes, max_waitlist_size")
         .eq("id", Number(restaurantId))
         .maybeSingle();
       setWaitlistEarlyEnabled(restEarly?.waitlist_early_open_enabled === true);
@@ -121,6 +122,7 @@ export function RestaurantEditModal({
           Math.max(0, Math.min(24 * 60, Number(restEarly?.waitlist_early_open_minutes) || 30)),
         ),
       );
+      setMaxWaitlistSize(String(Math.max(1, Math.min(200, Number(restEarly?.max_waitlist_size) || 15))));
 
       const groupedByDay = new Map<number, TimeSlot[]>();
       for (const row of (data ?? []) as any[]) {
@@ -328,11 +330,13 @@ export function RestaurantEditModal({
       }
 
       const earlyM = Math.max(0, Math.min(24 * 60, parseInt(waitlistEarlyMinutes.replace(/\D/g, ""), 10) || 0));
+      const maxWaitlist = Math.max(1, Math.min(200, parseInt(maxWaitlistSize.replace(/\D/g, ""), 10) || 15));
       const { error: earlyErr } = await supabase
         .from("restaurants")
         .update({
           waitlist_early_open_enabled: waitlistEarlyEnabled,
           waitlist_early_open_minutes: earlyM,
+          max_waitlist_size: maxWaitlist,
         })
         .eq("id", Number(restaurantId));
       if (earlyErr) throw earlyErr;
@@ -656,6 +660,34 @@ export function RestaurantEditModal({
                           />
                         </View>
                       )}
+                    </View>
+                    <View
+                      style={{
+                        borderWidth: 1,
+                        borderColor: "#2a2a2a",
+                        borderRadius: 14,
+                        padding: 14,
+                        marginBottom: 14,
+                        backgroundColor: "#111",
+                      }}
+                    >
+                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#e5e5e5", fontSize: 14 }}>
+                        Max waitlist size
+                      </Text>
+                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 4 }}>
+                        Once this many active parties are waiting, new guests will be asked to call the restaurant.
+                      </Text>
+                      <View style={{ marginTop: 12 }}>
+                        <Text style={labelStyle}>Max active parties</Text>
+                        <TextInput
+                          value={maxWaitlistSize}
+                          onChangeText={setMaxWaitlistSize}
+                          keyboardType="number-pad"
+                          style={inputStyle}
+                          placeholder="15"
+                          placeholderTextColor="#555"
+                        />
+                      </View>
                     </View>
                     {hoursRows.map((row) => (
                       <View

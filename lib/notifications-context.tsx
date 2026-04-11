@@ -16,6 +16,7 @@ import React, {
   useRef,
 } from "react";
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from "./supabase";
 import { useAuth } from "./auth-context";
 import { schedulePushNotification } from "./push-notifications";
@@ -123,8 +124,9 @@ const NotificationsContext = createContext<NotificationsContextValue>({
   refreshActive: async () => {},
 });
 
-const STORAGE_KEY = "rasvia:notifications:v2";
-const DISMISSED_KEY = "rasvia:dismissed-entries:v1";
+const STORAGE_KEY = "rasvia.notifications.v2";
+const DISMISSED_KEY = "rasvia.dismissed_entries.v1";
+const LEGACY_STORAGE_KEY = "rasvia:notifications:v2";
 
 // ==========================================
 // HELPERS
@@ -136,7 +138,14 @@ function generateId(): string {
 
 async function loadStoredEvents(): Promise<NotificationEvent[]> {
   try {
-    const raw = await SecureStore.getItemAsync(STORAGE_KEY);
+    let raw = await AsyncStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      // One-time migration path from old SecureStore storage key.
+      raw = await SecureStore.getItemAsync(LEGACY_STORAGE_KEY);
+      if (raw) {
+        await AsyncStorage.setItem(STORAGE_KEY, raw);
+      }
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Partial<NotificationEvent>[];
     return parsed.map((event) => ({
@@ -162,7 +171,7 @@ async function loadStoredEvents(): Promise<NotificationEvent[]> {
 async function saveEvents(events: NotificationEvent[]): Promise<void> {
   try {
     const trimmed = events.slice(0, 100);
-    await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(trimmed));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
   } catch {
     // silently ignore
   }
@@ -596,7 +605,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     saveDismissedIds(dismissedIdsRef.current);
     setLocalEvents([]);
     setServerEvents([]);
-    await SecureStore.deleteItemAsync(STORAGE_KEY);
+    await AsyncStorage.removeItem(STORAGE_KEY);
+    // Best-effort cleanup of legacy key; ignore unsupported-key failures.
+    try { await SecureStore.deleteItemAsync(LEGACY_STORAGE_KEY); } catch {}
     if (session?.user?.id) {
       await supabase.from("app_notifications").delete().eq("user_id", session.user.id);
     }
