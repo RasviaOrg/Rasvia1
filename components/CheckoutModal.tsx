@@ -405,7 +405,7 @@ export function CheckoutModal({
                         party_session_id: sp.get('party_session_id') || '',
                     };
 
-                    if (rawUrl.includes('order-confirmation')) {
+                    if (rawUrl.includes('order-confirmation') || sp.get('checkout_status') === 'success') {
                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                         onClose();
                         reset();

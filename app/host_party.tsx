@@ -582,6 +582,9 @@ export default function HostPartyScreen() {
         {/* ── STEP: SELECT ── */}
         {step === "select" && (
           <>
+            {/* Only show restaurant picker when check is done and there's no active session */}
+            {!checkingExisting && !existingSession && (
+            <>
             {/* Search bar */}
             <View
               style={{
@@ -884,6 +887,8 @@ export default function HostPartyScreen() {
                 </Text>
               </Pressable>
             </View>
+            </>
+            )}
           </>
         )}
 

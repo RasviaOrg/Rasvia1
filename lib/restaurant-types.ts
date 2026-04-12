@@ -343,7 +343,7 @@ export function parseFavorites(data: any): number[] {
 // ==========================================
 
 export type OrderType = 'dine_in' | 'pre_order' | 'takeout';
-export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending' | 'pending_payment' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
 export type MealPeriod = 'breakfast' | 'lunch' | 'dinner' | 'special';
 
 export interface SupabaseOrder {

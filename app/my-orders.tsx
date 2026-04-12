@@ -58,7 +58,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 /** Swipe away past orders anytime; hide stale “active” rows after 24h; block swipe on active orders from the last 24h */
 function canSwipeDismiss(order: UIOrder): boolean {
   if (order.status === "completed" || order.status === "cancelled") return true;
-  const active: OrderStatus[] = ["pending", "preparing", "ready", "served"];
+  const active: OrderStatus[] = ["pending", "pending_payment", "preparing", "ready", "served"];
   if (!active.includes(order.status)) return true;
   const age = Date.now() - new Date(order.createdAt).getTime();
   return age >= ONE_DAY_MS;
@@ -140,6 +140,7 @@ function OrderRowWithExit({ children }: { children: React.ReactNode }) {
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
   pending: "#FF9933",
+  pending_payment: "#A855F7",
   preparing: "#F59E0B",
   ready: "#22C55E",
   served: "#818CF8",
@@ -177,6 +178,7 @@ const TRACKING_STEPS: {
 function statusToStepIndex(status: OrderStatus): number {
   switch (status) {
     case "pending":
+    case "pending_payment":
       return 0; // received
     case "preparing":
       return 1;
@@ -413,6 +415,11 @@ function getStatusMessage(
   orderType: OrderType
 ): { title: string; subtitle: string } {
   switch (status) {
+    case "pending_payment":
+      return {
+        title: "Processing Payment...",
+        subtitle: "Your payment is being confirmed. This usually takes just a moment.",
+      };
     case "pending":
       return {
         title: "Order Received!",

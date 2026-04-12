@@ -18,6 +18,9 @@ import {
     ChevronRight,
     MapPin,
     ArrowLeft,
+    ClipboardList,
+    ChefHat,
+    Sparkles,
 } from "lucide-react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
@@ -60,32 +63,58 @@ export default function OrderConfirmationScreen() {
     }, []);
 
     // Fetch order details from Supabase
+    const fetchOrder = async () => {
+        if (!orderId) {
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const { data: orderData } = await supabase
+                .from("orders")
+                .select("*, order_items(*), restaurants(name, image_url)")
+                .eq("id", Number(orderId))
+                .single();
+
+            if (orderData) {
+                setOrder(orderData);
+                setItems(orderData.order_items || []);
+            }
+        } catch (e) {
+            console.error("Error fetching order:", e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetchOrder = async () => {
-            if (!orderId) {
-                setLoading(false);
-                return;
-            }
-
-            try {
-                const { data: orderData } = await supabase
-                    .from("orders")
-                    .select("*, order_items(*), restaurants(name, image_url)")
-                    .eq("id", Number(orderId))
-                    .single();
-
-                if (orderData) {
-                    setOrder(orderData);
-                    setItems(orderData.order_items || []);
-                }
-            } catch (e) {
-                console.error("Error fetching order:", e);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchOrder();
+    }, [orderId]);
+
+    // Real-time subscription for order status updates
+    useEffect(() => {
+        if (!orderId) return;
+        const channel = supabase
+            .channel(`order-confirm-${orderId}`)
+            .on(
+                "postgres_changes",
+                {
+                    event: "UPDATE",
+                    schema: "public",
+                    table: "orders",
+                    filter: `id=eq.${orderId}`,
+                },
+                (payload) => {
+                    const updated = payload.new as any;
+                    setOrder((prev: any) => prev ? { ...prev, ...updated } : updated);
+                    if (Platform.OS !== "web" && (updated.status === "preparing" || updated.status === "ready")) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
     }, [orderId]);
 
     const handleGoHome = () => {
@@ -186,6 +215,71 @@ export default function OrderConfirmationScreen() {
                     </Animated.View>
 
                     <View style={{ paddingHorizontal: 20 }}>
+                        {/* Live Order Status Tracker */}
+                        {order?.status && (
+                            <Animated.View
+                                entering={FadeInDown.delay(80).duration(500)}
+                                style={{
+                                    backgroundColor: "#1a1a1a",
+                                    borderRadius: 20,
+                                    borderWidth: 1,
+                                    borderColor: "#2a2a2a",
+                                    padding: 20,
+                                    marginBottom: 14,
+                                }}
+                            >
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 16, marginBottom: 14 }}>
+                                    Order Status
+                                </Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
+                                    {([
+                                        { key: "pending", label: "Received", Icon: ClipboardList, color: "#FF9933" },
+                                        { key: "preparing", label: "Preparing", Icon: ChefHat, color: "#F59E0B" },
+                                        { key: "ready", label: "Ready", Icon: ShoppingBag, color: "#22C55E" },
+                                        { key: "completed", label: "Done", Icon: Sparkles, color: "#10B981" },
+                                    ] as const).map((step, idx, arr) => {
+                                        const statusOrder = ["pending", "pending_payment", "preparing", "ready", "served", "completed"];
+                                        const currentIdx = statusOrder.indexOf(order.status);
+                                        const stepIdx = step.key === "pending" ? 0 : step.key === "preparing" ? 2 : step.key === "ready" ? 3 : 5;
+                                        const isCompleted = currentIdx > stepIdx;
+                                        const isActive = (step.key === "pending" && (order.status === "pending" || order.status === "pending_payment"))
+                                            || order.status === step.key
+                                            || (step.key === "completed" && (order.status === "served" || order.status === "completed"));
+                                        const circleSize = isActive ? 36 : 28;
+                                        return (
+                                            <React.Fragment key={step.key}>
+                                                {idx > 0 && (
+                                                    <View style={{ flex: 1, height: 3, backgroundColor: isCompleted || isActive ? arr[idx - 1].color : "#222", borderRadius: 2, marginHorizontal: -2 }} />
+                                                )}
+                                                <View style={{ alignItems: "center" }}>
+                                                    <View style={{
+                                                        width: circleSize, height: circleSize, borderRadius: circleSize / 2,
+                                                        backgroundColor: isCompleted ? step.color : isActive ? `${step.color}25` : "#1a1a1a",
+                                                        borderWidth: isActive ? 2 : 1,
+                                                        borderColor: isCompleted ? step.color : isActive ? step.color : "#2a2a2a",
+                                                        alignItems: "center", justifyContent: "center",
+                                                    }}>
+                                                        {isCompleted ? (
+                                                            <CheckCircle2 size={isActive ? 18 : 14} color="#fff" />
+                                                        ) : (
+                                                            <step.Icon size={isActive ? 16 : 12} color={isActive ? step.color : "#555"} />
+                                                        )}
+                                                    </View>
+                                                    <Text style={{
+                                                        fontFamily: isActive ? "BricolageGrotesque_700Bold" : "Manrope_500Medium",
+                                                        fontSize: 10, color: isActive ? step.color : isCompleted ? "#888" : "#444",
+                                                        textAlign: "center", marginTop: 6, width: 56,
+                                                    }}>
+                                                        {step.label}
+                                                    </Text>
+                                                </View>
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </View>
+                            </Animated.View>
+                        )}
+
                         {/* Order Type & Instructions */}
                         <Animated.View
                             entering={FadeInDown.delay(100).duration(500)}

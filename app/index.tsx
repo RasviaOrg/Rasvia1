@@ -80,7 +80,7 @@ const LIVE_TRACK_STEPS: {
 ];
 
 function liveStepIndex(status: OrderStatus): number {
-  if (status === "pending") return 0;
+  if (status === "pending" || status === "pending_payment") return 0;
   if (status === "preparing") return 1;
   if (status === "ready") return 2;
   if (status === "served") return 3;
@@ -241,6 +241,11 @@ export default function DiscoveryFeed() {
     restaurantName: string;
     status: OrderStatus;
   } | null>(null);
+  const [allLiveOrders, setAllLiveOrders] = useState<{
+    id: string;
+    restaurantName: string;
+    status: OrderStatus;
+  }[]>([]);
   const [liveWaitlistBanner, setLiveWaitlistBanner] = useState<{
     entryId: string;
     restaurantId: string;
@@ -650,9 +655,16 @@ export default function DiscoveryFeed() {
         .from("orders")
         .select("id, status, restaurants(name)")
         .eq("created_by", currentUserId)
-        .in("status", ["pending", "preparing", "ready", "served"])
+        .in("status", ["pending", "pending_payment", "preparing", "ready", "served"])
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(5);
+
+      const allRows = (data ?? []).map((r: any) => ({
+        id: String(r.id),
+        restaurantName: (r.restaurants as { name?: string } | null)?.name ?? "Restaurant",
+        status: r.status as OrderStatus,
+      }));
+      setAllLiveOrders(allRows);
 
       const row = data?.[0];
       if (error || !row) {
@@ -1736,6 +1748,38 @@ export default function DiscoveryFeed() {
               </Swipeable>
               </Animated.View>
             </Animated.View>
+          )}
+
+          {/* Additional active orders beyond the primary banner */}
+          {allLiveOrders.length > 1 && (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/my-orders" as any);
+              }}
+              style={{
+                marginHorizontal: 16,
+                marginTop: 6,
+                marginBottom: 4,
+                backgroundColor: "rgba(255,153,51,0.08)",
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: "rgba(255,153,51,0.25)",
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <ShoppingBag size={14} color="#FF9933" />
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 13 }}>
+                  +{allLiveOrders.length - 1} more active order{allLiveOrders.length > 2 ? "s" : ""}
+                </Text>
+              </View>
+              <ChevronRight size={16} color="#FF9933" />
+            </Pressable>
           )}
 
           {/* Active waitlist — queue / table ready / seated (syncs when staff updates from web) */}

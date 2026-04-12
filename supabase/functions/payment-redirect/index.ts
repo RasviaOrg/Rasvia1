@@ -95,13 +95,15 @@ serve(async (req: Request) => {
       const orderType = order.order_type
       const partySessionId = order.party_session_id
 
-      // Mark the order as paid now that Stripe confirms payment.
+      // Transition from pending_payment → pending so the order enters the
+      // normal lifecycle (pending → preparing → ready → served → completed).
+      // 'paid' is NOT a valid DB status; using 'pending' keeps the CHECK happy.
       const { error: updateErr } = await supabase
         .from('orders')
-        .update({ status: 'paid' })
+        .update({ status: 'pending', payment_method: 'card' })
         .eq('id', orderId)
       if (updateErr) {
-        console.error('Failed to mark order as paid:', updateErr)
+        console.error('Failed to mark order as pending:', updateErr)
       }
 
       // Type cast the relation since we know it's a single object from inner join

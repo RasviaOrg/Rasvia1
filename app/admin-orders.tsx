@@ -52,6 +52,7 @@ import {
 // ──────────────────────────── Helpers ──────────────────────────────
 const STATUS_COLORS: Record<OrderStatus, string> = {
     pending: "#FF9933",
+    pending_payment: "#A855F7",
     preparing: "#F59E0B",
     ready: "#22C55E",
     served: "#818CF8",

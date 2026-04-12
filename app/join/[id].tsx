@@ -258,6 +258,22 @@ export default function JoinPartyScreen() {
     const mySharePaid = guestName ? splitPaidMemberSet.has(normalizeMemberName(guestName)) : false;
     const isAssignedPayerValid = paymentMode !== 'assign' || (!!assignedPayer && assignableMembers.includes(assignedPayer));
 
+    // Remaining balance: total minus what already-paid members owe
+    const paidMembersTotal = useMemo(() => {
+        return splitRequiredMembers
+            .filter((name) => splitPaidMemberSet.has(normalizeMemberName(name)))
+            .reduce((sum, name) => sum + (memberTotals[name]?.total ?? 0), 0);
+    }, [splitRequiredMembers, splitPaidMemberSet, normalizeMemberName, memberTotals]);
+
+    const remainingBalance = useMemo(() => {
+        const raw = totalPrice - paidMembersTotal;
+        return Math.max(0, Math.round(raw * 100) / 100);
+    }, [totalPrice, paidMembersTotal]);
+
+    // Can the current user pay the remaining? Only if they've paid their share already
+    // and there's still a balance, or if they want to cover for others.
+    const canPayRemaining = mySharePaid && remainingBalance > 0 && !splitAllPaid;
+
     const combinedAllItems = useMemo(() => {
         const combined = new Map<string, {
             id: string;
@@ -343,18 +359,32 @@ export default function JoinPartyScreen() {
         try {
             const { data } = await supabase
                 .from('orders')
-                .select('customer_name,status,party_session_id')
+                .select('customer_name,status,subtotal,party_session_id')
                 .eq('party_session_id', sessionId)
-                .in('status', ['paid', 'ready', 'served']);
+                .in('status', ['pending', 'preparing', 'ready', 'served', 'completed']);
 
-            const paid = Array.from(
+            const rows = data ?? [];
+            const paidNames = Array.from(
                 new Set(
-                    (data ?? [])
+                    rows
                         .map((row: any) => String(row?.customer_name ?? '').trim())
                         .filter(Boolean)
                 )
             );
-            setSplitPaidMembers(paid);
+
+            // If total paid covers the full order, all members are paid
+            // (handles "cover remaining" where one person pays for others)
+            const totalPaidAmount = rows.reduce(
+                (sum: number, row: any) => sum + Number(row?.subtotal ?? 0), 0
+            );
+            const currentTotal = totalPriceRef.current;
+            const allMembers = splitRequiredMembersRef.current;
+
+            if (currentTotal > 0 && totalPaidAmount >= currentTotal && allMembers.length > 0) {
+                setSplitPaidMembers([...allMembers]);
+            } else {
+                setSplitPaidMembers(paidNames);
+            }
         } catch {
             // ignore; split payment state will remain best-effort
         }
@@ -544,11 +574,15 @@ export default function JoinPartyScreen() {
         };
     }, [fetchSplitPaidMembers, sessionId]);
 
-    // Refs for deep-link handler to avoid re-subscribing on cart changes
+    // Refs to avoid re-subscribing on cart changes
     const cartItemsRef = useRef(cartItems);
     cartItemsRef.current = cartItems;
     const restaurantNameRef = useRef(restaurantName);
     restaurantNameRef.current = restaurantName;
+    const totalPriceRef = useRef(totalPrice);
+    totalPriceRef.current = totalPrice;
+    const splitRequiredMembersRef = useRef(splitRequiredMembers);
+    splitRequiredMembersRef.current = splitRequiredMembers;
     const restaurantIdRef = useRef(restaurantId);
     restaurantIdRef.current = restaurantId;
 
@@ -1002,10 +1036,29 @@ export default function JoinPartyScreen() {
 
     const handlePayMyShare = useCallback(async () => {
         if (!sessionId || !restaurantId || !guestName || myShareTotal <= 0) return;
+        if (mySharePaid) {
+            Alert.alert('Already Paid', 'Your share has already been paid.');
+            return;
+        }
         if (Platform.OS !== "web") Haptics.selectionAsync();
 
         setPayingMyShare(true);
         try {
+            // Double-check server-side that this member hasn't already paid
+            const { data: existingPayments } = await supabase
+                .from('orders')
+                .select('id')
+                .eq('party_session_id', sessionId)
+                .eq('customer_name', guestName)
+                .in('status', ['pending', 'preparing', 'ready', 'served', 'completed'])
+                .limit(1);
+            if (existingPayments && existingPayments.length > 0) {
+                // Optimistic update so button disables immediately
+                setSplitPaidMembers((prev) => [...new Set([...prev, guestName])]);
+                Alert.alert('Already Paid', 'Your share has already been paid.');
+                return;
+            }
+
             const restResponse: any = await withTimeout(
                 (supabase
                     .from('restaurants')
@@ -1058,9 +1111,54 @@ export default function JoinPartyScreen() {
                     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                     Alert.alert('Payment Error', `Something went wrong. ${reason}`);
                 } else {
+                    const orderId = sp.get('order_id') || '';
+                    setSplitPaidMembers((prev) => [...new Set([...prev, guestName])]);
                     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    Alert.alert('Payment Complete', `You paid $${myShareTotal.toFixed(2)} for your items.`);
-                    fetchSplitPaidMembers();
+
+                    // Check DB to see if all shares are now covered
+                    const { data: paidOrders } = await supabase
+                        .from('orders')
+                        .select('customer_name, subtotal')
+                        .eq('party_session_id', sessionId)
+                        .in('status', ['pending', 'preparing', 'ready', 'served', 'completed']);
+
+                    const paidNames = new Set(
+                        (paidOrders ?? []).map((r: any) => normalizeMemberName(String(r?.customer_name ?? '').trim())).filter(Boolean)
+                    );
+                    const paidTotal = (paidOrders ?? []).reduce((s: number, r: any) => s + Number(r?.subtotal ?? 0), 0);
+                    const allNowPaid = splitRequiredMembersRef.current.every(n => paidNames.has(normalizeMemberName(n)))
+                        || (totalPriceRef.current > 0 && paidTotal >= totalPriceRef.current);
+
+                    if (allNowPaid) {
+                        try {
+                            await supabase
+                                .from('party_sessions')
+                                .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+                                .eq('id', sessionId);
+                        } catch {}
+                        addEvent({
+                            type: 'group_submitted',
+                            restaurantName: restaurantNameRef.current,
+                            restaurantId: String(restaurantIdRef.current),
+                            entryId: String(sessionId),
+                            partySize: cartItemsRef.current.length,
+                            timestamp: new Date().toISOString(),
+                        });
+                        SecureStore.deleteItemAsync(activeOrderKey);
+                        router.replace({
+                            pathname: '/order-confirmation' as any,
+                            params: {
+                                order_id: orderId,
+                                restaurant_name: restaurantNameRef.current,
+                                order_type: groupOrderType,
+                                total: myShareTotal.toFixed(2),
+                                party_session_id: sessionId,
+                            },
+                        });
+                    } else {
+                        Alert.alert('Payment Successful', `You paid $${myShareTotal.toFixed(2)} for your share. Waiting on other members.`);
+                        fetchSplitPaidMembers();
+                    }
                 }
             }
         } catch (e: unknown) {
@@ -1073,7 +1171,116 @@ export default function JoinPartyScreen() {
         } finally {
             setPayingMyShare(false);
         }
-    }, [buildCartMetaForPayer, createCheckoutSessionUrl, fetchSplitPaidMembers, guestName, groupOrderType, myShareTotal, restaurantId, restaurantName, session?.user?.id, sessionId]);
+    }, [activeOrderKey, addEvent, buildCartMetaForPayer, createCheckoutSessionUrl, fetchSplitPaidMembers, guestName, groupOrderType, mySharePaid, myShareTotal, normalizeMemberName, restaurantId, restaurantName, router, session?.user?.id, sessionId]);
+
+    // ── Pay remaining balance (after paying own share) ──────────────────
+    const [payingRemaining, setPayingRemaining] = useState(false);
+
+    const handlePayRemaining = useCallback(async () => {
+        if (!sessionId || !restaurantId || !guestName || remainingBalance <= 0) return;
+        if (Platform.OS !== "web") Haptics.selectionAsync();
+
+        setPayingRemaining(true);
+        try {
+            const restResponse: any = await withTimeout(
+                (supabase
+                    .from('restaurants')
+                    .select('stripe_account_id')
+                    .eq('id', restaurantId)
+                    .single()) as any,
+                PAYMENT_REQUEST_TIMEOUT_MS,
+                'Request timed out while loading payment settings.'
+            );
+            const { data: restData, error: restError } = restResponse;
+            if (restError) throw restError;
+
+            const stripeAccountId = restData?.stripe_account_id;
+            if (!stripeAccountId) {
+                throw new Error('Online payments are not available for this restaurant yet.');
+            }
+
+            // Build items for all unpaid members
+            const unpaidItems: any[] = [];
+            unpaidSplitMembers.forEach((name) => {
+                const items = buildCartMetaForPayer(name);
+                unpaidItems.push(...items);
+            });
+            if (unpaidItems.length === 0) {
+                throw new Error('No unpaid items found.');
+            }
+
+            const returnBase = `rasvia://join/${sessionId}?split_paid=1&payer=${encodeURIComponent(guestName)}&cover_remaining=1`;
+            const checkoutUrl = await createCheckoutSessionUrl({
+                restaurant_id: restaurantId,
+                stripe_account_id: stripeAccountId,
+                amount: remainingBalance,
+                party_session_id: sessionId,
+                cart_items: unpaidItems,
+                restaurant_name: restaurantName,
+                customer_name: guestName,
+                user_id: session?.user?.id ?? null,
+                order_type: groupOrderType,
+                return_url_base: returnBase,
+            });
+
+            const result = await WebBrowser.openAuthSessionAsync(checkoutUrl, 'rasvia://');
+            if (result.type === 'success' && result.url) {
+                const rawUrl = result.url;
+                const qIndex = rawUrl.indexOf('?');
+                const qString = qIndex >= 0 ? rawUrl.slice(qIndex + 1) : '';
+                const sp = new URLSearchParams(qString);
+
+                if (rawUrl.includes('checkout/cancel') || sp.get('checkout_status') === 'cancel') {
+                    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert('Payment Cancelled', 'Your payment was not processed.');
+                } else if (rawUrl.includes('checkout/error') || sp.get('checkout_status') === 'error') {
+                    const reason = sp.get('reason') || 'unknown';
+                    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    Alert.alert('Payment Error', `Something went wrong. ${reason}`);
+                } else {
+                    const orderId = sp.get('order_id') || '';
+                    setSplitPaidMembers((prev) => [...new Set([...prev, ...unpaidSplitMembers])]);
+                    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+                    // Covering remaining = all shares paid — auto-submit
+                    try {
+                        await supabase
+                            .from('party_sessions')
+                            .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+                            .eq('id', sessionId);
+                    } catch {}
+                    addEvent({
+                        type: 'group_submitted',
+                        restaurantName: restaurantNameRef.current,
+                        restaurantId: String(restaurantIdRef.current),
+                        entryId: String(sessionId),
+                        partySize: cartItemsRef.current.length,
+                        timestamp: new Date().toISOString(),
+                    });
+                    SecureStore.deleteItemAsync(activeOrderKey);
+                    router.replace({
+                        pathname: '/order-confirmation' as any,
+                        params: {
+                            order_id: orderId,
+                            restaurant_name: restaurantNameRef.current,
+                            order_type: groupOrderType,
+                            total: remainingBalance.toFixed(2),
+                            party_session_id: sessionId,
+                        },
+                    });
+                }
+            }
+        } catch (e: unknown) {
+            const parsedError = await parseEdgeFunctionError(
+                e,
+                'Could not initiate payment.'
+            );
+            console.error('Pay remaining error:', parsedError, e);
+            Alert.alert('Payment Error', parsedError.message);
+        } finally {
+            setPayingRemaining(false);
+        }
+    }, [activeOrderKey, addEvent, buildCartMetaForPayer, createCheckoutSessionUrl, fetchSplitPaidMembers, guestName, groupOrderType, remainingBalance, restaurantId, restaurantName, router, session?.user?.id, sessionId, unpaidSplitMembers]);
 
     // ── Main Pay / Submit handler ────────────────────────────────────────
     const handlePayment = async () => {
@@ -1202,8 +1409,14 @@ export default function JoinPartyScreen() {
                                         party_session_id: sessionId,
                                     };
 
-                                    if (rawUrl.includes('order-confirmation')) {
-                                        setSubmitted(true);
+                                    if (rawUrl.includes('order-confirmation') || sp.get('checkout_status') === 'success') {
+                                        // Update DB without showing the intermediate submitted screen
+                                        try {
+                                            await supabase
+                                                .from('party_sessions')
+                                                .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+                                                .eq('id', sessionId);
+                                        } catch {}
                                         setShowCartModal(false);
                                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                                         addEvent({
@@ -1215,12 +1428,10 @@ export default function JoinPartyScreen() {
                                             timestamp: new Date().toISOString(),
                                         });
                                         SecureStore.deleteItemAsync(activeOrderKey);
-                                        setTimeout(() => {
-                                            router.push({
-                                                pathname: '/order-confirmation' as any,
-                                                params,
-                                            });
-                                        }, 150);
+                                        router.replace({
+                                            pathname: '/order-confirmation' as any,
+                                            params,
+                                        });
                                     } else if (rawUrl.includes('checkout/cancel') || sp.get('checkout_status') === 'cancel') {
                                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                                         Alert.alert('Payment Cancelled', 'Your payment was not processed.');
@@ -1233,14 +1444,30 @@ export default function JoinPartyScreen() {
                                         Alert.alert('Redirect info', `URL: ${rawUrl}`);
                                     }
                                 } else if (!submitted) {
-                                    const { data: sessCheck } = await supabase
-                                        .from('party_sessions')
-                                        .select('status')
-                                        .eq('id', sessionId)
-                                        .single();
+                                    // Browser was dismissed — check if payment went through
+                                    const [{ data: sessCheck }, { data: orderCheck }] = await Promise.all([
+                                        supabase
+                                            .from('party_sessions')
+                                            .select('status')
+                                            .eq('id', sessionId)
+                                            .single(),
+                                        supabase
+                                            .from('orders')
+                                            .select('id, status')
+                                            .eq('party_session_id', sessionId)
+                                            .in('status', ['pending', 'preparing', 'ready', 'served'])
+                                            .limit(1),
+                                    ]);
 
-                                    if (sessCheck?.status === 'submitted') {
-                                        setSubmitted(true);
+                                    const paymentCompleted = (orderCheck && orderCheck.length > 0) || sessCheck?.status === 'submitted';
+
+                                    if (paymentCompleted) {
+                                        try {
+                                            await supabase
+                                                .from('party_sessions')
+                                                .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+                                                .eq('id', sessionId);
+                                        } catch {}
                                         setShowCartModal(false);
                                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                                         addEvent({
@@ -1252,6 +1479,20 @@ export default function JoinPartyScreen() {
                                             timestamp: new Date().toISOString(),
                                         });
                                         SecureStore.deleteItemAsync(activeOrderKey);
+
+                                        const orderId = orderCheck?.[0]?.id;
+                                        if (orderId) {
+                                            router.replace({
+                                                pathname: '/order-confirmation' as any,
+                                                params: {
+                                                    order_id: String(orderId),
+                                                    restaurant_name: restaurantName,
+                                                    order_type: groupOrderType,
+                                                    total: totalPrice.toFixed(2),
+                                                    party_session_id: sessionId,
+                                                },
+                                            });
+                                        }
                                     }
                                 }
                             } else {
@@ -1394,6 +1635,51 @@ export default function JoinPartyScreen() {
                                 </Animated.View>
                             );
                         })}
+
+                        {/* Action Buttons */}
+                        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={{ gap: 10, marginTop: 8 }}>
+                            <Pressable
+                                onPress={() => {
+                                    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    router.push('/my-orders' as any);
+                                }}
+                                style={{
+                                    backgroundColor: '#1a1a1a',
+                                    borderRadius: 16,
+                                    paddingVertical: 16,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 10,
+                                    borderWidth: 1,
+                                    borderColor: '#2a2a2a',
+                                }}
+                            >
+                                <ShoppingCart size={18} color="#FF9933" />
+                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 16 }}>
+                                    Track My Orders
+                                </Text>
+                                <ChevronDown size={16} color="#666" style={{ transform: [{ rotate: '-90deg' }] }} />
+                            </Pressable>
+
+                            <Pressable
+                                onPress={() => {
+                                    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    router.replace('/');
+                                }}
+                                style={{
+                                    backgroundColor: '#FF9933',
+                                    borderRadius: 16,
+                                    paddingVertical: 17,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                            >
+                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#0f0f0f', fontSize: 17 }}>
+                                    Done
+                                </Text>
+                            </Pressable>
+                        </Animated.View>
                     </View>
                 </ScrollView>
             </View>
@@ -2160,30 +2446,81 @@ export default function JoinPartyScreen() {
                             }
 
                             {paymentMode === 'split' ? (
-                                myShareTotal > 0 ? (
-                                    <Pressable
-                                        onPress={handlePayMyShare}
-                                        disabled={payingMyShare || mySharePaid}
-                                        style={{ backgroundColor: '#6366F1', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: (payingMyShare || mySharePaid) ? 0.6 : 1 }}
-                                    >
-                                        {payingMyShare ? (
-                                            <ActivityIndicator color="#fff" />
-                                        ) : (
-                                            <>
-                                                {mySharePaid ? <CheckCircle2 size={18} color="#fff" /> : <CreditCard size={18} color="#fff" />}
-                                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 17 }}>
-                                                    {mySharePaid ? 'My Share Paid' : `Pay My Share · $${myShareTotal.toFixed(2)}`}
+                                <>
+                                    {/* Payment progress bar */}
+                                    {paidMembersTotal > 0 && (
+                                        <View style={{ marginBottom: 10 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#A5B4FC', fontSize: 12 }}>
+                                                    ${paidMembersTotal.toFixed(2)} paid
                                                 </Text>
-                                            </>
-                                        )}
-                                    </Pressable>
-                                ) : (
-                                    <View style={{ borderRadius: 16, borderWidth: 1, borderColor: 'rgba(99,102,241,0.3)', backgroundColor: 'rgba(99,102,241,0.12)', paddingVertical: 16, alignItems: 'center', justifyContent: 'center' }}>
-                                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#A5B4FC', fontSize: 13 }}>
-                                            {isHost ? `Waiting on ${unpaidSplitMembers.length} payment${unpaidSplitMembers.length === 1 ? '' : 's'}` : 'No split amount yet'}
-                                        </Text>
-                                    </View>
-                                )
+                                                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: remainingBalance > 0 ? '#FF9933' : '#22C55E', fontSize: 12 }}>
+                                                    {remainingBalance > 0 ? `$${remainingBalance.toFixed(2)} remaining` : 'Fully paid'}
+                                                </Text>
+                                            </View>
+                                            <View style={{ height: 4, borderRadius: 2, backgroundColor: '#2a2a2a' }}>
+                                                <View style={{
+                                                    height: 4,
+                                                    borderRadius: 2,
+                                                    backgroundColor: splitAllPaid ? '#22C55E' : '#6366F1',
+                                                    width: `${Math.min(100, (paidMembersTotal / totalPrice) * 100)}%`,
+                                                }} />
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {myShareTotal > 0 && !mySharePaid ? (
+                                        <Pressable
+                                            onPress={handlePayMyShare}
+                                            disabled={payingMyShare}
+                                            style={{ backgroundColor: '#6366F1', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: payingMyShare ? 0.6 : 1 }}
+                                        >
+                                            {payingMyShare ? (
+                                                <ActivityIndicator color="#fff" />
+                                            ) : (
+                                                <>
+                                                    <CreditCard size={18} color="#fff" />
+                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#fff', fontSize: 17 }}>
+                                                        Pay My Share · ${myShareTotal.toFixed(2)}
+                                                    </Text>
+                                                </>
+                                            )}
+                                        </Pressable>
+                                    ) : mySharePaid ? (
+                                        <View style={{ backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(34,197,94,0.3)', paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+                                            <CheckCircle2 size={18} color="#22C55E" />
+                                            <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#22C55E', fontSize: 16 }}>
+                                                Your Share Paid · ${myShareTotal.toFixed(2)}
+                                            </Text>
+                                        </View>
+                                    ) : (
+                                        <View style={{ borderRadius: 16, borderWidth: 1, borderColor: 'rgba(99,102,241,0.3)', backgroundColor: 'rgba(99,102,241,0.12)', paddingVertical: 16, alignItems: 'center', justifyContent: 'center' }}>
+                                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#A5B4FC', fontSize: 13 }}>
+                                                {isHost ? `Waiting on ${unpaidSplitMembers.length} payment${unpaidSplitMembers.length === 1 ? '' : 's'}` : 'No split amount yet'}
+                                            </Text>
+                                        </View>
+                                    )}
+
+                                    {/* Pay Remaining — visible after paying own share */}
+                                    {canPayRemaining && (
+                                        <Pressable
+                                            onPress={handlePayRemaining}
+                                            disabled={payingRemaining}
+                                            style={{ backgroundColor: '#FF9933', borderRadius: 16, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 8, opacity: payingRemaining ? 0.6 : 1 }}
+                                        >
+                                            {payingRemaining ? (
+                                                <ActivityIndicator color="#0f0f0f" />
+                                            ) : (
+                                                <>
+                                                    <Wallet size={18} color="#0f0f0f" />
+                                                    <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#0f0f0f', fontSize: 16 }}>
+                                                        Cover Remaining · ${remainingBalance.toFixed(2)}
+                                                    </Text>
+                                                </>
+                                            )}
+                                        </Pressable>
+                                    )}
+                                </>
                             ) : null}
                         </View>
                     </View>
