@@ -289,7 +289,7 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={optionTitle}>Verify via Email</Text>
-                      <Text style={optionSub} numberOfLines={1}>We'll send a code to {email}</Text>
+                      <Text style={{ ...optionSub, flexWrap: "wrap" }}>We'll send a code to {email}</Text>
                     </View>
                   </Pressable>
                 </Animated.View>

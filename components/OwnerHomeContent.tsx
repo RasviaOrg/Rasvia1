@@ -551,7 +551,7 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-    const [statusFilter, setStatusFilter] = useState<"all" | string>("all");
+    const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "in_progress" | "cancelled" | "completed">("all");
 
     useEffect(() => {
         supabase
@@ -563,29 +563,23 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
             .then(({ data }) => { setOrders((data as Order[]) ?? []); setLoading(false); });
     }, [restaurantId]);
 
-    const availableStatuses = React.useMemo(() => {
-        const set = new Set<string>();
-        orders.forEach((o) => {
-            if (o.status) set.add(o.status);
-        });
-        const preferredOrder = [
-            "pending_payment",
-            "pending",
-            "preparing",
-            "ready",
-            "served",
-            "completed",
-            "cancelled",
-        ];
-        const ordered = preferredOrder.filter((s) => set.has(s));
-        const extras = Array.from(set).filter((s) => !preferredOrder.includes(s)).sort();
-        return [...ordered, ...extras];
-    }, [orders]);
+    const statusTabs: Array<{ key: "pending" | "in_progress" | "cancelled" | "completed"; label: string; color: string }> = [
+        { key: "pending", label: "Pending", color: ORANGE },
+        { key: "in_progress", label: "In Progress", color: "#F59E0B" },
+        { key: "cancelled", label: "Cancelled", color: "#EF4444" },
+        { key: "completed", label: "Completed", color: "#6B7280" },
+    ];
 
-    const filteredOrders = React.useMemo(
-        () => (statusFilter === "all" ? orders : orders.filter((o) => o.status === statusFilter)),
-        [orders, statusFilter]
-    );
+    const filteredOrders = React.useMemo(() => {
+        if (statusFilter === "all") return orders;
+        return orders.filter((o) => {
+            const status = (o.status || "").toLowerCase();
+            if (statusFilter === "pending") return status === "pending" || status === "pending_payment" || status === "active";
+            if (statusFilter === "in_progress") return status === "preparing" || status === "ready";
+            if (statusFilter === "cancelled") return status === "cancelled";
+            return status === "completed" || status === "served";
+        });
+    }, [orders, statusFilter]);
 
     return (
         <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -612,50 +606,31 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
                             </Text>
                         ) : (
                             <>
-                                <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
-                                    contentContainerStyle={{ paddingBottom: 12, gap: 8 }}
-                                    style={{ marginBottom: 8 }}
-                                >
-                                    <Pressable
-                                        onPress={() => setStatusFilter("all")}
-                                        style={{
-                                            borderRadius: 999,
-                                            borderWidth: 1,
-                                            borderColor: statusFilter === "all" ? `${ORANGE}99` : "#2a2a2a",
-                                            backgroundColor: statusFilter === "all" ? "rgba(255,153,51,0.14)" : "#171717",
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 7,
-                                        }}
-                                    >
-                                        <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: statusFilter === "all" ? ORANGE : "#cfcfcf" }}>
-                                            All
-                                        </Text>
-                                    </Pressable>
-                                    {availableStatuses.map((status) => {
-                                        const active = statusFilter === status;
-                                        const sc = statusColor(status);
+                                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8, marginBottom: 10 }}>
+                                    {statusTabs.map((tab) => {
+                                        const active = statusFilter === tab.key;
                                         return (
                                             <Pressable
-                                                key={status}
-                                                onPress={() => setStatusFilter(status)}
+                                                key={tab.key}
+                                                onPress={() => setStatusFilter((prev) => (prev === tab.key ? "all" : tab.key))}
                                                 style={{
-                                                    borderRadius: 999,
+                                                    width: "48.5%",
+                                                    borderRadius: 12,
                                                     borderWidth: 1,
-                                                    borderColor: active ? `${sc}99` : "#2a2a2a",
-                                                    backgroundColor: active ? `${sc}22` : "#171717",
-                                                    paddingHorizontal: 12,
-                                                    paddingVertical: 7,
+                                                    borderColor: active ? `${tab.color}99` : "#2a2a2a",
+                                                    backgroundColor: active ? `${tab.color}22` : "#171717",
+                                                    paddingVertical: 9,
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
                                                 }}
                                             >
-                                                <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? sc : "#cfcfcf" }}>
-                                                    {formatOrderStatus(status)}
+                                                <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? tab.color : "#cfcfcf" }}>
+                                                    {tab.label}
                                                 </Text>
                                             </Pressable>
                                         );
                                     })}
-                                </ScrollView>
+                                </View>
 
                                 {filteredOrders.length === 0 ? (
                                     <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", marginTop: 24 }}>
