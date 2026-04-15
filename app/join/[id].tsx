@@ -12,7 +12,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useNotifications } from '../../lib/notifications-context';
 import { useAuth } from '../../lib/auth-context';
-import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from '../../lib/edge-function-error';
+import { parseEdgeFunctionError } from '../../lib/edge-function-error';
 import { withTimeout } from '../../lib/with-timeout';
 import { getCheckoutUrlOrThrow } from '../../lib/checkout-response';
 import {
@@ -938,97 +938,18 @@ export default function JoinPartyScreen() {
     }, [cartItems, guestName, uniqueMembers]);
 
     const createCheckoutSessionUrl = useCallback(async (requestBody: Record<string, unknown>) => {
-        const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-        const invokeCreateCheckout = (authToken: string) =>
+        const invokeCreateCheckout = () =>
             withTimeout(
                 supabase.functions.invoke(
                     'create-checkout',
                     {
                         body: requestBody,
-                        headers: {
-                            Authorization: `Bearer ${authToken}`,
-                            ...(anonKey ? { apikey: anonKey } : {}),
-                        },
                     }
                 ),
                 PAYMENT_REQUEST_TIMEOUT_MS,
                 'Request timed out while creating checkout. Please try again.'
             );
-
-        const invokeCreateCheckoutWithAnonFetch = async () => {
-            if (!anonKey || !supabaseUrl) {
-                throw new Error('Supabase configuration is missing for checkout.');
-            }
-            const response = await withTimeout(
-                fetch(`${supabaseUrl}/functions/v1/create-checkout`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${anonKey}`,
-                        apikey: anonKey,
-                    },
-                    body: JSON.stringify(requestBody),
-                }),
-                PAYMENT_REQUEST_TIMEOUT_MS,
-                'Request timed out while creating checkout. Please try again.'
-            );
-
-            const raw = await response.text();
-            let parsed: any = null;
-            try { parsed = raw ? JSON.parse(raw) : null; } catch { }
-
-            if (!response.ok) {
-                const msg = parsed?.error || parsed?.message || raw || `Checkout request failed (${response.status}).`;
-                throw new Error(msg);
-            }
-
-            return parsed;
-        };
-
-        const { data: sessionData, error: sessionErr } = await withTimeout(
-            supabase.auth.getSession(),
-            PAYMENT_REQUEST_TIMEOUT_MS,
-            'Request timed out while validating your session. Please reopen the app and try again.'
-        );
-        const accessToken = sessionData?.session?.access_token;
-
-        let fnData: any = null;
-        let fnError: any = null;
-
-        if (accessToken && !sessionErr) {
-            const invokeResult = await invokeCreateCheckout(accessToken);
-            fnData = invokeResult.data;
-            fnError = invokeResult.error;
-
-            if (fnError) {
-                const fnErrorDetails = await parseEdgeFunctionError(fnError);
-                if (isInvalidJwtEdgeFunctionError(fnErrorDetails)) {
-                    const { data: retrySessionData, error: retrySessionErr } = await withTimeout(
-                        supabase.auth.getSession(),
-                        PAYMENT_REQUEST_TIMEOUT_MS,
-                        'Request timed out while validating your session. Please reopen the app and try again.'
-                    );
-                    const retryToken = retrySessionData?.session?.access_token;
-                    if (!retrySessionErr && retryToken) {
-                        const retryResult = await invokeCreateCheckout(retryToken);
-                        fnData = retryResult.data;
-                        fnError = retryResult.error;
-                    }
-                }
-            }
-        }
-
-        if (fnError) {
-            const postRetryDetails = await parseEdgeFunctionError(fnError);
-            if (isInvalidJwtEdgeFunctionError(postRetryDetails) && anonKey) {
-                fnData = await invokeCreateCheckoutWithAnonFetch();
-                fnError = null;
-            }
-        } else if (!fnData && anonKey) {
-            fnData = await invokeCreateCheckoutWithAnonFetch();
-        }
-
+        const { data: fnData, error: fnError } = await invokeCreateCheckout();
         if (fnError) throw fnError;
 
         return getCheckoutUrlOrThrow(fnData);
@@ -1085,13 +1006,11 @@ export default function JoinPartyScreen() {
             const returnBase = `rasvia://join/${sessionId}?split_paid=1&payer=${encodeURIComponent(guestName)}`;
             const checkoutUrl = await createCheckoutSessionUrl({
                 restaurant_id: restaurantId,
-                stripe_account_id: stripeAccountId,
                 amount: myShareTotal,
                 party_session_id: sessionId,
                 cart_items: payerItems,
                 restaurant_name: restaurantName,
                 customer_name: guestName,
-                user_id: session?.user?.id ?? null,
                 order_type: groupOrderType,
                 return_url_base: returnBase,
             });
@@ -1212,13 +1131,11 @@ export default function JoinPartyScreen() {
             const returnBase = `rasvia://join/${sessionId}?split_paid=1&payer=${encodeURIComponent(guestName)}&cover_remaining=1`;
             const checkoutUrl = await createCheckoutSessionUrl({
                 restaurant_id: restaurantId,
-                stripe_account_id: stripeAccountId,
                 amount: remainingBalance,
                 party_session_id: sessionId,
                 cart_items: unpaidItems,
                 restaurant_name: restaurantName,
                 customer_name: guestName,
-                user_id: session?.user?.id ?? null,
                 order_type: groupOrderType,
                 return_url_base: returnBase,
             });
@@ -1379,13 +1296,11 @@ export default function JoinPartyScreen() {
                                 const cartMeta = buildCartMetaForPayer();
                                 const checkoutUrl = await createCheckoutSessionUrl({
                                     restaurant_id: restaurantId,
-                                    stripe_account_id: stripeAccountId,
                                     amount: totalPrice,
                                     party_session_id: sessionId,
                                     cart_items: cartMeta,
                                     restaurant_name: restaurantName,
                                     customer_name: guestName,
-                                    user_id: session.user.id,
                                     order_type: groupOrderType,
                                 });
 

@@ -72,7 +72,7 @@ export async function registerForPushNotifications(): Promise<boolean> {
   const Notifications = await getNotificationsModule();
   if (!Notifications) return false;
   if (!Device.isDevice) {
-    console.log("Push notifications require a physical device");
+    console.warn("Push notifications require a physical device");
     return false;
   }
   await ensureNotificationHandlerConfigured();

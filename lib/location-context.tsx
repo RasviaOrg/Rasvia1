@@ -206,7 +206,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             // by tapping detect-location or opening the map.
             const { status } = await Location.getForegroundPermissionsAsync();
             if (!isActive || status !== "granted") {
-                if (status !== "granted") console.log("📍 Location permission not yet granted — using fallback");
+                if (status !== "granted") console.warn("📍 Location permission not yet granted — using fallback");
                 return;
             }
             setLocationPermissionGranted(true);
@@ -223,10 +223,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                     latitude: loc.coords.latitude,
                     longitude: loc.coords.longitude,
                 };
-                console.log(
-                    `📍 User location: ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`,
-                    `\n   https://maps.google.com/?q=${coords.latitude},${coords.longitude}`,
-                );
+
                 await updateCoordsAndLabel(coords);
 
                 // Watch for significant location changes (updates every ~150m movement)

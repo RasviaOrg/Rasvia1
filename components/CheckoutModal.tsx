@@ -275,17 +275,13 @@ export function CheckoutModal({
 
                 const requestBody = {
                     restaurant_id: Number(restaurantId),
-                    stripe_account_id: stripeAccountId,
                     amount: subtotal,
                     cart_items: cartMeta,
                     restaurant_name: restaurantName,
                     customer_name: customerName.trim(),
-                    user_id: session.user.id,
                     order_type: orderType,
                     return_url_base: returnUrlBase,
                 };
-                const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
-                const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
                 const invokeCreateCheckout = (authToken: string) =>
                     withTimeout(
                         supabase.functions.invoke(
@@ -294,42 +290,12 @@ export function CheckoutModal({
                                 body: requestBody,
                                 headers: {
                                     Authorization: `Bearer ${authToken}`,
-                                    ...(anonKey ? { apikey: anonKey } : {}),
                                 },
                             }
                         ),
                         PAYMENT_REQUEST_TIMEOUT_MS,
                         "Request timed out while creating checkout. Please try again."
                     );
-                const invokeCreateCheckoutWithAnonFetch = async () => {
-                    if (!anonKey || !supabaseUrl) {
-                        throw new Error("Supabase configuration is missing for checkout.");
-                    }
-                    const response = await withTimeout(
-                        fetch(`${supabaseUrl}/functions/v1/create-checkout`, {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${anonKey}`,
-                                apikey: anonKey,
-                            },
-                            body: JSON.stringify(requestBody),
-                        }),
-                        PAYMENT_REQUEST_TIMEOUT_MS,
-                        "Request timed out while creating checkout. Please try again."
-                    );
-
-                    const raw = await response.text();
-                    let parsed: any = null;
-                    try { parsed = raw ? JSON.parse(raw) : null; } catch { }
-
-                    if (!response.ok) {
-                        const msg = parsed?.error || parsed?.message || raw || `Checkout request failed (${response.status}).`;
-                        throw new Error(msg);
-                    }
-
-                    return parsed;
-                };
 
                 const { data: sessionData, error: sessionErr } = await withTimeout(
                     supabase.auth.getSession(),
@@ -359,14 +325,6 @@ export function CheckoutModal({
                         const retryResult = await invokeCreateCheckout(retryToken);
                         fnData = retryResult.data;
                         fnError = retryResult.error;
-                    }
-                }
-
-                if (fnError) {
-                    const postRetryDetails = await parseEdgeFunctionError(fnError);
-                    if (isInvalidJwtEdgeFunctionError(postRetryDetails) && anonKey) {
-                        fnData = await invokeCreateCheckoutWithAnonFetch();
-                        fnError = null;
                     }
                 }
 
@@ -425,8 +383,8 @@ export function CheckoutModal({
                         Alert.alert('Payment Error', 'Something went wrong. Please try again.');
                     } else {
                         // Unknown redirect — log and show alert for debugging
-                        console.warn('[CheckoutModal] Unknown redirect URL:', rawUrl);
-                        Alert.alert('Redirect error', `Unexpected URL: ${rawUrl}`);
+                        console.warn('[CheckoutModal] Unknown redirect URL');
+                        Alert.alert('Payment Issue', 'We received an unexpected response. Please check your order status or try again.');
                     }
                 }
                 // User dismissed the browser manually or result.type === 'cancel'
@@ -511,7 +469,7 @@ export function CheckoutModal({
                 err,
                 "Could not place your order. Please try again."
             );
-            console.error("Order placement error:", parsedError, err);
+            console.error("Order placement error:", parsedError.message);
             Alert.alert("Error", parsedError.message);
         } finally {
             setPlacing(false);

@@ -1,5 +1,3 @@
-// @ts-nocheck
-/* eslint-disable import/no-unresolved */
 // supabase/functions/delete-account/index.ts
 // Deletes the authenticated user's account and all associated data.
 // Must be called with a valid user JWT — we verify it before deleting.
@@ -49,7 +47,6 @@ serve(async (req: Request) => {
     const adminClient = createClient(supabaseUrl, supabaseServiceKey)
 
     // Delete in order: child tables first, then parent
-    // Party items and sessions where they were the host
     await adminClient.from('party_items').delete().eq('added_by_user_id', userId)
     await adminClient.from('party_session_members').delete().eq('user_id', userId)
     await adminClient.from('party_sessions').update({ status: 'cancelled' }).eq('host_user_id', userId).eq('status', 'open')
@@ -71,9 +68,10 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
-  } catch (err: any) {
-    console.error('delete-account error:', err)
-    return new Response(JSON.stringify({ error: err.message || 'Unknown error' }), {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('delete-account error:', message)
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

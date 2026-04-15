@@ -513,7 +513,6 @@ export default function ProfileSettingsScreen() {
 
       // Add a cache-busting param so React Native doesn't serve stale from cache
       const urlWithBust = `${publicUrl}?t=${Date.now()}`;
-      console.log('[Avatar] Public URL:', urlWithBust);
 
       // Save clean URL to profile (without cache buster)
       const { error: updateError } = await supabase

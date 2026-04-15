@@ -217,11 +217,11 @@ function AuthGate() {
 
   return (
     <Stack
-      screenOptions={({ route }) => ({
-        headerShown: !route.name.startsWith("tempobook"),
+      screenOptions={{
+        headerShown: false,
         contentStyle: { backgroundColor: "#0f0f0f" },
         animation: "slide_from_right",
-      })}
+      }}
     >
       <Stack.Screen name="auth" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="email-verify" options={{ headerShown: false, animation: "fade" }} />
