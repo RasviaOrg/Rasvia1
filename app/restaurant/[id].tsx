@@ -85,6 +85,7 @@ import {
 } from "@/data/mockData";
 import * as SecureStore from 'expo-secure-store';
 import * as ExpoClipboard from "expo-clipboard";
+import { recordRecentlyViewedRestaurant } from "@/lib/restaurant-media";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 let SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -112,6 +113,12 @@ export default function RestaurantDetail() {
   // owners can manage their own restaurant (same controls as admin, but scoped)
   const canManage = isAdmin || (isRestaurantOwner && ownedRestaurantId === id);
   const { session } = useAuth();
+  useEffect(() => {
+    const userId = session?.user?.id;
+    const restaurantIdNum = Number(id);
+    if (!userId || !Number.isFinite(restaurantIdNum) || restaurantIdNum <= 0) return;
+    void recordRecentlyViewedRestaurant(userId, restaurantIdNum);
+  }, [session?.user?.id, id]);
   const ownerRoleResolved = !roleLoading;
   const { addEvent, refreshActive } = useNotifications();
   const { statusResult: hoursStatus, hours: restaurantHours, refetch: refetchRestaurantHours } = useRestaurantHours(id);

@@ -31,6 +31,8 @@ export interface SupabaseRestaurant {
     is_coming_soon?: boolean;
     /** Optional manual chain group key. Matching keys are treated as same brand chain. */
     chain_group_key?: string | null;
+    /** If true, card carousel uses restaurant image (or no-image fallback) as slide 1. */
+    use_regular_image_as_first_slide?: boolean;
 }
 
 // ==========================================
@@ -65,6 +67,8 @@ export interface UIRestaurant {
     isComingSoon: boolean;
     /** Resolved manual chain grouping key from DB, if provided */
     chainGroupKey?: string | null;
+    /** If true, card carousel uses restaurant image (or no-image fallback) as slide 1. */
+    useRegularImageAsFirstSlide: boolean;
 }
 
 // ==========================================
@@ -238,6 +242,7 @@ export function mapSupabaseToUI(
         // NULL → false (existing rows unaffected); true only when explicitly set in DB
         isComingSoon: restaurant.is_coming_soon === true,
         chainGroupKey: restaurant.chain_group_key ?? null,
+        useRegularImageAsFirstSlide: restaurant.use_regular_image_as_first_slide !== false,
     };
 }
 

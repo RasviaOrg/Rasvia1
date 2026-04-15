@@ -1,7 +1,9 @@
 import React from "react";
-import { View, Text, Pressable, Image } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { Star, Clock, Heart, Hourglass } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
+import type { RestaurantMediaSlide } from "@/lib/restaurant-media";
+import { RestaurantMediaFrame } from "@/components/RestaurantMediaFrame";
 import Animated, {
   FadeIn,
   FadeInRight,
@@ -16,6 +18,7 @@ interface RestaurantListCardProps {
   onPress: () => void;
   isFavorite?: boolean;
   onToggleFavorite?: (e: any) => void;
+  mediaSlides?: RestaurantMediaSlide[];
 }
 
 export function RestaurantListCard({
@@ -24,6 +27,7 @@ export function RestaurantListCard({
   onPress,
   isFavorite,
   onToggleFavorite,
+  mediaSlides,
 }: RestaurantListCardProps) {
   const pressScale = useSharedValue(1);
 
@@ -60,25 +64,26 @@ export function RestaurantListCard({
 
   return (
     <Animated.View entering={entering} style={{ width: 200, marginRight: 12 }}>
-      <Animated.View style={animatedStyle}>
-        <Pressable
-          onPress={onPress}
-          onPressIn={() => { pressScale.value = withSpring(0.96); }}
-          onPressOut={() => { pressScale.value = withSpring(1); }}
-          style={{
+      <Animated.View
+        style={[
+          animatedStyle,
+          {
             borderRadius: 16,
             overflow: "hidden",
             backgroundColor: "#1a1a1a",
             borderWidth: 1,
             borderColor: "#2a2a2a",
-          }}
-        >
+          },
+        ]}
+      >
           {/* ─── Full-width image ─── */}
           <View style={{ height: 155, position: "relative", backgroundColor: "#2a2a2a" }}>
-            <Image
-              source={{ uri: restaurant.image }}
-              style={{ width: "100%", height: "100%" }}
-              resizeMode="cover"
+            <RestaurantMediaFrame
+              defaultImage={restaurant.image}
+              slides={mediaSlides}
+              height={155}
+              borderRadius={0}
+              includeDefaultStarter={restaurant.useRegularImageAsFirstSlide}
             />
 
             {/* Coming Soon overlay */}
@@ -150,8 +155,13 @@ export function RestaurantListCard({
             </View>
           </View>
 
-          {/* ─── Info section ─── */}
-          <View style={{ padding: 10, paddingTop: 9 }}>
+          {/* ─── Info section (only this area opens menu) ─── */}
+          <Pressable
+            onPress={onPress}
+            onPressIn={() => { pressScale.value = withSpring(0.96); }}
+            onPressOut={() => { pressScale.value = withSpring(1); }}
+            style={{ padding: 10, paddingTop: 9 }}
+          >
             {/* Name row + heart */}
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 5 }}>
               <Text
@@ -224,8 +234,7 @@ export function RestaurantListCard({
                 </Text>
               </View>
             </View>
-          </View>
-        </Pressable>
+          </Pressable>
       </Animated.View>
     </Animated.View>
   );

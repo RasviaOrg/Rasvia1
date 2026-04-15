@@ -1630,13 +1630,13 @@ function NearbyListOverlay({
       onPanResponderRelease: (_, g) => {
         if (g.dy > 80 || g.vy > 0.4) {
           dismiss();
-        } else {
-          RNAnimated.timing(translateY, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: false,
-          }).start();
+          return;
         }
+        RNAnimated.timing(translateY, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: false,
+        }).start();
       },
     }),
   ).current;

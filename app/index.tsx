@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import {
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation, Camera } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map as MapIcon, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation, Camera } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -56,6 +56,7 @@ import { usePersonalization } from "@/hooks/usePersonalization";
 import { OwnerHomeContent } from "@/components/OwnerHomeContent";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { withTimeout } from "@/lib/with-timeout";
+import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRecentlyViewedRestaurant, type RestaurantMediaSlide } from "@/lib/restaurant-media";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -341,6 +342,7 @@ export default function DiscoveryFeed() {
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
   const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>([]);
   const [announcementBanner, setAnnouncementBanner] = useState("");
   const [userDietaryType, setUserDietaryType] = useState("");
   const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
@@ -352,6 +354,7 @@ export default function DiscoveryFeed() {
   // STATE MANAGEMENT - Replace Mock Data
   // ==================================================
   const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
+  const [restaurantMediaById, setRestaurantMediaById] = useState<Record<string, RestaurantMediaSlide[]>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -440,6 +443,19 @@ export default function DiscoveryFeed() {
   useEffect(() => {
     fetchFavoriteRestaurantIds();
   }, [fetchFavoriteRestaurantIds]);
+
+  const fetchRecentlyViewedIds = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setRecentlyViewedIds([]);
+      return;
+    }
+    setRecentlyViewedIds(await fetchRecentlyViewedRestaurantIds(userId));
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    fetchRecentlyViewedIds();
+  }, [fetchRecentlyViewedIds]);
 
   const handleToggleFavorite = useCallback(async (restaurantId: number) => {
     const userId = session?.user?.id;
@@ -543,11 +559,13 @@ export default function DiscoveryFeed() {
           6000,
           "Timed out while loading review stats."
         );
-        setRestaurants(uiRestaurants.map((r: UIRestaurant) => {
+        const withReviews = uiRestaurants.map((r: UIRestaurant) => {
           const s = statsMap.get(r.id);
           if (!s) return r;
           return { ...r, rating: s.average, reviewCount: s.count };
-        }));
+        });
+        setRestaurants(withReviews);
+        setRestaurantMediaById(await fetchRestaurantMediaSlides(withReviews.map((r: UIRestaurant) => r.id)));
       }
     } catch (error) {
       console.error('Error fetching restaurants:', error);
@@ -988,6 +1006,20 @@ export default function DiscoveryFeed() {
       return parseDist(a.distance) - parseDist(b.distance);
     });
 
+  const recentlyViewedRestaurants = useMemo(() => {
+    if (recentlyViewedIds.length === 0) return [] as UIRestaurant[];
+    const byId = new Map(restaurantsWithHoursStatus.map((r) => [Number(r.id), r]));
+    const seen = new Set<number>();
+    const ordered: UIRestaurant[] = [];
+    for (const id of recentlyViewedIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const row = byId.get(id);
+      if (row) ordered.push(row);
+    }
+    return ordered;
+  }, [recentlyViewedIds, restaurantsWithHoursStatus]);
+
   const nothingToShow = trendingRestaurants.length === 0 && nearbyRestaurants.length === 0 && quickBites.length === 0;
 
   const handleRestaurantPress = useCallback(
@@ -995,9 +1027,17 @@ export default function DiscoveryFeed() {
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
+      const restaurantIdNum = Number(id);
+      if (Number.isFinite(restaurantIdNum) && restaurantIdNum > 0) {
+        setRecentlyViewedIds((prev) => [restaurantIdNum, ...prev.filter((x) => x !== restaurantIdNum)].slice(0, 10));
+        const userId = session?.user?.id;
+        if (userId) {
+          void recordRecentlyViewedRestaurant(userId, restaurantIdNum);
+        }
+      }
       router.push(`/restaurant/${id}` as any);
     },
-    [router]
+    [router, session?.user?.id]
   );
 
 
@@ -1008,7 +1048,7 @@ export default function DiscoveryFeed() {
     setActiveFilter(filter);
   }, []);
 
-  const openDiscoverSection = useCallback((section: "trending" | "favorites" | "nearby" | "quick-bites") => {
+  const openDiscoverSection = useCallback((section: "trending" | "favorites" | "nearby" | "quick-bites" | "recently-viewed") => {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
@@ -1096,7 +1136,7 @@ export default function DiscoveryFeed() {
                 borderColor: "#2a2a2a",
               }}
             >
-              <Map size={20} color="#f5f5f5" />
+              <MapIcon size={20} color="#f5f5f5" />
             </Pressable>
             <Pressable
               onPress={() => {
@@ -2116,6 +2156,74 @@ export default function DiscoveryFeed() {
                 snapToAlignment="start"
                 removeClippedSubviews={false}
                 initialNumToRender={Math.min(8, Math.max(4, favoritesRestaurants.length))}
+                renderItem={({ item: restaurant, index }) => (
+                  <RestaurantListCard
+                    restaurant={restaurant}
+                    index={index}
+                    onPress={() => handleRestaurantPress(restaurant.id)}
+                    isFavorite={favoriteRestaurantIds.includes(Number(restaurant.id))}
+                    onToggleFavorite={(e) => handleToggleFavorite(Number(restaurant.id))}
+                  />
+                )}
+              />
+            </Animated.View>
+          )}
+
+          {/* Recently Viewed Section */}
+          {recentlyViewedRestaurants.length > 0 && (
+            <Animated.View entering={FadeInDown.delay(340).duration(420)} exiting={FadeOutDown.duration(320)}>
+              <View className="px-5 mt-8 mb-4">
+                <View className="flex-row items-center justify-between mb-1">
+                  <View className="flex-row items-center">
+                    <Clock size={18} color="#60A5FA" />
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_800ExtraBold",
+                        color: "#f5f5f5",
+                        fontSize: 24,
+                        marginLeft: 8,
+                      }}
+                    >
+                      Recently Viewed
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => openDiscoverSection("recently-viewed")}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      backgroundColor: "#242424",
+                      borderWidth: 1,
+                      borderColor: "#333",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <ChevronRight size={18} color="#f5f5f5" />
+                  </Pressable>
+                </View>
+                <Text
+                  style={{
+                    fontFamily: "Manrope_500Medium",
+                    color: "#999999",
+                    fontSize: 14,
+                    marginTop: 2,
+                  }}
+                >
+                  Restaurants you opened recently
+                </Text>
+              </View>
+              <FlatList
+                horizontal
+                data={recentlyViewedRestaurants}
+                keyExtractor={(r) => `recent-${r.id}`}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                decelerationRate="fast"
+                snapToInterval={212}
+                snapToAlignment="start"
+                removeClippedSubviews={false}
                 renderItem={({ item: restaurant, index }) => (
                   <RestaurantListCard
                     restaurant={restaurant}

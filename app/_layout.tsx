@@ -280,6 +280,10 @@ function AuthGate() {
         options={{ headerShown: false, animation: "slide_from_right" }}
       />
       <Stack.Screen
+        name="owner-media-carousel"
+        options={{ headerShown: false, animation: "slide_from_right" }}
+      />
+      <Stack.Screen
         name="my-orders"
         options={{ headerShown: false, animation: "slide_from_right" }}
       />

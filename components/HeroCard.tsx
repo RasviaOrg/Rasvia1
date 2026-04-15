@@ -1,8 +1,10 @@
 import React from "react";
-import { View, Text, Pressable, Image, Dimensions } from "react-native";
+import { View, Text, Pressable, Dimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Star, MapPin, Clock, Heart, Hourglass } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
+import type { RestaurantMediaSlide } from "@/lib/restaurant-media";
+import { RestaurantMediaFrame } from "@/components/RestaurantMediaFrame";
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
@@ -20,9 +22,10 @@ interface HeroCardProps {
   onPress: () => void;
   isFavorite?: boolean;
   onToggleFavorite?: (e: any) => void;
+  mediaSlides?: RestaurantMediaSlide[];
 }
 
-export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavorite }: HeroCardProps) {
+export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavorite, mediaSlides }: HeroCardProps) {
   const pressScale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -34,23 +37,21 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
       entering={FadeInDown.delay(index * 100).duration(600)}
       style={{ width: CARD_WIDTH, marginRight: 16 }}
     >
-      <Animated.View style={animatedStyle}>
-      <Pressable
-        onPress={onPress}
-        onPressIn={() => {
-          pressScale.value = withSpring(0.95);
-        }}
-        onPressOut={() => {
-          pressScale.value = withSpring(1);
-        }}
-        className="rounded-2xl overflow-hidden"
-        style={{ height: 315, borderWidth: 1, borderColor: "#2a2a2a" }}
+      <Animated.View
+        style={[
+          animatedStyle,
+          { height: 315, borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 16, overflow: "hidden" },
+        ]}
       >
-        <Image
-          source={{ uri: restaurant.image }}
-          style={{ width: "100%", height: "100%", position: "absolute" }}
-          resizeMode="cover"
-        />
+        <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+          <RestaurantMediaFrame
+            defaultImage={restaurant.image}
+            slides={mediaSlides}
+            height={315}
+            borderRadius={0}
+            includeDefaultStarter={restaurant.useRegularImageAsFirstSlide}
+          />
+        </View>
         <LinearGradient
           colors={["transparent", "rgba(15,15,15,0.6)", "rgba(15,15,15,0.95)"]}
           style={{
@@ -116,8 +117,17 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           </View>
         )}
 
-        {/* Content */}
-        <View className="absolute bottom-0 left-0 right-0 p-5">
+        {/* Content (only this bottom area opens menu) */}
+        <Pressable
+          onPress={onPress}
+          onPressIn={() => {
+            pressScale.value = withSpring(0.95);
+          }}
+          onPressOut={() => {
+            pressScale.value = withSpring(1);
+          }}
+          style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 20 }}
+        >
           <View className="flex-row items-center mb-1">
             {restaurant.tags.slice(0, 2).map((tag, i) => (
               <View
@@ -213,8 +223,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               {restaurant.priceRange}
             </Text>
           </View>
-        </View>
-      </Pressable>
+        </Pressable>
       </Animated.View>
     </Animated.View>
   );

@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   ScrollView,
-  Image,
   RefreshControl,
   Platform,
 } from "react-native";
@@ -28,6 +27,8 @@ import { useAuth } from "@/lib/auth-context";
 import { FilterBar } from "@/components/FilterBar";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import type { FilterType } from "@/data/mockData";
+import { RestaurantMediaFrame } from "@/components/RestaurantMediaFrame";
+import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, type RestaurantMediaSlide } from "@/lib/restaurant-media";
 
 function parseDist(distance: string) {
   return parseFloat(distance) || 9999;
@@ -45,9 +46,11 @@ function lower(value: string) {
 
 function SectionRestaurantRow({
   restaurant,
+  mediaSlides,
   onPress,
 }: {
   restaurant: UIRestaurant;
+  mediaSlides?: RestaurantMediaSlide[];
   onPress: () => void;
 }) {
   const isComingSoon = restaurant.isComingSoon;
@@ -63,8 +66,7 @@ function SectionRestaurantRow({
       : "#EF4444";
 
   return (
-    <Pressable
-      onPress={onPress}
+    <View
       style={{
         borderRadius: 14,
         borderWidth: 1,
@@ -74,12 +76,14 @@ function SectionRestaurantRow({
         marginBottom: 10,
       }}
     >
-      <Image
-        source={{ uri: restaurant.image }}
-        style={{ width: "100%", height: 220, borderRadius: 12, backgroundColor: "#242424" }}
-        resizeMode="cover"
+      <RestaurantMediaFrame
+        defaultImage={restaurant.image}
+        slides={mediaSlides}
+        height={198}
+        borderRadius={12}
+        includeDefaultStarter={restaurant.useRegularImageAsFirstSlide}
       />
-      <View style={{ marginTop: 12 }}>
+      <Pressable onPress={onPress} style={{ marginTop: 12 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text
             style={{
@@ -126,8 +130,8 @@ function SectionRestaurantRow({
             </Text>
           </View>
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
@@ -144,7 +148,9 @@ export default function DiscoverSectionPage() {
   userCoordsRef.current = userCoords;
 
   const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
+  const [restaurantMediaById, setRestaurantMediaById] = useState<Record<string, RestaurantMediaSlide[]>>({});
   const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>([]);
   const [userDietaryType, setUserDietaryType] = useState("");
   const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterType>(normalizeFilter(params.filter));
@@ -166,7 +172,7 @@ export default function DiscoverSectionPage() {
       const profilePromise = userId
         ? supabase
             .from("profiles")
-            .select("favorite_restaurants, dietary_type, restricted_days")
+            .select("favorite_restaurants, dietary_type, restricted_days, recently_viewed_restaurants")
             .eq("id", userId)
             .single()
         : Promise.resolve({ data: null, error: null } as any);
@@ -187,8 +193,10 @@ export default function DiscoverSectionPage() {
       });
 
       setRestaurants(withReviews);
+      setRestaurantMediaById(await fetchRestaurantMediaSlides(withReviews.map((r) => r.id)));
 
       setFavoriteRestaurantIds(parseFavorites((profileRow as any)?.favorite_restaurants));
+      setRecentlyViewedIds(await fetchRecentlyViewedRestaurantIds(userId ?? ""));
       setUserDietaryType((profileRow as any)?.dietary_type ?? "");
       setUserRestrictedDays(((profileRow as any)?.restricted_days as string[]) ?? []);
     } catch (error) {
@@ -316,12 +324,33 @@ export default function DiscoverSectionPage() {
       });
   }, [availabilityRank, favoriteRestaurantIds, isAdmin, restaurantsWithHoursStatus]);
 
+  const recentlyViewedRestaurants = useMemo(() => {
+    if (recentlyViewedIds.length === 0) return [] as UIRestaurant[];
+    const byId = new Map(restaurantsWithHoursStatus.map((r) => [Number(r.id), r]));
+    const seen = new Set<number>();
+    const ordered: UIRestaurant[] = [];
+    for (const id of recentlyViewedIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const row = byId.get(id);
+      if (row) ordered.push(row);
+    }
+    return ordered;
+  }, [recentlyViewedIds, restaurantsWithHoursStatus]);
+
   const content = useMemo(() => {
     if (section === "favorites") {
       return {
         title: "Favorites",
         subtitle: "Your saved spots in one place",
         rows: favoritesRestaurants,
+      };
+    }
+    if (section === "recently-viewed") {
+      return {
+        title: "Recently Viewed",
+        subtitle: "Restaurants you opened recently",
+        rows: recentlyViewedRestaurants,
       };
     }
     if (section === "nearby") {
@@ -343,7 +372,7 @@ export default function DiscoverSectionPage() {
       subtitle: "Popular spots with live wait times",
       rows: trendingRestaurants,
     };
-  }, [favoritesRestaurants, nearbyRestaurants, quickBites, section, trendingRestaurants]);
+  }, [favoritesRestaurants, nearbyRestaurants, quickBites, recentlyViewedRestaurants, section, trendingRestaurants]);
 
   const handleRestaurantPress = useCallback((id: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -449,6 +478,7 @@ export default function DiscoverSectionPage() {
               <SectionRestaurantRow
                 key={restaurant.id}
                 restaurant={restaurant}
+                mediaSlides={restaurantMediaById[restaurant.id]}
                 onPress={() => handleRestaurantPress(restaurant.id)}
               />
             ))

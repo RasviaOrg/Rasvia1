@@ -49,13 +49,10 @@ import {
   Building2,
   X,
   Plus,
-  Lock,
-  Key,
   Mail,
 } from "lucide-react-native";
 import { RolesModal } from "@/components/RolesModal";
 import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
-import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { isolatedSupabase } from "@/lib/isolated-supabase";
 import Animated, {
   FadeIn,
@@ -129,7 +126,6 @@ export default function ProfileSettingsScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
-  const [showChangePassword, setShowChangePassword] = useState(false);
 
   // Admin tab state (only used when isAdmin)
   const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug' | 'accounts'>('preferences');
@@ -1147,17 +1143,6 @@ export default function ProfileSettingsScreen() {
                   }}
                 />
                 <Divider />
-                {/* Change Password Row */}
-                <SettingsRow
-                  icon={<Key size={20} color="#60A5FA" />}
-                  label="Change Password"
-                  hasChevron
-                  onPress={() => {
-                    if (Platform.OS !== "web") Haptics.selectionAsync();
-                    setShowChangePassword(true);
-                  }}
-                />
-                <Divider />
                 <SettingsRow
                   icon={<Utensils size={20} color="#10B981" />}
                   label="Dining Preferences"
@@ -1171,6 +1156,16 @@ export default function ProfileSettingsScreen() {
               </>
               {isRestaurantOwner && (
                 <>
+                  <SettingsRow
+                    icon={<Camera size={20} color="#60A5FA" />}
+                    label="Restaurant Media Carousel"
+                    hasChevron
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      router.push("/owner-media-carousel" as any);
+                    }}
+                  />
+                  <Divider />
                   <SettingsRow
                     icon={<Users size={20} color="#A78BFA" />}
                     label="Roles"
@@ -2283,15 +2278,6 @@ export default function ProfileSettingsScreen() {
         }}
       />
 
-      {/* Change Password Modal */}
-      <ChangePasswordModal
-        visible={showChangePassword}
-        email={session?.user?.email ?? ""}
-        onClose={() => setShowChangePassword(false)}
-        onSuccess={() => {
-          setShowChangePassword(false);
-        }}
-      />
     </View>
   );
 }
