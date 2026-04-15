@@ -15,3 +15,8 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/payment-redirect/deno.json"
 entrypoint = "./functions/payment-redirect/index.ts"
+
+[functions.delete-account]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/delete-account/index.ts"

@@ -60,3 +60,6 @@ node_modules
 *.apk
 *.aab
 *.log
+
+# Supabase CLI local metadata
+supabase/.temp/
