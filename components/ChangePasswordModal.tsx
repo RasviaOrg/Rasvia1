@@ -456,6 +456,8 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
                       autoCapitalize="none"
                       autoCorrect={false}
                       textContentType="newPassword"
+                      autoComplete="password"
+                      keyboardType="ascii-capable"
                       keyboardAppearance="dark"
                       autoFocus
                     />
@@ -477,6 +479,8 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
                       autoCapitalize="none"
                       autoCorrect={false}
                       textContentType="newPassword"
+                      autoComplete="password"
+                      keyboardType="ascii-capable"
                       keyboardAppearance="dark"
                       onSubmitEditing={handleUpdatePassword}
                     />

@@ -23,7 +23,6 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import MapView, { Marker, Callout, Region } from "react-native-maps";
 import * as Location from "expo-location";
 import {
-  ArrowLeft,
   LocateFixed,
   Compass,
   Clock,
@@ -52,6 +51,7 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { AddRestaurantModal } from "@/components/AddRestaurantModal";
 import { AdminRestaurantPanel } from "@/components/AdminRestaurantPanel";
 import { BrandedLoader } from "@/components/BrandedLoader";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -115,6 +115,23 @@ const DEFAULT_REGION: Region = {
   latitudeDelta: 0.15,
   longitudeDelta: 0.15,
 };
+
+// Nearby sheet / bottom-nav layout constants (device-dynamic)
+const SCREEN_HEIGHT = Dimensions.get("window").height;
+const NEARBY_VISIBLE_ROWS = 3;
+const NEARBY_ROW_HEIGHT = 72;
+const NEARBY_SHEET_CHROME_HEIGHT = 104; // handle + header region
+const NEARBY_SHEET_BOTTOM_PADDING = 12;
+const getNearbyOverlayHeight = (restaurantCount: number) => {
+  const visibleRows = Math.max(1, Math.min(NEARBY_VISIBLE_ROWS, restaurantCount || 1));
+  return (
+    NEARBY_SHEET_CHROME_HEIGHT +
+    visibleRows * NEARBY_ROW_HEIGHT +
+    NEARBY_SHEET_BOTTOM_PADDING
+  );
+};
+const getBottomNavTopInset = (safeBottom: number) =>
+  APP_BOTTOM_NAV_HEIGHT + 8 + Math.max(safeBottom, 8) - APP_BOTTOM_NAV_OFFSET - 1;
 
 // ==============================
 // Cluster type
@@ -185,6 +202,7 @@ function haversineDistance(
 
 export default function MapScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const { isAdmin, isRestaurantOwner, ownedRestaurantId, effectiveOwnerRestaurantId } =
     useAdminMode();
@@ -244,7 +262,13 @@ export default function MapScreen() {
   const nearbyClusterIndexRef = useRef(0);
 
   // Animated bottom position for search FAB
-  const fabBottom = useRef(new RNAnimated.Value(40)).current;
+  const FAB_EXTRA_LIFT = 20;
+  const defaultFabBottom = getBottomNavTopInset(insets.bottom) + 10 + FAB_EXTRA_LIFT;
+  const fabBottom = useRef(new RNAnimated.Value(defaultFabBottom)).current;
+  const nearbyOverlayHeight = useMemo(
+    () => getNearbyOverlayHeight(nearbyRestaurants.length),
+    [nearbyRestaurants.length],
+  );
 
   // ==============================
   // Fetch restaurants
@@ -508,8 +532,10 @@ export default function MapScreen() {
     const centerLong = (minLong + maxLong) / 2;
     const spanLat = Math.max((maxLat - minLat) * 1.6, 0.008);
     const spanLong = Math.max((maxLong - minLong) * 1.6, 0.008);
-    // Shift center downward so pins land in the visible area above the overlay
-    const overlayFraction = OVERLAY_HEIGHT / SCREEN_HEIGHT;
+    // Shift center downward so pins land in the visible area above the overlay/nav stack.
+    const overlayFraction =
+      (getNearbyOverlayHeight(clusterRestaurants.length) + getBottomNavTopInset(insets.bottom)) /
+      SCREEN_HEIGHT;
     const latOffset = spanLat * overlayFraction * 0.5;
     const fitRegion: Region = {
       latitude: centerLat - latOffset,
@@ -532,7 +558,7 @@ export default function MapScreen() {
       setSelectedRestaurant(null)
       setTimeout(() => setShowNearbyList(true), 100);
     }
-  }, [userLocation, mappableRestaurants]);
+  }, [userLocation, mappableRestaurants, insets.bottom]);
 
   // Track zoom level AND center for dropping pins
   const handleRegionChangeComplete = useCallback((newRegion: Region) => {
@@ -542,18 +568,20 @@ export default function MapScreen() {
 
   // Smoothly animate FAB when overlays appear/disappear
   useEffect(() => {
-    let target = 40; // default bottom
+    const bottomNavTopInset = getBottomNavTopInset(insets.bottom);
+    let target = defaultFabBottom; // default bottom (above persistent nav)
     if (showNearbyList) {
-      target = OVERLAY_HEIGHT + 16;
+      // Keep search circle near top-right of the nearby sheet.
+      target = nearbyOverlayHeight + bottomNavTopInset - 10 + FAB_EXTRA_LIFT;
     } else if (selectedRestaurant) {
-      target = CARD_HEIGHT + (isAdmin ? 65 : 20);
+      target = CARD_HEIGHT + (isAdmin ? 65 : 20) + FAB_EXTRA_LIFT;
     }
     RNAnimated.timing(fabBottom, {
       toValue: target,
       duration: 280,
       useNativeDriver: false,
     }).start();
-  }, [showNearbyList, selectedRestaurant, fabBottom, isSettingLocation]);
+  }, [showNearbyList, selectedRestaurant, fabBottom, isSettingLocation, insets.bottom, isAdmin, defaultFabBottom, nearbyOverlayHeight]);
 
   // Restaurant press: navigate to detail
   const handleRestaurantPress = useCallback(
@@ -731,7 +759,7 @@ export default function MapScreen() {
         />
       )}
 
-      {/* Top overlay: back + discover + location buttons */}
+      {/* Top overlay: discover + location buttons */}
       <SafeAreaView
         edges={["top"]}
         style={{ position: "absolute", top: 0, left: 0, right: 0 }}
@@ -745,27 +773,7 @@ export default function MapScreen() {
             paddingTop: 8,
           }}
         >
-          {/* Back button */}
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== "web") {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }
-              router.back();
-            }}
-            style={{
-              backgroundColor: "#1a1a1a",
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              alignItems: "center",
-              justifyContent: "center",
-              borderWidth: 1,
-              borderColor: "#2a2a2a",
-            }}
-          >
-            <ArrowLeft size={20} color="#f5f5f5" />
-          </Pressable>
+          <View style={{ width: 44, height: 44 }} />
 
           {/* Discover Nearby — centered pill */}
           <Pressable
@@ -1143,6 +1151,7 @@ export default function MapScreen() {
           }}
         />
       )}
+
     </View>
   );
 }
@@ -1571,9 +1580,6 @@ function SelectedRestaurantCard({
 // Uses RN's built-in Animated + PanResponder
 // (NOT Reanimated — avoids transform conflicts)
 // ==========================================
-const SCREEN_HEIGHT = Dimensions.get("window").height;
-const OVERLAY_HEIGHT = SCREEN_HEIGHT * 0.35;
-
 function NearbyListOverlay({
   restaurants,
   onClose,
@@ -1585,6 +1591,8 @@ function NearbyListOverlay({
   onSelect: (r: UIRestaurant) => void;
   closedRestaurantIds: Set<string>;
 }) {
+  const insets = useSafeAreaInsets();
+  const overlayHeight = getNearbyOverlayHeight(restaurants.length);
   // Prefetch images for the overlay restaurants
   useEffect(() => {
     restaurants.forEach((r) => {
@@ -1593,7 +1601,7 @@ function NearbyListOverlay({
   }, [restaurants]);
 
   // Animated translateY — starts off-screen, slides up
-  const translateY = useRef(new RNAnimated.Value(OVERLAY_HEIGHT)).current;
+  const translateY = useRef(new RNAnimated.Value(overlayHeight)).current;
 
   // Slide in on mount — fast timing, not spring
   useEffect(() => {
@@ -1611,11 +1619,11 @@ function NearbyListOverlay({
     }
     // Animate out then close
     RNAnimated.timing(translateY, {
-      toValue: OVERLAY_HEIGHT,
+      toValue: overlayHeight,
       duration: 200,
       useNativeDriver: false,
     }).start(() => onClose());
-  }, [onClose, translateY]);
+  }, [onClose, translateY, overlayHeight]);
 
   // PanResponder for the drag handle ONLY
   const handlePanResponder = useRef(
@@ -1645,15 +1653,15 @@ function NearbyListOverlay({
     <RNAnimated.View
       style={{
         position: "absolute",
-        bottom: 0,
+        bottom: getBottomNavTopInset(insets.bottom),
         left: 0,
         right: 0,
-        maxHeight: OVERLAY_HEIGHT,
+        height: overlayHeight,
         backgroundColor: "#1a1a1a",
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         paddingTop: 0,
-        paddingBottom: 40,
+        paddingBottom: 0,
         borderTopWidth: 1,
         borderTopColor: "#2a2a2a",
         shadowColor: "#000",
@@ -1732,6 +1740,7 @@ function NearbyListOverlay({
       {/* Scrollable restaurant list */}
       <ScrollView
         style={{ paddingHorizontal: 16 }}
+        contentContainerStyle={{ paddingBottom: NEARBY_SHEET_BOTTOM_PADDING }}
         showsVerticalScrollIndicator={false}
       >
         {/* Sort: open first, closed last */}
@@ -1755,6 +1764,7 @@ function NearbyListOverlay({
               style={{
                 flexDirection: "row",
                 alignItems: "center",
+                minHeight: NEARBY_ROW_HEIGHT,
                 paddingVertical: 12,
                 borderTopWidth: i > 0 ? 1 : 0,
                 borderTopColor: "#2a2a2a",

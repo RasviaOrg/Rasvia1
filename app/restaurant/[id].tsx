@@ -27,10 +27,6 @@ import {
   Share2,
   ShoppingBag,
   Settings,
-  Coffee,
-  Sun,
-  Moon,
-  Sparkles as SparklesIcon,
   Truck,
   UtensilsCrossed,
   Leaf,
@@ -78,6 +74,7 @@ import {
 import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
 import { useNotifications } from "@/lib/notifications-context";
+import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from "@/lib/menu-tags";
 import {
   groupMembers,
   type CartItem,
@@ -187,9 +184,11 @@ export default function RestaurantDetail() {
   const [liveQueueCount, setLiveQueueCount] = useState<number | null>(null);
   // Active group session for this restaurant (if any)
   const [hasActiveGroupSession, setHasActiveGroupSession] = useState(false);
-  // Menu category multi-filter
-  type MenuFilter = "all" | "breakfast" | "lunch" | "dinner" | "specials";
+  // Menu tag multi-filter
+  type MenuFilter = string;
+  const [menuTags, setMenuTags] = useState<MenuTagConfig[]>(DEFAULT_MENU_TAGS);
   const [selectedMenuFilters, setSelectedMenuFilters] = useState<MenuFilter[]>([]);
+  const [showTagFilterMenu, setShowTagFilterMenu] = useState(false);
   const [adminBypassComingSoon, setAdminBypassComingSoon] = useState(false);
 
   useEffect(() => {
@@ -200,15 +199,9 @@ export default function RestaurantDetail() {
   const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
 
   const itemMatchesFilter = useCallback((item: UIMenuItem, filter: MenuFilter) => {
-    const mealTimes = item.mealTimes ?? [];
-    if (filter === "all") {
-      return mealTimes.includes("all") || mealTimes.includes("all_day");
-    }
-    if (filter === "specials") {
-      return mealTimes.includes("specials") || mealTimes.includes("special");
-    }
+    const mealTimes = normalizeMenuItemTags(item.mealTimes ?? [], menuTags);
     return mealTimes.includes(filter);
-  }, []);
+  }, [menuTags]);
 
   const hasItemsForFilter = useCallback(
     (filter: MenuFilter) => menu.some((item) => itemMatchesFilter(item, filter)),
@@ -335,6 +328,7 @@ export default function RestaurantDetail() {
     fetchRestaurantData();
     fetchMenu();
     fetchQueueCount();
+    fetchRestaurantMenuTags();
 
     // Real-time: restaurant row changes
     const restSub = supabase
@@ -376,12 +370,38 @@ export default function RestaurantDetail() {
       )
       .subscribe();
 
+    // Real-time: menu tag changes
+    const menuTagSub = supabase
+      .channel(`restaurant-menu-tags:${id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "restaurant_menu_tags", filter: `restaurant_id=eq.${id}` },
+        () => { fetchRestaurantMenuTags(); }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(restSub);
       supabase.removeChannel(queueSub);
       supabase.removeChannel(menuSub);
+      supabase.removeChannel(menuTagSub);
     };
   }, [id]);
+
+  async function fetchRestaurantMenuTags() {
+    try {
+      const { data, error } = await supabase
+        .from("restaurant_menu_tags")
+        .select("key, label, color, bg, border, enabled, position")
+        .eq("restaurant_id", Number(id))
+        .order("position", { ascending: true });
+      if (error) throw error;
+      const parsed = parseRestaurantMenuTags((data ?? []) as unknown[]);
+      setMenuTags(parsed.length > 0 ? parsed : DEFAULT_MENU_TAGS);
+    } catch {
+      setMenuTags(DEFAULT_MENU_TAGS);
+    }
+  }
 
   async function fetchQueueCount() {
     try {
@@ -1866,129 +1886,109 @@ export default function RestaurantDetail() {
             </Text>
           </View>
 
-          {/* ─ Meal-period filter bar ─ */}
-          {(() => {
-            type FilterDef = { key: MenuFilter; label: string; color: string; bg: string; border: string; icon: any };
-            const FILTER_DEFS: FilterDef[] = [
-              { key: 'all', label: 'All Day', color: '#38BDF8', bg: 'rgba(56,189,248,0.15)', border: 'rgba(56,189,248,0.45)', icon: null },
-              { key: 'breakfast', label: 'Breakfast', color: '#F97316', bg: 'rgba(249,115,22,0.15)', border: 'rgba(249,115,22,0.4)', icon: Coffee },
-              { key: 'lunch', label: 'Lunch', color: '#22C55E', bg: 'rgba(34,197,94,0.15)', border: 'rgba(34,197,94,0.4)', icon: Sun },
-              { key: 'dinner', label: 'Dinner', color: '#818CF8', bg: 'rgba(129,140,248,0.15)', border: 'rgba(129,140,248,0.4)', icon: Moon },
-              { key: 'specials', label: 'Specials', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.4)', icon: SparklesIcon },
-            ];
-            const toggleFilter = (key: MenuFilter, disabled: boolean) => {
-              if (disabled) return;
-              setSelectedMenuFilters((prev) => {
-                // All Day is a distinct mode; toggling it clears meal-period filters.
-                if (key === "all") {
-                  return prev.includes("all") ? prev.filter((f) => f !== "all") : ["all"];
-                }
+          {/* Menu tag multi-select dropdown */}
+          <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+            {(() => {
+              const selectedTagNames = selectedMenuFilters
+                .map((key) => menuTags.find((tag) => tag.key === key)?.label?.trim())
+                .filter((label): label is string => Boolean(label));
+              const dropdownLabel =
+                selectedTagNames.length === 0
+                  ? "All Menu Items"
+                  : selectedTagNames.join(", ");
+              return (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.selectionAsync();
+                setShowTagFilterMenu((v) => !v);
+              }}
+              style={{
+                backgroundColor: "#161616",
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "rgba(255,153,51,0.25)",
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 13, flex: 1, marginRight: 10 }}
+              >
+                {dropdownLabel}
+              </Text>
+              {showTagFilterMenu ? <ChevronUp size={15} color="#FF9933" /> : <ChevronDown size={15} color="#FF9933" />}
+            </Pressable>
+              );
+            })()}
 
-                let next = prev.filter((f) => f !== "all");
-                if (next.includes(key)) {
-                  next = next.filter((f) => f !== key);
-                } else {
-                  next = [...next, key];
-                }
-
-                // If breakfast + lunch + dinner are all selected, collapse to All Day.
-                if (
-                  next.includes("breakfast") &&
-                  next.includes("lunch") &&
-                  next.includes("dinner")
-                ) {
-                  return ["all"];
-                }
-
-                return next;
-              });
-            };
-            const topRow = FILTER_DEFS.slice(0, 3);
-            const bottomRow = FILTER_DEFS.slice(3);
-
-            return (
-              <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-                  {topRow.map(f => {
-                    const isActive = selectedMenuFilters.includes(f.key);
-                    const Icon = f.icon;
-                    const isDisabled = !hasItemsForFilter(f.key);
-                    return (
-                      <Pressable
-                        key={f.key}
-                        disabled={isDisabled}
-                        onPress={() => {
-                          if (Platform.OS !== 'web') Haptics.selectionAsync();
-                          toggleFilter(f.key, isDisabled);
-                        }}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: "center",
-                          gap: 5,
-                          width: "31.5%",
-                          paddingVertical: 8,
-                          borderRadius: 20,
-                          backgroundColor: isDisabled ? "#141414" : (isActive ? f.bg : '#1a1a1a'),
-                          borderWidth: 1,
-                          borderColor: isDisabled ? "#1f1f1f" : (isActive ? f.border : '#2a2a2a'),
-                          opacity: isDisabled ? 0.55 : 1,
-                        }}
-                      >
-                        {Icon && <Icon size={12} color={isDisabled ? "#4d4d4d" : (isActive ? f.color : '#666')} />}
-                        <Text style={{
-                          fontFamily: isActive ? 'Manrope_700Bold' : 'Manrope_500Medium',
-                          fontSize: 13,
-                          color: isDisabled ? "#575757" : (isActive ? f.color : '#888'),
-                        }}>
-                          {f.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
-                  {bottomRow.map(f => {
-                    const isActive = selectedMenuFilters.includes(f.key);
-                    const Icon = f.icon;
-                    const isDisabled = !hasItemsForFilter(f.key);
-                    return (
-                      <Pressable
-                        key={f.key}
-                        disabled={isDisabled}
-                        onPress={() => {
-                          if (Platform.OS !== 'web') Haptics.selectionAsync();
-                          toggleFilter(f.key, isDisabled);
-                        }}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: "center",
-                          gap: 5,
-                          width: "31.5%",
-                          paddingVertical: 8,
-                          borderRadius: 20,
-                          backgroundColor: isDisabled ? "#141414" : (isActive ? f.bg : '#1a1a1a'),
-                          borderWidth: 1,
-                          borderColor: isDisabled ? "#1f1f1f" : (isActive ? f.border : '#2a2a2a'),
-                          opacity: isDisabled ? 0.55 : 1,
-                        }}
-                      >
-                        {Icon && <Icon size={12} color={isDisabled ? "#4d4d4d" : (isActive ? f.color : '#666')} />}
-                        <Text style={{
-                          fontFamily: isActive ? 'Manrope_700Bold' : 'Manrope_500Medium',
-                          fontSize: 13,
-                          color: isDisabled ? "#575757" : (isActive ? f.color : '#888'),
-                        }}>
-                          {f.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+            {showTagFilterMenu && (
+              <View
+                style={{
+                  marginTop: 8,
+                  backgroundColor: "#141414",
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "#2a2a2a",
+                  padding: 10,
+                  gap: 8,
+                }}
+              >
+                <Pressable
+                  onPress={() => setSelectedMenuFilters([])}
+                  style={{
+                    borderRadius: 999,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    alignSelf: "flex-start",
+                    backgroundColor: selectedMenuFilters.length === 0 ? "rgba(255,153,51,0.14)" : "#1b1b1b",
+                    borderWidth: 1,
+                    borderColor: selectedMenuFilters.length === 0 ? "rgba(255,153,51,0.35)" : "#2a2a2a",
+                  }}
+                >
+                  <Text style={{ color: selectedMenuFilters.length === 0 ? "#FF9933" : "#9a9a9a", fontFamily: "Manrope_700Bold", fontSize: 12 }}>
+                    All Menu Items
+                  </Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {menuTags
+                    .filter((tag) => tag.enabled !== false)
+                    .map((tag) => {
+                      const isActive = selectedMenuFilters.includes(tag.key);
+                      const disabled = !hasItemsForFilter(tag.key);
+                      return (
+                        <Pressable
+                          key={tag.key}
+                          disabled={disabled}
+                          onPress={() => {
+                            if (disabled) return;
+                            setSelectedMenuFilters((prev) =>
+                              prev.includes(tag.key) ? prev.filter((k) => k !== tag.key) : [...prev, tag.key]
+                            );
+                          }}
+                          style={{
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: disabled ? "#242424" : (isActive ? tag.border : "#2f2f2f"),
+                            backgroundColor: disabled ? "#151515" : (isActive ? tag.bg : "#121212"),
+                            paddingHorizontal: 11,
+                            paddingVertical: 8,
+                            opacity: disabled ? 0.5 : 1,
+                          }}
+                        >
+                          <Text style={{ fontFamily: isActive ? "Manrope_700Bold" : "Manrope_600SemiBold", color: disabled ? "#575757" : (isActive ? tag.color : "#999"), fontSize: 12 }}>
+                            {tag.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                 </View>
               </View>
-            );
-          })()}
+            )}
+          </View>
 
           <View className="px-4">
             <MenuEditor
@@ -1997,6 +1997,7 @@ export default function RestaurantDetail() {
                 return selectedMenuFilters.some((filter) => itemMatchesFilter(m, filter));
               })}
               setMenu={setMenu}
+              onMenuTagsChange={setMenuTags}
               onItemPress={(item) => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setSelectedItem(item);

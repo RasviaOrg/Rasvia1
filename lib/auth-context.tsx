@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { supabase } from './supabase';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { upsertProfileFromAuthUser } from './profile-sync';
-import * as SecureStore from 'expo-secure-store';
 import { withTimeout } from './with-timeout';
 
 interface AuthContextType {
@@ -27,6 +26,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(true);
     const [needsOnboarding, setNeedsOnboarding] = useState(false);
     const bootstrapDone = useRef(false);
+
+    const clearBrokenLocalSession = useCallback(async () => {
+        try {
+            await supabase.auth.signOut({ scope: 'local' });
+        } catch {
+            // no-op: best-effort local cleanup
+        }
+    }, []);
 
     const checkOnboarding = useCallback(async (userId: string): Promise<boolean> => {
         try {
@@ -66,7 +73,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (cancelled) return;
 
                 if (error) {
-                    console.warn('getSession error:', error.message);
+                    const msg = (error.message || '').toLowerCase();
+                    const isInvalidRefresh =
+                        msg.includes('invalid refresh token') ||
+                        msg.includes('refresh token not found') ||
+                        msg.includes('refresh_token_not_found');
+
+                    if (isInvalidRefresh) {
+                        await clearBrokenLocalSession();
+                    } else {
+                        console.warn('getSession error:', error.message);
+                    }
                     setSession(null);
                     setNeedsOnboarding(false);
                 } else {
@@ -137,7 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             clearTimeout(timeout);
             subscription.unsubscribe();
         };
-    }, []);
+    }, [checkOnboarding, clearBrokenLocalSession]);
 
     return (
         <AuthContext.Provider value={{ session, loading, needsOnboarding, setNeedsOnboarding }}>

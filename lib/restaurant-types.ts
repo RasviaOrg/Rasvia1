@@ -33,6 +33,8 @@ export interface SupabaseRestaurant {
     chain_group_key?: string | null;
     /** If true, card carousel uses restaurant image (or no-image fallback) as slide 1. */
     use_regular_image_as_first_slide?: boolean;
+    /** Per-restaurant dynamic menu tag configuration */
+    menu_tag_config?: unknown;
 }
 
 // ==========================================
@@ -69,6 +71,8 @@ export interface UIRestaurant {
     chainGroupKey?: string | null;
     /** If true, card carousel uses restaurant image (or no-image fallback) as slide 1. */
     useRegularImageAsFirstSlide: boolean;
+    /** Raw per-restaurant menu tag configuration payload */
+    menuTagConfig?: unknown;
 }
 
 // ==========================================
@@ -243,6 +247,7 @@ export function mapSupabaseToUI(
         isComingSoon: restaurant.is_coming_soon === true,
         chainGroupKey: restaurant.chain_group_key ?? null,
         useRegularImageAsFirstSlide: restaurant.use_regular_image_as_first_slide !== false,
+        menuTagConfig: restaurant.menu_tag_config ?? null,
     };
 }
 

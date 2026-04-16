@@ -2,7 +2,7 @@ import {
   DarkTheme,
   ThemeProvider,
 } from "@react-navigation/native";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
@@ -42,6 +42,7 @@ import { LocationProvider } from "@/lib/location-context";
 import { NotificationsProvider, useNotifications } from "@/lib/notifications-context";
 import { InAppNotification } from "@/components/InAppNotification";
 import { BrandedLoader } from "@/components/BrandedLoader";
+import { AppBottomNav, type TabKey } from "@/components/AppBottomNav";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -105,6 +106,7 @@ function GlobalTableReadyBanner() {
 function AuthGate() {
   const { session, loading, needsOnboarding } = useAuth();
   const segments = useSegments();
+  const pathname = usePathname();
   const router = useRouter();
   const [showSlowLoadHint, setShowSlowLoadHint] = useState(false);
 
@@ -215,99 +217,124 @@ function AuthGate() {
     );
   }
 
+  const path = pathname ?? "";
+  const activeTab: TabKey | null =
+    path === "/" || path === "/index"
+      ? "home"
+      : path.startsWith("/map")
+      ? "map"
+      : path.startsWith("/cart")
+      ? "cart"
+      : path.startsWith("/notifications")
+      ? "notifications"
+      : path.startsWith("/profile")
+      ? "profile"
+      : null;
+
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: "#0f0f0f" },
-        animation: "slide_from_right",
-      }}
-    >
-      <Stack.Screen name="auth" options={{ headerShown: false, animation: "fade" }} />
-      <Stack.Screen name="email-verify" options={{ headerShown: false, animation: "fade" }} />
-      <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-      <Stack.Screen name="index" options={{ headerShown: false, animation: "fade" }} />
-      <Stack.Screen
-        name="restaurant/[id]"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="cuisine/[name]"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="discover/[section]"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="waitlist/[id]"
-        options={{ headerShown: false, animation: "slide_from_bottom" }}
-      />
-      <Stack.Screen
-        name="profile"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="map"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="admin-pulse"
-        options={{ headerShown: false, animation: "slide_from_bottom" }}
-      />
-      <Stack.Screen
-        name="admin-orders"
-        options={{ headerShown: false, animation: "slide_from_bottom" }}
-      />
-      <Stack.Screen
-        name="admin-portal"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="admin-users"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="admin-menu-images"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="join/[id]"
-        options={{ headerShown: false, animation: "slide_from_bottom" }}
-      />
-      <Stack.Screen
-        name="favorites"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="owner-media-carousel"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="my-orders"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="dining-preferences"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="order-confirmation"
-        options={{ headerShown: false, animation: "slide_from_bottom" }}
-      />
-      <Stack.Screen
-        name="terms"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="reset-password"
-        options={{ headerShown: false, animation: "fade" }}
-      />
-      <Stack.Screen
-        name="privacy"
-        options={{ headerShown: false, animation: "slide_from_right" }}
-      />
-    </Stack>
+    <View style={{ flex: 1 }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: "#0f0f0f" },
+          animation: "slide_from_right",
+        }}
+      >
+        <Stack.Screen name="auth" options={{ headerShown: false, animation: "fade" }} />
+        <Stack.Screen name="email-verify" options={{ headerShown: false, animation: "fade" }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
+        <Stack.Screen name="index" options={{ headerShown: false, animation: "none" }} />
+        <Stack.Screen
+          name="cart"
+          options={{ headerShown: false, animation: "none" }}
+        />
+        <Stack.Screen
+          name="notifications"
+          options={{ headerShown: false, animation: "none" }}
+        />
+        <Stack.Screen
+          name="restaurant/[id]"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="cuisine/[name]"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="discover/[section]"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="waitlist/[id]"
+          options={{ headerShown: false, animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen
+          name="profile"
+          options={{ headerShown: false, animation: "none" }}
+        />
+        <Stack.Screen
+          name="map"
+          options={{ headerShown: false, animation: "none" }}
+        />
+        <Stack.Screen
+          name="admin-pulse"
+          options={{ headerShown: false, animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen
+          name="admin-orders"
+          options={{ headerShown: false, animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen
+          name="admin-portal"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="admin-users"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="admin-menu-images"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="join/[id]"
+          options={{ headerShown: false, animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen
+          name="favorites"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="owner-media-carousel"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="my-orders"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="dining-preferences"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="order-confirmation"
+          options={{ headerShown: false, animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen
+          name="terms"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="reset-password"
+          options={{ headerShown: false, animation: "fade" }}
+        />
+        <Stack.Screen
+          name="privacy"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+      </Stack>
+      {activeTab ? <AppBottomNav activeTab={activeTab} /> : null}
+    </View>
   );
 }
 

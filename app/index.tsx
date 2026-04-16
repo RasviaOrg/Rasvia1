@@ -1076,156 +1076,73 @@ export default function DiscoveryFeed() {
         <Animated.View
           entering={FadeIn.duration(500)}
           className="flex-row items-center justify-between px-5"
-          style={{ paddingTop: 0, paddingBottom: 4, backgroundColor: "#0f0f0f", zIndex: 10 }}
+          style={{ paddingTop: 0, paddingBottom: 8, backgroundColor: "#0f0f0f", zIndex: 10 }}
         >
-          <View style={{ flex: 1, marginRight: 12 }}>
+          <Text
+            style={{
+              fontFamily: "BricolageGrotesque_800ExtraBold",
+              color: "#f5f5f5",
+              fontSize: 32,
+              letterSpacing: -0.5,
+            }}
+          >
+            rasvia
+          </Text>
+          <Pressable
+            onPress={() => {
+              if (Platform.OS !== "web") Haptics.selectionAsync();
+              setAddressBarExpanded(!addressBarExpanded);
+            }}
+            style={{
+              maxWidth: "52%",
+              backgroundColor: "#1a1a1a",
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: addressBarExpanded ? "rgba(255,153,51,0.3)" : "#2a2a2a",
+              paddingHorizontal: 10,
+              paddingVertical: 8,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <MapPin size={14} color="#FF9933" />
             <Text
+              numberOfLines={1}
               style={{
-                fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
-                fontSize: 32,
-                letterSpacing: -0.5,
+                flexShrink: 1,
+                fontFamily: "Manrope_600SemiBold",
+                color: locationLabel ? "#e2e2e2" : "#777",
+                fontSize: 13,
               }}
             >
-              rasvia
+              {locationLabel ?? "Set location"}
             </Text>
-          </View>
-          <View className="flex-row items-center" style={{ flexShrink: 0 }}>
-            <Pressable
-              className="mr-3"
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (isOwnerDashboardMode && effectiveOwnerRestaurantId) {
-                  router.push(`/restaurant/${effectiveOwnerRestaurantId}` as any);
-                } else {
-                  setShowSearch(true);
-                }
-              }}
-              style={{
-                backgroundColor: "#1a1a1a",
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-              }}
-            >
-              {isOwnerDashboardMode
-                ? <UtensilsCrossed size={20} color="#f5f5f5" />
-                : <Search size={20} color="#f5f5f5" />
-              }
-            </Pressable>
-            <Pressable
-              className="mr-3"
-              onPress={() => {
-                if (Platform.OS !== "web") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-                router.push("/map" as any);
-              }}
-              style={{
-                backgroundColor: "#1a1a1a",
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-              }}
-            >
-              <MapIcon size={20} color="#f5f5f5" />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-                router.push("/notifications" as any);
-              }}
-              style={{
-                backgroundColor: "#1a1a1a",
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-                position: "relative",
-              }}
-            >
-              <Bell size={20} color="#f5f5f5" />
-              {notificationBadgeCount > 0 && (
-                <View
-                  style={{
-                    position: "absolute",
-                    top: 8,
-                    right: 8,
-                    minWidth: 16,
-                    height: 16,
-                    borderRadius: 8,
-                    backgroundColor: "#EF4444",
-                    borderWidth: 1.5,
-                    borderColor: "#1a1a1a",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    paddingHorizontal: notificationBadgeCount > 9 ? 3 : 0,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontFamily: "JetBrainsMono_600SemiBold",
-                      color: "#fff",
-                      fontSize: 8,
-                      lineHeight: 10,
-                    }}
-                  >
-                    {notificationBadgeCount > 9 ? "9+" : notificationBadgeCount}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-                router.push("/profile" as any);
-              }}
-              style={{
-                backgroundColor: "#1a1a1a",
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-                marginLeft: 10,
-              }}
-            >
-              <User size={20} color="#FF9933" />
-            </Pressable>
-          </View>
+            <ChevronDown
+              size={13}
+              color="#999"
+              style={{ transform: [{ rotate: addressBarExpanded ? "180deg" : "0deg" }] }}
+            />
+          </Pressable>
         </Animated.View>
 
-        {/* ── Address Bar ── */}
+        {/* Floating search bar */}
         <Pressable
           onPress={() => {
-            if (Platform.OS !== "web") Haptics.selectionAsync();
-            setAddressBarExpanded(!addressBarExpanded);
+            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            if (isOwnerDashboardMode && effectiveOwnerRestaurantId) {
+              router.push(`/restaurant/${effectiveOwnerRestaurantId}` as any);
+            } else {
+              setShowSearch(true);
+            }
           }}
           style={{
             marginHorizontal: 16,
-            marginTop: 4,
             marginBottom: 6,
             backgroundColor: "#1a1a1a",
             borderRadius: 16,
             borderWidth: 1,
-            borderColor: addressBarExpanded ? "rgba(255,153,51,0.3)" : "#2a2a2a",
+            borderColor: "#2a2a2a",
             paddingHorizontal: 14,
             paddingVertical: 11,
             flexDirection: "row",
@@ -1233,23 +1150,21 @@ export default function DiscoveryFeed() {
             gap: 10,
           }}
         >
-          <MapPin size={16} color="#FF9933" />
+          {isOwnerDashboardMode ? (
+            <UtensilsCrossed size={16} color="#f5f5f5" />
+          ) : (
+            <Search size={16} color="#FF9933" />
+          )}
           <Text
-            numberOfLines={1}
             style={{
               flex: 1,
               fontFamily: "Manrope_500Medium",
-              color: locationLabel ? "#ccc" : "#666",
+              color: "#888",
               fontSize: 14,
             }}
           >
-            {locationLabel ?? "Set your delivery address…"}
+            Search Rasvia
           </Text>
-          <ChevronDown
-            size={14}
-            color="#999"
-            style={{ transform: [{ rotate: addressBarExpanded ? "180deg" : "0deg" }] }}
-          />
         </Pressable>
 
         {/* ── Address Bar Expanded Panel ── */}
@@ -1448,7 +1363,7 @@ export default function DiscoveryFeed() {
         <ScrollView
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: 168 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

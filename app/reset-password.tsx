@@ -258,6 +258,8 @@ export default function ResetPasswordScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 textContentType="newPassword"
+                autoComplete="password"
+                keyboardType="ascii-capable"
                 keyboardAppearance="dark"
               />
               <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
@@ -305,6 +307,8 @@ export default function ResetPasswordScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 textContentType="newPassword"
+                autoComplete="password"
+                keyboardType="ascii-capable"
                 keyboardAppearance="dark"
                 onSubmitEditing={handleResetPassword}
               />

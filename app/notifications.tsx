@@ -12,7 +12,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, Stack } from "expo-router";
 import {
-  ArrowLeft,
   Bell,
   BellRing,
   Clock,
@@ -30,6 +29,7 @@ import {
   XCircle,
   Camera,
 } from "lucide-react-native";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -816,25 +816,7 @@ export default function NotificationsScreen() {
             paddingBottom: 16,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.back();
-              }}
-              style={{
-                backgroundColor: "#1a1a1a",
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-              }}
-            >
-              <ArrowLeft size={22} color="#f5f5f5" />
-            </Pressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
@@ -843,7 +825,7 @@ export default function NotificationsScreen() {
                 letterSpacing: -0.5,
               }}
             >
-              Notifications
+              Alerts
             </Text>
           </View>
 
@@ -883,7 +865,11 @@ export default function NotificationsScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           scrollEnabled={!isEmpty}
-          contentContainerStyle={isEmpty ? { flexGrow: 1, justifyContent: "center" } : { paddingBottom: 40 }}
+          contentContainerStyle={
+            isEmpty
+              ? { flexGrow: 1, justifyContent: "center", paddingBottom: APP_BOTTOM_NAV_HEIGHT + 54 + APP_BOTTOM_NAV_OFFSET }
+              : { paddingBottom: APP_BOTTOM_NAV_HEIGHT + 54 + APP_BOTTOM_NAV_OFFSET }
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -930,7 +916,7 @@ export default function NotificationsScreen() {
                     marginBottom: 8,
                   }}
                 >
-                  No Notifications
+                  No Alerts
                 </Text>
                 <Text
                   style={{
@@ -941,7 +927,7 @@ export default function NotificationsScreen() {
                     lineHeight: 22,
                   }}
                 >
-                  Join a waitlist to see your position and get notified when your
+                  Join a waitlist to see your position and get alerts when your
                   table is ready.
                 </Text>
               </Animated.View>

@@ -184,7 +184,7 @@ export function RestaurantListCard({
                 >
                   <Heart
                     size={17}
-                    color={isFavorite ? "#EF4444" : "#666"}
+                    color={isFavorite ? "#EF4444" : "#7F7F7F"}
                     fill={isFavorite ? "#EF4444" : "transparent"}
                   />
                 </Pressable>

@@ -410,6 +410,8 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                       autoCapitalize="none"
                       autoCorrect={false}
                       textContentType="newPassword"
+                      autoComplete="password"
+                      keyboardType="ascii-capable"
                       keyboardAppearance="dark"
                       autoFocus
                     />
@@ -431,6 +433,8 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                       autoCapitalize="none"
                       autoCorrect={false}
                       textContentType="newPassword"
+                      autoComplete="password"
+                      keyboardType="ascii-capable"
                       keyboardAppearance="dark"
                       onSubmitEditing={handleUpdatePassword}
                     />

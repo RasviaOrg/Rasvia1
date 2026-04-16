@@ -81,16 +81,18 @@ export function RestaurantMediaFrame({ defaultImage, slides, height, borderRadiu
                     position: "absolute",
                     top: 10,
                     right: 10,
-                    backgroundColor: "rgba(15,15,15,1)",
+                    backgroundColor: "rgba(90,90,90,0.96)",
                     borderRadius: 10,
                     paddingHorizontal: 9,
                     paddingVertical: 5,
+                    borderWidth: 1,
+                    borderColor: "rgba(215,215,215,0.4)",
                   }}
                 >
                   <Text
                     numberOfLines={1}
                     style={{
-                      color: "#f5f5f5",
+                      color: "#F3F4F6",
                       fontSize: 12,
                       fontFamily: "Manrope_700Bold",
                       maxWidth: 190,
@@ -125,16 +127,18 @@ export function RestaurantMediaFrame({ defaultImage, slides, height, borderRadiu
                 position: "absolute",
                 top: 10,
                 right: 10,
-                backgroundColor: "rgba(15,15,15,1)",
+                backgroundColor: "rgba(90,90,90,0.96)",
                 borderRadius: 10,
                 paddingHorizontal: 9,
                 paddingVertical: 5,
+                borderWidth: 1,
+                borderColor: "rgba(215,215,215,0.4)",
               }}
             >
               <Text
                 numberOfLines={1}
                 style={{
-                  color: "#f5f5f5",
+                  color: "#F3F4F6",
                   fontSize: 12,
                   fontFamily: "Manrope_700Bold",
                   maxWidth: 190,

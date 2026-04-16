@@ -28,7 +28,6 @@ import {
   ChevronRight,
   ShoppingBag,
   Bell,
-  ArrowLeft,
   ShieldCheck,
   MapPin,
   Check,
@@ -74,6 +73,7 @@ import {
   disablePushNotifications,
   getPushPermissionStatus,
 } from "@/lib/push-notifications";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -547,6 +547,8 @@ export default function ProfileSettingsScreen() {
             const safetyTimer = setTimeout(() => {
               if (!settled) {
                 settled = true;
+                // Ensure broken/stale auth state is not left behind if network signOut hangs.
+                void supabase.auth.signOut({ scope: "local" }).catch(() => {});
                 setLoggingOut(false);
                 router.replace("/auth");
               }
@@ -563,6 +565,7 @@ export default function ProfileSettingsScreen() {
             setLoggingOut(false);
             // If the session is already broken, just kick them back to auth
             if (error.message?.includes("session") || error.message?.includes("Auth")) {
+              void supabase.auth.signOut({ scope: "local" }).catch(() => {});
               router.replace("/auth");
             } else {
               Alert.alert("Error", error.message || "Failed to log out.");
@@ -777,29 +780,8 @@ export default function ProfileSettingsScreen() {
             paddingBottom: 16,
           }}
         >
-          {/* Left: back button + title */}
+          {/* Left: title */}
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-                router.back();
-              }}
-              style={{
-                backgroundColor: "#1a1a1a",
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
-                marginRight: 16,
-              }}
-            >
-              <ArrowLeft size={22} color="#f5f5f5" />
-            </Pressable>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
@@ -808,7 +790,7 @@ export default function ProfileSettingsScreen() {
                 letterSpacing: -0.5,
               }}
             >
-              My Profile
+              Profile
             </Text>
           </View>
 
@@ -891,7 +873,7 @@ export default function ProfileSettingsScreen() {
 
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={{ paddingBottom: APP_BOTTOM_NAV_HEIGHT + 54 + APP_BOTTOM_NAV_OFFSET }}
         >
           {/* User Info Card */}
           <Animated.View

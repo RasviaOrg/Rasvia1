@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -21,6 +21,10 @@ import {
   Image as ImageIcon,
   Flame,
   Leaf,
+  ChevronUp,
+  ChevronDown,
+  Pencil,
+  Check,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
@@ -29,60 +33,17 @@ import { supabase } from "@/lib/supabase";
 import { uploadMenuImageToStorage, type PickedImage } from "@/lib/menu-image-upload";
 import { MenuGridItem } from "./MenuGridItem";
 import { mapMenuItemToUI, type SupabaseMenuItem, type UIMenuItem } from "@/lib/restaurant-types";
+import {
+  DEFAULT_MENU_TAGS,
+  ensureKnownTags,
+  parseRestaurantMenuTags,
+  serializeMenuTags,
+  slugifyTag,
+  type MenuTagConfig,
+} from "@/lib/menu-tags";
 
-type MealTag = "breakfast" | "lunch" | "dinner" | "specials" | "all_day";
-const BASE_MEAL_TAGS: MealTag[] = ["breakfast", "lunch", "dinner"];
-const ALL_MEAL_TAGS: MealTag[] = ["breakfast", "lunch", "dinner", "specials", "all_day"];
-
-function normalizeMealTimes(input: string[] | undefined | null): MealTag[] {
-  const normalized = (input ?? [])
-    .map((m) => m?.toLowerCase?.().trim())
-    .map((m) => (m === "special" ? "specials" : m))
-    .map((m) => (m === "all" ? "all_day" : m))
-    .filter((m): m is MealTag => ALL_MEAL_TAGS.includes(m as MealTag));
-
-  if (
-    normalized.includes("breakfast") &&
-    normalized.includes("lunch") &&
-    normalized.includes("dinner") &&
-    !normalized.includes("all_day")
-  ) {
-    const rest = normalized.filter((m) => !BASE_MEAL_TAGS.includes(m));
-    return ["all_day", ...rest];
-  }
-  return Array.from(new Set(normalized));
-}
-
-function toggleMealTag(current: MealTag[], tag: MealTag): MealTag[] {
-  const set = new Set(current);
-
-  if (tag === "all_day") {
-    if (set.has("all_day")) {
-      set.delete("all_day");
-    } else {
-      set.delete("breakfast");
-      set.delete("lunch");
-      set.delete("dinner");
-      set.add("all_day");
-    }
-    return Array.from(set);
-  }
-
-  if (set.has(tag)) set.delete(tag);
-  else set.add(tag);
-
-  set.delete("all_day");
-  if (set.has("breakfast") && set.has("lunch") && set.has("dinner")) {
-    set.delete("breakfast");
-    set.delete("lunch");
-    set.delete("dinner");
-    set.add("all_day");
-  }
-  return Array.from(set);
-}
-
-function formatMealTimesForDb(values: MealTag[]): string[] {
-  return values.map((m) => (m === "specials" ? "specials" : m));
+function formatMealTimesForDb(values: string[]): string[] {
+  return Array.from(new Set(values.map((v) => slugifyTag(v)).filter(Boolean)));
 }
 
 async function pickImageFromLibrary(): Promise<PickedImage | null> {
@@ -121,17 +82,13 @@ async function pickImageFromCamera(): Promise<PickedImage | null> {
 function MealTimesSelector({
   value,
   onChange,
+  tags,
 }: {
-  value: MealTag[];
-  onChange: (next: MealTag[]) => void;
+  value: string[];
+  onChange: (next: string[]) => void;
+  tags: MenuTagConfig[];
 }) {
-  const defs: Array<{ key: MealTag; label: string; color: string; bg: string; border: string }> = [
-    { key: "breakfast", label: "Breakfast", color: "#F97316", bg: "rgba(249,115,22,0.14)", border: "rgba(249,115,22,0.45)" },
-    { key: "lunch", label: "Lunch", color: "#22C55E", bg: "rgba(34,197,94,0.14)", border: "rgba(34,197,94,0.45)" },
-    { key: "dinner", label: "Dinner", color: "#818CF8", bg: "rgba(129,140,248,0.14)", border: "rgba(129,140,248,0.45)" },
-    { key: "specials", label: "Specials", color: "#F59E0B", bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.45)" },
-    { key: "all_day", label: "All Day", color: "#38BDF8", bg: "rgba(56,189,248,0.14)", border: "rgba(56,189,248,0.45)" },
-  ];
+  const defs = tags.filter((t) => t.enabled !== false);
 
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -142,7 +99,11 @@ function MealTimesSelector({
             key={def.key}
             onPress={() => {
               if (Platform.OS !== "web") Haptics.selectionAsync();
-              onChange(toggleMealTag(value, def.key));
+              if (value.includes(def.key)) {
+                onChange(value.filter((key) => key !== def.key));
+              } else {
+                onChange([...value, def.key]);
+              }
             }}
             style={{
               borderRadius: 999,
@@ -226,6 +187,7 @@ function EditableMenuItem({
   canEdit,
   showQuickAdd,
   onContributeImage,
+  menuTags,
 }: {
   item: UIMenuItem;
   index: number;
@@ -236,6 +198,7 @@ function EditableMenuItem({
   canEdit: boolean;
   showQuickAdd: boolean;
   onContributeImage?: (item: UIMenuItem) => void;
+  menuTags: MenuTagConfig[];
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -247,7 +210,7 @@ function EditableMenuItem({
   const [category, setCategory] = useState(item.category);
   const [isVegetarian, setIsVegetarian] = useState(item.isVegetarian);
   const [spiceLevel, setSpiceLevel] = useState(item.spiceLevel);
-  const [mealTimes, setMealTimes] = useState<MealTag[]>(normalizeMealTimes(item.mealTimes));
+  const [mealTimes, setMealTimes] = useState<string[]>(ensureKnownTags(item.mealTimes, menuTags));
 
   const openSettings = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -257,7 +220,7 @@ function EditableMenuItem({
     setCategory(item.category);
     setIsVegetarian(item.isVegetarian);
     setSpiceLevel(item.spiceLevel);
-    setMealTimes(normalizeMealTimes(item.mealTimes));
+    setMealTimes(ensureKnownTags(item.mealTimes, menuTags));
     setShowSettings(true);
   };
 
@@ -289,7 +252,7 @@ function EditableMenuItem({
       return;
     }
     if (mealTimes.length === 0) {
-      Alert.alert("Validation", "Select at least one identifier (Breakfast/Lunch/Dinner/Specials/All Day).");
+      Alert.alert("Validation", "Select at least one menu tag.");
       return;
     }
 
@@ -462,8 +425,8 @@ function EditableMenuItem({
                 <TextInput style={inputStyle} value={category} onChangeText={setCategory} placeholder="Category" placeholderTextColor="#666" />
 
                 <Text style={labelStyle}>Meal Identifiers *</Text>
-                <MealTimesSelector value={mealTimes} onChange={setMealTimes} />
-                <Text style={helperText}>Selecting Breakfast + Lunch + Dinner automatically switches to All Day.</Text>
+                <MealTimesSelector value={mealTimes} onChange={setMealTimes} tags={menuTags} />
+                <Text style={helperText}>Choose one or more tags for this item.</Text>
 
                 <Text style={labelStyle}>Spice Level</Text>
                 <SpiceSelector level={spiceLevel} onChange={setSpiceLevel} />
@@ -533,9 +496,10 @@ interface MenuEditorProps {
   onQuickAdd: (item: UIMenuItem) => void;
   restaurantId?: string;
   onContributeImage?: (item: UIMenuItem) => void;
+  onMenuTagsChange?: (tags: MenuTagConfig[]) => void;
 }
 
-export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId, onContributeImage }: MenuEditorProps) {
+export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId, onContributeImage, onMenuTagsChange }: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
   const canOrder = !isRestaurantOwner && !isAdmin;
@@ -545,11 +509,131 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemCategory, setNewItemCategory] = useState("");
-  const [newMealTimes, setNewMealTimes] = useState<MealTag[]>([]);
+  const [menuTags, setMenuTags] = useState<MenuTagConfig[]>(DEFAULT_MENU_TAGS);
+  const [tagDraftLabel, setTagDraftLabel] = useState("");
+  const [savingTags, setSavingTags] = useState(false);
+  const [editingTagKey, setEditingTagKey] = useState<string | null>(null);
+  const [editingTagLabel, setEditingTagLabel] = useState("");
+  const [editingTagColorIdx, setEditingTagColorIdx] = useState(0);
+  const [newMealTimes, setNewMealTimes] = useState<string[]>([]);
   const [newIsVegetarian, setNewIsVegetarian] = useState(false);
   const [newSpiceLevel, setNewSpiceLevel] = useState(0);
   const [newImageAsset, setNewImageAsset] = useState<PickedImage | null>(null);
   const [addingItem, setAddingItem] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!restaurantId) return;
+    const fetchTags = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("restaurant_menu_tags")
+          .select("key, label, color, bg, border, enabled, position")
+          .eq("restaurant_id", Number(restaurantId))
+          .order("position", { ascending: true });
+        if (error) throw error;
+        if (!mounted) return;
+        const parsed = parseRestaurantMenuTags((data ?? []) as unknown[]);
+        const next = parsed.length > 0 ? parsed : DEFAULT_MENU_TAGS;
+        setMenuTags(next);
+        onMenuTagsChange?.(next);
+      } catch {
+        if (!mounted) return;
+        setMenuTags(DEFAULT_MENU_TAGS);
+        onMenuTagsChange?.(DEFAULT_MENU_TAGS);
+      }
+    };
+    void fetchTags();
+    const tagSub = supabase
+      .channel(`owner-editor-menu-tags:${restaurantId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "restaurant_menu_tags", filter: `restaurant_id=eq.${restaurantId}` },
+        () => { void fetchTags(); }
+      )
+      .subscribe();
+    return () => {
+      mounted = false;
+      supabase.removeChannel(tagSub);
+    };
+  }, [restaurantId, onMenuTagsChange]);
+
+  const persistTags = async (nextTags: MenuTagConfig[]) => {
+    if (!restaurantId) return;
+    const serialized = serializeMenuTags(nextTags);
+    setMenuTags(serialized);
+    onMenuTagsChange?.(serialized);
+    setSavingTags(true);
+    try {
+      const { error } = await supabase
+        .rpc("set_restaurant_menu_tags", {
+          p_restaurant_id: Number(restaurantId),
+          p_tags: serialized as any,
+        });
+      if (error) throw error;
+    } catch (err: any) {
+      Alert.alert("Error", err?.message || "Could not save menu tags.");
+    } finally {
+      setSavingTags(false);
+    }
+  };
+
+  const addMenuTag = async () => {
+    const label = tagDraftLabel.trim();
+    if (!label) return;
+    const key = slugifyTag(label);
+    if (!key) return;
+    if (menuTags.some((tag) => tag.key === key)) {
+      Alert.alert("Duplicate", "A tag with that name already exists.");
+      return;
+    }
+    const fallback = DEFAULT_MENU_TAGS[menuTags.length % DEFAULT_MENU_TAGS.length];
+    await persistTags([
+      ...menuTags,
+      {
+        key,
+        label,
+        color: fallback.color,
+        bg: fallback.bg,
+        border: fallback.border,
+        enabled: true,
+        position: menuTags.length,
+      },
+    ]);
+    setTagDraftLabel("");
+  };
+
+  const TAG_COLOR_PRESETS = DEFAULT_MENU_TAGS.map((tag) => ({
+    color: tag.color,
+    bg: tag.bg,
+    border: tag.border,
+  }));
+
+  const beginTagEdit = (tag: MenuTagConfig) => {
+    const matched = TAG_COLOR_PRESETS.findIndex(
+      (preset) => preset.color === tag.color && preset.bg === tag.bg && preset.border === tag.border
+    );
+    setEditingTagKey((prev) => (prev === tag.key ? null : tag.key));
+    setEditingTagLabel(tag.label);
+    setEditingTagColorIdx(matched >= 0 ? matched : 0);
+  };
+
+  const saveTagEdit = async (tagKey: string) => {
+    const label = editingTagLabel.trim();
+    if (!label) {
+      Alert.alert("Validation", "Tag name cannot be empty.");
+      return;
+    }
+    const selected = TAG_COLOR_PRESETS[editingTagColorIdx] ?? TAG_COLOR_PRESETS[0];
+    const next = menuTags.map((tag) =>
+      tag.key === tagKey
+        ? { ...tag, label, color: selected.color, bg: selected.bg, border: selected.border }
+        : tag
+    );
+    await persistTags(next);
+    setEditingTagKey(null);
+    setEditingTagLabel("");
+  };
 
   const handleItemUpdated = (updatedItem: UIMenuItem) => {
     setMenu(menu.map((m) => (m.id === updatedItem.id ? updatedItem : m)));
@@ -592,7 +676,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
       return;
     }
     if (newMealTimes.length === 0) {
-      Alert.alert("Validation", "Please select at least one identifier (Breakfast/Lunch/Dinner/Specials/All Day).");
+      Alert.alert("Validation", "Please select at least one menu tag.");
       return;
     }
 
@@ -649,26 +733,183 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   return (
     <View>
       {canEdit && (
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 12 }}>
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setShowAddItem(true);
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              backgroundColor: "rgba(34,197,94,0.12)",
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "rgba(34,197,94,0.3)",
-            }}
-          >
-            <Plus size={14} color="#22C55E" />
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#22C55E", fontSize: 12, marginLeft: 4 }}>Add Item</Text>
-          </Pressable>
+        <View style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 10 }}>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowAddItem(true);
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "rgba(34,197,94,0.12)",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "rgba(34,197,94,0.3)",
+              }}
+            >
+              <Plus size={14} color="#22C55E" />
+              <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#22C55E", fontSize: 12, marginLeft: 4 }}>Add Item</Text>
+            </Pressable>
+          </View>
+          <View style={{ backgroundColor: "#121212", borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a", padding: 10 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 13 }}>Menu Tags</Text>
+              {savingTags && <ActivityIndicator color="#FF9933" size="small" />}
+            </View>
+            <Text style={{ color: "#777", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 10 }}>
+              Ordered top to bottom for display priority.
+            </Text>
+            <View style={{ gap: 8, marginBottom: 10 }}>
+              {menuTags.map((tag, idx) => (
+                <View
+                  key={tag.key}
+                  style={{
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: tag.border,
+                    backgroundColor: "#0f0f0f",
+                    paddingHorizontal: 10,
+                    paddingVertical: 10,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View style={{ width: 22, height: 22, borderRadius: 999, borderWidth: 1, borderColor: "#303030", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
+                      <Text style={{ color: "#aaa", fontFamily: "Manrope_700Bold", fontSize: 11 }}>{idx + 1}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: tag.color, fontFamily: "Manrope_700Bold", fontSize: 15 }}>{tag.label}</Text>
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable
+                      onPress={() => beginTagEdit(tag)}
+                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,153,51,0.45)", backgroundColor: "rgba(255,153,51,0.12)", alignItems: "center", justifyContent: "center" }}
+                    >
+                      {editingTagKey === tag.key ? <Check size={14} color="#FF9933" /> : <Pencil size={14} color="#FF9933" />}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        if (idx <= 0) return;
+                        const next = [...menuTags];
+                        const temp = next[idx - 1];
+                        next[idx - 1] = next[idx];
+                        next[idx] = temp;
+                        void persistTags(next);
+                      }}
+                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: "#2f2f2f", backgroundColor: "#141414", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <ChevronUp size={14} color="#aaa" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        if (idx >= menuTags.length - 1) return;
+                        const next = [...menuTags];
+                        const temp = next[idx + 1];
+                        next[idx + 1] = next[idx];
+                        next[idx] = temp;
+                        void persistTags(next);
+                      }}
+                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: "#2f2f2f", backgroundColor: "#141414", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <ChevronDown size={14} color="#aaa" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        Alert.alert("Delete tag?", `Remove "${tag.label}" from menu tags?`, [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Delete",
+                            style: "destructive",
+                            onPress: () => {
+                              const next = menuTags.filter((_, i) => i !== idx);
+                              if (next.length === 0) return;
+                              void persistTags(next);
+                            },
+                          },
+                        ]);
+                      }}
+                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: "rgba(239,68,68,0.45)", backgroundColor: "rgba(239,68,68,0.12)", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Trash2 size={14} color="#EF4444" />
+                    </Pressable>
+                  </View>
+                </View>
+                {editingTagKey === tag.key && (
+                  <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: "#252525", paddingTop: 10 }}>
+                    <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 6 }}>Tag Name</Text>
+                    <TextInput
+                      style={{
+                        backgroundColor: "#0a0a0a",
+                        borderWidth: 1,
+                        borderColor: "#2a2a2a",
+                        borderRadius: 10,
+                        color: "#f5f5f5",
+                        paddingHorizontal: 10,
+                        paddingVertical: 10,
+                        fontFamily: "Manrope_600SemiBold",
+                        fontSize: 13,
+                        marginBottom: 10,
+                      }}
+                      value={editingTagLabel}
+                      onChangeText={setEditingTagLabel}
+                      placeholder="Tag name"
+                      placeholderTextColor="#666"
+                    />
+                    <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 6 }}>Tag Color</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                      {TAG_COLOR_PRESETS.map((preset, colorIdx) => (
+                        <Pressable
+                          key={`${preset.color}-${colorIdx}`}
+                          onPress={() => setEditingTagColorIdx(colorIdx)}
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 999,
+                            backgroundColor: preset.color,
+                            borderWidth: 2,
+                            borderColor: editingTagColorIdx === colorIdx ? "#f5f5f5" : "#222",
+                          }}
+                        />
+                      ))}
+                    </View>
+                    <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+                      <Pressable
+                        onPress={() => {
+                          setEditingTagKey(null);
+                          setEditingTagLabel("");
+                        }}
+                        style={{ borderWidth: 1, borderColor: "#2f2f2f", backgroundColor: "#141414", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}
+                      >
+                        <Text style={{ color: "#aaa", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Cancel</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => saveTagEdit(tag.key)}
+                        style={{ borderWidth: 1, borderColor: "rgba(255,153,51,0.45)", backgroundColor: "rgba(255,153,51,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}
+                      >
+                        <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Save</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+                </View>
+              ))}
+            </View>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput
+                style={{ flex: 1, backgroundColor: "#0f0f0f", borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 10, color: "#f5f5f5", paddingHorizontal: 10, paddingVertical: 8, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}
+                value={tagDraftLabel}
+                onChangeText={setTagDraftLabel}
+                placeholder="Add custom tag"
+                placeholderTextColor="#666"
+              />
+              <Pressable onPress={addMenuTag} style={{ backgroundColor: "rgba(255,153,51,0.12)", borderWidth: 1, borderColor: "rgba(255,153,51,0.35)", borderRadius: 10, paddingHorizontal: 12, justifyContent: "center" }}>
+                <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Add</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       )}
 
@@ -686,6 +927,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               canEdit={canEdit}
               showQuickAdd={canOrder}
               onContributeImage={onContributeImage}
+              menuTags={menuTags}
             />
           ))}
         </View>
@@ -702,6 +944,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               canEdit={canEdit}
               showQuickAdd={canOrder}
               onContributeImage={onContributeImage}
+              menuTags={menuTags}
             />
           ))}
         </View>
@@ -778,7 +1021,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                 <TextInput style={inputStyle} placeholder="Category (optional)" placeholderTextColor="#666" value={newItemCategory} onChangeText={setNewItemCategory} />
 
                 <Text style={labelStyle}>Meal Identifiers *</Text>
-                <MealTimesSelector value={newMealTimes} onChange={setNewMealTimes} />
+                <MealTimesSelector value={newMealTimes} onChange={setNewMealTimes} tags={menuTags} />
                 <Text style={helperText}>Required. Choose at least one period.</Text>
 
                 <Text style={labelStyle}>Spice Level</Text>
