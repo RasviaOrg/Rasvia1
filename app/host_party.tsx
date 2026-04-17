@@ -365,6 +365,8 @@ export default function HostPartyScreen() {
           restaurant_id: selectedRestaurant.id,
           host_user_id: session.user.id,
           status: "open",
+          payment_mode: "host_pays",
+          schema_version: 2,
         })
         .select()
         .single();

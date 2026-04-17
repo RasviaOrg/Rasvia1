@@ -20,3 +20,21 @@ entrypoint = "./functions/payment-redirect/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/delete-account/index.ts"
+
+[functions.stripe-webhook]
+enabled = true
+verify_jwt = false
+# Verifies Stripe signature manually via STRIPE_WEBHOOK_SECRET.
+entrypoint = "./functions/stripe-webhook/index.ts"
+
+[functions.cancel-party-session]
+enabled = true
+verify_jwt = false
+# Verifies party member_token manually in-function.
+entrypoint = "./functions/cancel-party-session/index.ts"
+
+[functions.party-reap]
+enabled = true
+verify_jwt = false
+# Scheduled sweeper; verifies x-reap-secret header or service-role bearer.
+entrypoint = "./functions/party-reap/index.ts"
