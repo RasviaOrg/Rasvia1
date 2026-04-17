@@ -209,6 +209,11 @@ const EVENT_CONFIG: Record<
     color: "#EF4444",
     icon: XCircle,
   },
+  order_placed: {
+    label: (r) => `Order placed at ${r}`,
+    color: "#FF9933",
+    icon: ShoppingCart,
+  },
 };
 
 // ==========================================
@@ -969,19 +974,6 @@ export default function NotificationsScreen() {
                       }}
                     />
                   ))}
-                  {/* Single dismiss hint */}
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_500Medium",
-                      color: "#444",
-                      fontSize: 11,
-                      textAlign: "center",
-                      marginBottom: 16,
-                      marginTop: -4,
-                    }}
-                  >
-                    Tap × on completed entries to dismiss
-                  </Text>
                 </View>
               )}
 

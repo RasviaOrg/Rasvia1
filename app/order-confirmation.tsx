@@ -21,9 +21,12 @@ import {
     ClipboardList,
     ChefHat,
     Sparkles,
+    AlertTriangle,
+    Trash2,
 } from "lucide-react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
+import * as SecureStore from "expo-secure-store";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 
@@ -34,6 +37,7 @@ interface OrderItem {
     quantity: number;
     is_vegetarian: boolean;
 }
+const DISMISSED_ORDERS_KEY = "rasvia_my-orders-dismissed_v1";
 
 export default function OrderConfirmationScreen() {
     const router = useRouter();
@@ -49,6 +53,8 @@ export default function OrderConfirmationScreen() {
     const [loading, setLoading] = useState(true);
     const [order, setOrder] = useState<any>(null);
     const [items, setItems] = useState<OrderItem[]>([]);
+    const [showCancelledOverlay, setShowCancelledOverlay] = useState(false);
+    const [dismissedCancelledCard, setDismissedCancelledCard] = useState(false);
 
     const orderId = params.order_id;
     const restaurantName = params.restaurant_name || "Restaurant";
@@ -107,6 +113,9 @@ export default function OrderConfirmationScreen() {
                 (payload) => {
                     const updated = payload.new as any;
                     setOrder((prev: any) => prev ? { ...prev, ...updated } : updated);
+                    if (updated.status === "cancelled") {
+                        setShowCancelledOverlay(true);
+                    }
                     if (Platform.OS !== "web" && (updated.status === "preparing" || updated.status === "ready")) {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     }
@@ -125,6 +134,21 @@ export default function OrderConfirmationScreen() {
     const handleViewOrders = () => {
         if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         router.replace("/my-orders");
+    };
+
+    const dismissCancelledFromView = async () => {
+        const id = String(orderId ?? "").trim();
+        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setDismissedCancelledCard(true);
+        if (!id) return;
+        try {
+            const raw = await SecureStore.getItemAsync(DISMISSED_ORDERS_KEY);
+            const next = new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+            next.add(id);
+            await SecureStore.setItemAsync(DISMISSED_ORDERS_KEY, JSON.stringify([...next]));
+        } catch {
+            // no-op
+        }
     };
 
     const displayTotal = order?.subtotal ? Number(order.subtotal) : total;
@@ -216,7 +240,7 @@ export default function OrderConfirmationScreen() {
 
                     <View style={{ paddingHorizontal: 20 }}>
                         {/* Live Order Status Tracker */}
-                        {order?.status && (
+                        {order?.status && !dismissedCancelledCard && (
                             <Animated.View
                                 entering={FadeInDown.delay(80).duration(500)}
                                 style={{
@@ -231,52 +255,105 @@ export default function OrderConfirmationScreen() {
                                 <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 16, marginBottom: 14 }}>
                                     Order Status
                                 </Text>
-                                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
-                                    {([
-                                        { key: "pending", label: "Received", Icon: ClipboardList, color: "#FF9933" },
-                                        { key: "preparing", label: "Preparing", Icon: ChefHat, color: "#F59E0B" },
-                                        { key: "ready", label: "Ready", Icon: ShoppingBag, color: "#22C55E" },
-                                        { key: "completed", label: "Done", Icon: Sparkles, color: "#10B981" },
-                                    ] as const).map((step, idx, arr) => {
-                                        const statusOrder = ["pending", "pending_payment", "preparing", "ready", "served", "completed"];
-                                        const currentIdx = statusOrder.indexOf(order.status);
-                                        const stepIdx = step.key === "pending" ? 0 : step.key === "preparing" ? 2 : step.key === "ready" ? 3 : 5;
-                                        const isCompleted = currentIdx > stepIdx;
-                                        const isActive = (step.key === "pending" && (order.status === "pending" || order.status === "pending_payment"))
-                                            || order.status === step.key
-                                            || (step.key === "completed" && (order.status === "served" || order.status === "completed"));
-                                        const circleSize = isActive ? 36 : 28;
-                                        return (
-                                            <React.Fragment key={step.key}>
-                                                {idx > 0 && (
-                                                    <View style={{ flex: 1, height: 3, backgroundColor: isCompleted || isActive ? arr[idx - 1].color : "#222", borderRadius: 2, marginHorizontal: -2 }} />
-                                                )}
-                                                <View style={{ alignItems: "center" }}>
-                                                    <View style={{
-                                                        width: circleSize, height: circleSize, borderRadius: circleSize / 2,
-                                                        backgroundColor: isCompleted ? step.color : isActive ? `${step.color}25` : "#1a1a1a",
-                                                        borderWidth: isActive ? 2 : 1,
-                                                        borderColor: isCompleted ? step.color : isActive ? step.color : "#2a2a2a",
-                                                        alignItems: "center", justifyContent: "center",
-                                                    }}>
-                                                        {isCompleted ? (
-                                                            <CheckCircle2 size={isActive ? 18 : 14} color="#fff" />
-                                                        ) : (
-                                                            <step.Icon size={isActive ? 16 : 12} color={isActive ? step.color : "#555"} />
-                                                        )}
+                                {order.status === "cancelled" ? (
+                                    <View
+                                        style={{
+                                            borderRadius: 14,
+                                            borderWidth: 1.5,
+                                            borderColor: "rgba(239,68,68,0.55)",
+                                            backgroundColor: "rgba(239,68,68,0.1)",
+                                            padding: 14,
+                                            flexDirection: "row",
+                                            alignItems: "center",
+                                            gap: 12,
+                                        }}
+                                    >
+                                        <View
+                                            style={{
+                                                width: 40,
+                                                height: 40,
+                                                borderRadius: 20,
+                                                borderWidth: 1,
+                                                borderColor: "rgba(239,68,68,0.5)",
+                                                backgroundColor: "rgba(239,68,68,0.18)",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                            }}
+                                        >
+                                            <AlertTriangle size={18} color="#EF4444" />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#FCA5A5", fontSize: 15 }}>
+                                                Cancelled By Restaurant
+                                            </Text>
+                                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#d4d4d4", fontSize: 12, marginTop: 2 }}>
+                                                This order was cancelled. You can remove it from your live view.
+                                            </Text>
+                                        </View>
+                                        <Pressable
+                                            onPress={dismissCancelledFromView}
+                                            style={{
+                                                width: 34,
+                                                height: 34,
+                                                borderRadius: 17,
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                borderWidth: 1,
+                                                borderColor: "rgba(239,68,68,0.5)",
+                                                backgroundColor: "rgba(239,68,68,0.2)",
+                                            }}
+                                        >
+                                            <Trash2 size={16} color="#FCA5A5" />
+                                        </Pressable>
+                                    </View>
+                                ) : (
+                                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
+                                        {([
+                                            { key: "pending", label: "Received", Icon: ClipboardList, color: "#FF9933" },
+                                            { key: "preparing", label: "Preparing", Icon: ChefHat, color: "#F59E0B" },
+                                            { key: "ready", label: "Ready", Icon: ShoppingBag, color: "#22C55E" },
+                                            { key: "completed", label: "Done", Icon: Sparkles, color: "#10B981" },
+                                        ] as const).map((step, idx, arr) => {
+                                            const statusOrder = ["pending", "pending_payment", "preparing", "ready", "served", "completed"];
+                                            const currentIdx = statusOrder.indexOf(order.status);
+                                            const stepIdx = step.key === "pending" ? 0 : step.key === "preparing" ? 2 : step.key === "ready" ? 3 : 5;
+                                            const isCompleted = currentIdx > stepIdx;
+                                            const isActive = (step.key === "pending" && (order.status === "pending" || order.status === "pending_payment"))
+                                                || order.status === step.key
+                                                || (step.key === "completed" && (order.status === "served" || order.status === "completed"));
+                                            const circleSize = isActive ? 36 : 28;
+                                            return (
+                                                <React.Fragment key={step.key}>
+                                                    {idx > 0 && (
+                                                        <View style={{ flex: 1, height: 3, backgroundColor: isCompleted || isActive ? arr[idx - 1].color : "#222", borderRadius: 2, marginHorizontal: -2 }} />
+                                                    )}
+                                                    <View style={{ alignItems: "center" }}>
+                                                        <View style={{
+                                                            width: circleSize, height: circleSize, borderRadius: circleSize / 2,
+                                                            backgroundColor: isCompleted ? step.color : isActive ? `${step.color}25` : "#1a1a1a",
+                                                            borderWidth: isActive ? 2 : 1,
+                                                            borderColor: isCompleted ? step.color : isActive ? step.color : "#2a2a2a",
+                                                            alignItems: "center", justifyContent: "center",
+                                                        }}>
+                                                            {isCompleted ? (
+                                                                <CheckCircle2 size={isActive ? 18 : 14} color="#fff" />
+                                                            ) : (
+                                                                <step.Icon size={isActive ? 16 : 12} color={isActive ? step.color : "#555"} />
+                                                            )}
+                                                        </View>
+                                                        <Text style={{
+                                                            fontFamily: isActive ? "BricolageGrotesque_700Bold" : "Manrope_500Medium",
+                                                            fontSize: 10, color: isActive ? step.color : isCompleted ? "#888" : "#444",
+                                                            textAlign: "center", marginTop: 6, width: 56,
+                                                        }}>
+                                                            {step.label}
+                                                        </Text>
                                                     </View>
-                                                    <Text style={{
-                                                        fontFamily: isActive ? "BricolageGrotesque_700Bold" : "Manrope_500Medium",
-                                                        fontSize: 10, color: isActive ? step.color : isCompleted ? "#888" : "#444",
-                                                        textAlign: "center", marginTop: 6, width: 56,
-                                                    }}>
-                                                        {step.label}
-                                                    </Text>
-                                                </View>
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                </View>
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </View>
+                                )}
                             </Animated.View>
                         )}
 
@@ -507,6 +584,58 @@ export default function OrderConfirmationScreen() {
                     </View>
                 </ScrollView>
             </SafeAreaView>
+
+            <Animated.View />
+            {showCancelledOverlay && (
+                <View
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        backgroundColor: "rgba(0,0,0,0.84)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 24,
+                    }}
+                >
+                    <View
+                        style={{
+                            width: "100%",
+                            maxWidth: 420,
+                            borderRadius: 20,
+                            borderWidth: 1.5,
+                            borderColor: "rgba(239,68,68,0.5)",
+                            backgroundColor: "#181818",
+                            padding: 20,
+                        }}
+                    >
+                        <View style={{ alignItems: "center", marginBottom: 12 }}>
+                            <AlertTriangle size={40} color="#EF4444" />
+                        </View>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 22, textAlign: "center", marginBottom: 8 }}>
+                            Order Cancelled
+                        </Text>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#b0b0b0", fontSize: 14, lineHeight: 21, textAlign: "center", marginBottom: 18 }}>
+                            This order was cancelled by the restaurant. If you believe this was a mistake, please contact the restaurant directly.
+                        </Text>
+                        <Pressable
+                            onPress={() => {
+                                setShowCancelledOverlay(false);
+                                handleViewOrders();
+                            }}
+                            style={{
+                                borderRadius: 12,
+                                backgroundColor: "#EF4444",
+                                paddingVertical: 12,
+                                alignItems: "center",
+                            }}
+                        >
+                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#fff", fontSize: 14 }}>
+                                View My Orders
+                            </Text>
+                        </Pressable>
+                    </View>
+                </View>
+            )}
         </View>
     );
 }

@@ -75,6 +75,7 @@ import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
 import { useNotifications } from "@/lib/notifications-context";
 import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from "@/lib/menu-tags";
+import { fetchRestaurantCartRows, upsertUserCartItem } from "@/lib/user-cart";
 import {
   groupMembers,
   type CartItem,
@@ -700,19 +701,36 @@ export default function RestaurantDetail() {
       }
       setCartItems((prev) => {
         const existing = prev.find((ci) => ci.id === item.id);
+        let next: CartItem[] = [];
         if (existing) {
-          return prev.map((ci) =>
+          next = prev.map((ci) =>
             ci.id === item.id ? { ...ci, quantity: ci.quantity + 1 } : ci
           );
+        } else {
+          next = [
+            ...prev,
+            { ...item, quantity: 1, addedBy: localGroupMembers[0] },
+          ];
         }
-        return [
-          ...prev,
-          { ...item, quantity: 1, addedBy: localGroupMembers[0] },
-        ];
+        const nextQuantity = next.find((ci) => ci.id === item.id)?.quantity ?? 1;
+        const restaurantId = Number(id);
+        const menuItemId = Number(item.id);
+        const userId = session?.user?.id;
+        if (userId && Number.isFinite(restaurantId) && Number.isFinite(menuItemId)) {
+          void upsertUserCartItem({
+            userId,
+            restaurantId,
+            menuItemId,
+            quantity: nextQuantity,
+          }).catch(() => {
+            // Non-blocking; UI remains responsive even if persistence fails.
+          });
+        }
+        return next;
       });
       setSelectedItem(null);
     },
-    []
+    [id, localGroupMembers, session?.user?.id]
   );
 
   const handleUpdateQuantity = useCallback(
@@ -726,11 +744,57 @@ export default function RestaurantDetail() {
             ? { ...ci, quantity: Math.max(0, ci.quantity + delta) }
             : ci
         );
-        return updated.filter((ci) => ci.quantity > 0);
+        const next = updated.filter((ci) => ci.quantity > 0);
+        const restaurantId = Number(id);
+        const menuItemId = Number(itemId);
+        const userId = session?.user?.id;
+        if (userId && Number.isFinite(restaurantId) && Number.isFinite(menuItemId)) {
+          const nextQuantity = next.find((ci) => Number(ci.id) === menuItemId)?.quantity ?? 0;
+          void upsertUserCartItem({
+            userId,
+            restaurantId,
+            menuItemId,
+            quantity: nextQuantity,
+          }).catch(() => {
+            // Non-blocking persistence.
+          });
+        }
+        return next;
       });
     },
-    []
+    [id, session?.user?.id]
   );
+
+  useEffect(() => {
+    let active = true;
+    const loadRestaurantCart = async () => {
+      const userId = session?.user?.id;
+      const restaurantId = Number(id);
+      if (!userId || !Number.isFinite(restaurantId) || menu.length === 0) return;
+      try {
+        const rows = await fetchRestaurantCartRows(userId, restaurantId);
+        if (!active) return;
+        const byId = new Map(menu.map((m) => [Number(m.id), m]));
+        const restored: CartItem[] = [];
+        for (const row of rows) {
+          const match = byId.get(Number(row.menu_item_id));
+          if (!match) continue;
+          restored.push({
+            ...match,
+            quantity: Math.max(1, Number(row.quantity ?? 1)),
+            addedBy: localGroupMembers[0],
+          });
+        }
+        setCartItems(restored);
+      } catch {
+        // keep current in-memory cart
+      }
+    };
+    void loadRestaurantCart();
+    return () => {
+      active = false;
+    };
+  }, [id, menu, localGroupMembers, session?.user?.id]);
 
   const handleJoinWaitlist = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -2321,9 +2385,6 @@ export default function RestaurantDetail() {
           if (orderType === 'dine_in') {
             if (checkoutFromWaitlist && existingEntry) {
               router.push(`/waitlist/${restaurant?.id}?entry_id=${existingEntry.id}&party_size=${existingEntry.party_size}` as any);
-            } else if (!checkoutFromWaitlist) {
-              setCustomParty("");
-              setShowPartySizePicker(true);
             }
           }
         }}

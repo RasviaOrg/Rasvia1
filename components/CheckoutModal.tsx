@@ -25,9 +25,6 @@ import {
     ChevronRight,
     CheckCircle2,
     Leaf,
-    Coffee,
-    Sun,
-    Moon,
     CreditCard,
     Wallet,
 } from "lucide-react-native";
@@ -35,11 +32,12 @@ import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useNotifications } from "@/lib/notifications-context";
 import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from "@/lib/edge-function-error";
 import { withTimeout } from "@/lib/with-timeout";
 import { getCheckoutUrlOrThrow } from "@/lib/checkout-response";
 import type { CartItem } from "@/data/mockData";
-import type { OrderType, MealPeriod } from "@/lib/restaurant-types";
+import type { OrderType } from "@/lib/restaurant-types";
 
 interface CheckoutModalProps {
     visible: boolean;
@@ -64,11 +62,6 @@ interface CheckoutModalProps {
     initialCustomerName?: string;
 }
 
-const MEAL_PERIODS: { key: MealPeriod; label: string; icon: any; color: string }[] = [
-    { key: "breakfast", label: "Breakfast", icon: Coffee, color: "#F97316" },
-    { key: "lunch", label: "Lunch", icon: Sun, color: "#22C55E" },
-    { key: "dinner", label: "Dinner", icon: Moon, color: "#818CF8" },
-];
 const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
 
 const S = {
@@ -120,8 +113,9 @@ export function CheckoutModal({
     existingOrderId,
     initialCustomerName,
 }: CheckoutModalProps) {
-    const { session } = useAuth();
-    const router = useRouter();
+  const { session } = useAuth();
+  const { addEvent } = useNotifications();
+  const router = useRouter();
 
     // If we have a waitlist entry it's a silent pre_order; otherwise use initialOrderType or dine_in.
     const defaultType: OrderType = waitlistEntryId
@@ -148,7 +142,6 @@ export function CheckoutModal({
         }
     }, [visible, initialOrderType, waitlistEntryId]);
     const [customerName, setCustomerName] = useState(initialCustomerName || "");
-    const [mealPeriod, setMealPeriod] = useState<MealPeriod>("dinner");
     const [tableNumber, setTableNumber] = useState("");
     const [notes, setNotes] = useState("");
     const [placing, setPlacing] = useState(false);
@@ -168,7 +161,6 @@ export function CheckoutModal({
             initialCustomerName ||
             ""
         );
-        setMealPeriod("dinner");
         setTableNumber("");
         setNotes("");
         setPlacing(false);
@@ -365,6 +357,17 @@ export function CheckoutModal({
 
                     if (rawUrl.includes('order-confirmation') || sp.get('checkout_status') === 'success') {
                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        void addEvent({
+                          type: "order_placed",
+                          restaurantName: restaurantName || "Restaurant",
+                          restaurantId: String(restaurantId),
+                          entryId: params.order_id || `checkout-${Date.now()}`,
+                          partySize: 1,
+                          timestamp: new Date().toISOString(),
+                          title: "Order Alert",
+                          message: `Order placed at ${restaurantName || "Restaurant"}`,
+                          metadata: { status: "pending" },
+                        });
                         onClose();
                         reset();
                         onOrderPlaced(params.order_id, orderType);
@@ -433,7 +436,7 @@ export function CheckoutModal({
                             orderType === "takeout"
                                 ? "preparing"
                                 : "pending",
-                        meal_period: mealPeriod,
+                        meal_period: "dinner",
                         subtotal,
                         tip_amount: 0,
                         payment_method: "cash",
@@ -463,6 +466,17 @@ export function CheckoutModal({
             if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPlacedOrderId(orderId);
             setDone(true);
+            void addEvent({
+                type: "order_placed",
+                restaurantName: restaurantName || "Restaurant",
+                restaurantId: String(restaurantId),
+                entryId: orderId,
+                partySize: 1,
+                timestamp: new Date().toISOString(),
+                title: "Order Alert",
+                message: `Order placed at ${restaurantName || "Restaurant"}`,
+                metadata: { status: "pending" },
+            });
             onOrderPlaced(orderId, orderType);
         } catch (err: unknown) {
             const parsedError = await parseEdgeFunctionError(
@@ -640,35 +654,6 @@ export function CheckoutModal({
                                     />
                                 </Animated.View>
                             )}
-
-                            {/* ── Meal Period (dine-in / pre-order) ── */}
-                            {orderType !== "takeout" && !existingOrderId && (
-                                <Animated.View entering={FadeInDown.delay(80).duration(400)} style={S.card}>
-                                    <Text style={S.label}>Meal Period</Text>
-                                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                        {MEAL_PERIODS.map(({ key, label, icon: Icon, color }) => {
-                                            const active = mealPeriod === key;
-                                            return (
-                                                <Pressable
-                                                    key={key}
-                                                    onPress={() => {
-                                                        if (Platform.OS !== "web") Haptics.selectionAsync();
-                                                        setMealPeriod(key);
-                                                    }}
-                                                    style={S.chip(active, color)}
-                                                >
-                                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                                        <Icon size={13} color={active ? color : "#666"} />
-                                                        <Text style={S.chipText(active, color)}>{label}</Text>
-                                                    </View>
-                                                </Pressable>
-                                            );
-                                        })}
-                                    </ScrollView>
-                                </Animated.View>
-                            )}
-
-
 
                             {/* ── Cart Items ── */}
                             <Animated.View entering={FadeInDown.delay(120).duration(400)} style={S.card}>

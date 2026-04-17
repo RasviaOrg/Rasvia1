@@ -31,6 +31,7 @@ export type NotificationEventType =
   | "seated"
   | "left"
   | "removed"
+  | "order_placed"
   | "group_created"
   | "group_joined"
   | "group_item_added"
@@ -211,6 +212,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const watchedEntryIds = useRef<Set<string>>(new Set());
   const channelsRef = useRef<any[]>([]);
   const dismissedIdsRef = useRef<Set<string>>(new Set());
+  const restaurantNameCacheRef = useRef<Record<string, string>>({});
   // Track last-known state per entry to avoid relying on oldRow (REPLICA IDENTITY may not be FULL)
   const entryStateRef = useRef<Record<string, { status: string; notified_at: string | null }>>({});
 
@@ -259,6 +261,72 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       // silently ignore
     }
   }, [session?.user?.id]);
+
+  const upsertOrderEvent = useCallback((payload: {
+    orderId: string;
+    restaurantId?: string | number | null;
+    restaurantName?: string | null;
+    status?: string | null;
+    createdAt?: string | null;
+  }) => {
+    const orderId = String(payload.orderId || "").trim();
+    if (!orderId) return;
+    const restaurantId = String(payload.restaurantId ?? "");
+    const status = String(payload.status ?? "pending").toLowerCase();
+    const statusLabel =
+      status === "pending_payment"
+        ? "Pending"
+        : status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const resolvedRestaurantName =
+      String(payload.restaurantName ?? "").trim() ||
+      (restaurantId ? restaurantNameCacheRef.current[restaurantId] : "") ||
+      "Restaurant";
+
+    if (restaurantId) restaurantNameCacheRef.current[restaurantId] = resolvedRestaurantName;
+
+    setLocalEvents((prev) => {
+      const idx = prev.findIndex((e) => e.type === "order_placed" && e.entryId === orderId);
+      const timestamp = payload.createdAt || new Date().toISOString();
+      const message =
+        status === "pending" || status === "pending_payment"
+          ? `Order placed at ${resolvedRestaurantName}`
+          : `Order at ${resolvedRestaurantName}: ${statusLabel}`;
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = {
+          ...next[idx],
+          restaurantId: restaurantId || next[idx].restaurantId,
+          restaurantName: resolvedRestaurantName,
+          message,
+          metadata: {
+            ...(next[idx].metadata ?? {}),
+            status,
+          },
+          timestamp,
+        };
+        saveEvents(next);
+        return next;
+      }
+
+      const newEvent: NotificationEvent = {
+        id: generateId(),
+        source: "local",
+        type: "order_placed",
+        title: "Order Alert",
+        message,
+        metadata: { status },
+        restaurantName: resolvedRestaurantName,
+        restaurantId: restaurantId || "",
+        entryId: orderId,
+        partySize: 0,
+        timestamp,
+        read: false,
+      };
+      const next = [newEvent, ...prev];
+      saveEvents(next);
+      return next;
+    });
+  }, []);
 
   // ==========================================
   // Fetch + watch active waitlist entries
@@ -498,6 +566,59 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     };
   }, [session?.user?.id, refreshServerEvents]);
 
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    const resolveRestaurantName = async (restaurantId: number | null | undefined) => {
+      const rid = Number(restaurantId);
+      if (!Number.isFinite(rid)) return "Restaurant";
+      const cacheKey = String(rid);
+      if (restaurantNameCacheRef.current[cacheKey]) return restaurantNameCacheRef.current[cacheKey];
+      try {
+        const { data } = await supabase
+          .from("restaurants")
+          .select("name")
+          .eq("id", rid)
+          .maybeSingle();
+        const name = String((data as any)?.name ?? "Restaurant");
+        restaurantNameCacheRef.current[cacheKey] = name;
+        return name;
+      } catch {
+        return "Restaurant";
+      }
+    };
+
+    const channel = supabase
+      .channel(`notif-orders:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `created_by=eq.${userId}`,
+        },
+        async (payload) => {
+          const row = (payload.new ?? payload.old) as any;
+          if (!row?.id) return;
+          const restaurantName = await resolveRestaurantName(Number(row.restaurant_id ?? NaN));
+          upsertOrderEvent({
+            orderId: String(row.id),
+            restaurantId: row.restaurant_id,
+            restaurantName,
+            status: row.status ?? "pending",
+            createdAt: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id, upsertOrderEvent]);
+
   // Also refresh every 60s to catch any missed updates
   useEffect(() => {
     const interval = setInterval(() => {
@@ -521,6 +642,16 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   // ==========================================
   const addEvent = useCallback(
     async (event: Omit<NotificationEvent, "id" | "read">) => {
+      if (event.type === "order_placed" && event.entryId) {
+        upsertOrderEvent({
+          orderId: event.entryId,
+          restaurantId: event.restaurantId,
+          restaurantName: event.restaurantName,
+          status: String(event.metadata?.status ?? "pending"),
+          createdAt: event.timestamp,
+        });
+        return;
+      }
       const newEvent: NotificationEvent = {
         ...event,
         source: event.source ?? "local",
@@ -533,7 +664,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         return updated;
       });
     },
-    []
+    [upsertOrderEvent]
   );
 
   const clearTableReadyAlert = useCallback(() => {

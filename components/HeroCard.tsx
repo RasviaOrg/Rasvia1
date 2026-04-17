@@ -43,6 +43,16 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           { height: 315, borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 16, overflow: "hidden" },
         ]}
       >
+        <Pressable
+          onPress={onPress}
+          onPressIn={() => {
+            pressScale.value = withSpring(0.95);
+          }}
+          onPressOut={() => {
+            pressScale.value = withSpring(1);
+          }}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 }}
+        />
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
           <RestaurantMediaFrame
             defaultImage={restaurant.image}
@@ -65,7 +75,10 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
 
         {(isFavorite !== undefined && onToggleFavorite !== undefined) && (
           <Pressable
-            onPress={onToggleFavorite}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              onToggleFavorite(e);
+            }}
             hitSlop={15}
             style={{
               position: "absolute",
@@ -117,17 +130,8 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           </View>
         )}
 
-        {/* Content (only this bottom area opens menu) */}
-        <Pressable
-          onPress={onPress}
-          onPressIn={() => {
-            pressScale.value = withSpring(0.95);
-          }}
-          onPressOut={() => {
-            pressScale.value = withSpring(1);
-          }}
-          style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 20 }}
-        >
+        {/* Content */}
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 20 }}>
           <View className="flex-row items-center mb-1">
             {restaurant.tags.slice(0, 2).map((tag, i) => (
               <View
@@ -223,7 +227,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               {restaurant.priceRange}
             </Text>
           </View>
-        </Pressable>
+        </View>
       </Animated.View>
     </Animated.View>
   );

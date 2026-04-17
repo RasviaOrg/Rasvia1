@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, Pressable, ScrollView, Platform,
-  KeyboardAvoidingView, Alert, ActivityIndicator, StyleSheet, Image, Share,
+  KeyboardAvoidingView, Alert, ActivityIndicator, StyleSheet, Image, Share, Modal,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -20,7 +20,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
 import Animated, {
-  FadeIn, FadeInDown, FadeOut, SlideInUp,
+  FadeIn, FadeInDown, FadeInUp, FadeOut, FadeOutDown,
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence,
   Easing,
 } from 'react-native-reanimated';
@@ -46,6 +46,7 @@ import {
 } from '../../lib/party-credentials';
 import { subscribeToParty } from '../../lib/party-realtime';
 import { PartyLedger, colorForMember, memberInitials } from '../../components/party/PartyLedger';
+import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from '../../lib/menu-tags';
 
 type MenuItem = {
   id: number;
@@ -56,6 +57,7 @@ type MenuItem = {
   is_vegetarian: boolean;
   is_spicy: boolean | null;
   category: string | null;
+  meal_times?: string[] | null;
   in_stock: boolean;
 };
 
@@ -91,8 +93,10 @@ export default function JoinPartyScreen() {
   const [busy, setBusy] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [menuTags, setMenuTags] = useState<MenuTagConfig[]>(DEFAULT_MENU_TAGS);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [viewingMemberId, setViewingMemberId] = useState<string | null>(null);
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
 
   const session = snapshot?.session ?? null;
   const members = snapshot?.members ?? [];
@@ -102,18 +106,30 @@ export default function JoinPartyScreen() {
   const isHost = me?.role === 'host';
   const myPayment = creds ? paymentForMember(payments, creds.memberId) : null;
 
+  const hapticTap = useCallback(() => {
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
   // NOTE: All hooks (useState/useEffect/useMemo/useCallback) must be called
   // unconditionally BEFORE any early-return branches below. The filtered-menu
   // memo in particular was previously invoked from JSX in the browse stage,
   // which made the hook count change between renders (e.g. loading vs browse).
+  const itemMatchesTag = useCallback((item: MenuItem, tagKey: string) => {
+    const available = menuTags.filter((t) => t.enabled);
+    const normalized = normalizeMenuItemTags(item.meal_times ?? [], available);
+    if (normalized.includes(tagKey)) return true;
+    const categoryKey = String(item.category ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return categoryKey === tagKey;
+  }, [menuTags]);
+
   const filteredMenu = useMemo(() => {
     const q = search.trim().toLowerCase();
     return menu.filter((m) => {
-      if (categoryFilter && m.category !== categoryFilter) return false;
+      if (categoryFilter && !itemMatchesTag(m, categoryFilter)) return false;
       if (!q) return true;
       return m.name.toLowerCase().includes(q) || (m.description ?? '').toLowerCase().includes(q);
     });
-  }, [menu, search, categoryFilter]);
+  }, [menu, search, categoryFilter, itemMatchesTag]);
 
   // Derived view based on session status
   useEffect(() => {
@@ -157,17 +173,32 @@ export default function JoinPartyScreen() {
     if (nameInput.trim().length > 0) return;
     let cancelled = false;
     (async () => {
+      const meta: any = authSession?.user?.user_metadata ?? {};
+      let candidate = (
+        meta.full_name || meta.name || meta.display_name ||
+        [meta.first_name, meta.last_name].filter(Boolean).join(' ')
+      );
+      if (!candidate && authSession?.user?.id) {
+        try {
+          const { data } = await supabase
+            .from("profiles")
+            .select("full_name, display_name, first_name, last_name")
+            .eq("id", authSession.user.id)
+            .maybeSingle();
+          const p: any = data ?? {};
+          candidate = p.full_name || p.display_name || [p.first_name, p.last_name].filter(Boolean).join(" ");
+        } catch {
+          // ignore
+        }
+      }
+      const fallback = typeof candidate === 'string' ? candidate.trim() : '';
+      if (fallback) {
+        setNameInput(fallback);
+        return;
+      }
       const last = await loadLastDisplayName();
       if (cancelled) return;
-      if (last) { setNameInput(last); return; }
-      const meta: any = authSession?.user?.user_metadata ?? {};
-      const candidate = (
-        meta.full_name || meta.name || meta.display_name ||
-        [meta.first_name, meta.last_name].filter(Boolean).join(' ') ||
-        (authSession?.user?.email ? String(authSession.user.email).split('@')[0] : '')
-      );
-      const fallback = typeof candidate === 'string' ? candidate.trim() : '';
-      if (fallback) setNameInput(fallback);
+      if (last) setNameInput(last);
     })();
     return () => { cancelled = true; };
   }, [authSession?.user?.id]);
@@ -187,12 +218,18 @@ export default function JoinPartyScreen() {
         if (rest) setRestaurant(rest as Restaurant);
         const { data: menuRows } = await supabase
           .from('menu_items')
-          .select('id, name, description, price, image_url, is_vegetarian, is_spicy, category, in_stock')
+          .select('id, name, description, price, image_url, is_vegetarian, is_spicy, category, meal_times, in_stock')
           .eq('restaurant_id', snap.session.restaurant_id)
           .eq('in_stock', true)
           .order('category', { ascending: true })
           .order('name', { ascending: true });
         setMenu((menuRows ?? []) as MenuItem[]);
+        const { data: rawTags } = await supabase
+          .from('restaurant_menu_tags')
+          .select('key, label, color, bg, border, enabled, position')
+          .eq('restaurant_id', snap.session.restaurant_id)
+          .order('position', { ascending: true });
+        setMenuTags(parseRestaurantMenuTags(rawTags));
       }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to load group order.');
@@ -230,6 +267,7 @@ export default function JoinPartyScreen() {
 
   // ── Actions ─────────────────────────────────────────────────────────────
   const handleJoin = async () => {
+    hapticTap();
     const name = nameInput.trim();
     if (!name) { Alert.alert('Enter your name', 'Please enter your name to continue.'); return; }
     setJoining(true);
@@ -251,7 +289,7 @@ export default function JoinPartyScreen() {
   const handleAddItem = async (menuItemId: number) => {
     if (!creds) return;
     try {
-      if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      hapticTap();
       await addItem(supabase, creds, menuItemId, 1);
     } catch (err) {
       Alert.alert('Could not add item', err instanceof Error ? err.message : 'Try again.');
@@ -263,7 +301,7 @@ export default function JoinPartyScreen() {
     const nextQty = Math.max(0, (item.quantity ?? 1) + delta);
     try {
       await updateItemQuantity(supabase, creds, item.id, nextQty);
-      if (Platform.OS !== 'web') Haptics.selectionAsync();
+      hapticTap();
     } catch (err) {
       Alert.alert('Could not update item', err instanceof Error ? err.message : 'Try again.');
     }
@@ -281,9 +319,9 @@ export default function JoinPartyScreen() {
 
   const handleSetMode = async (mode: PaymentMode) => {
     if (!creds) return;
+    hapticTap();
     try {
       await setPaymentMode(supabase, creds, mode);
-      if (Platform.OS !== 'web') Haptics.selectionAsync();
     } catch (err) {
       Alert.alert('Could not change mode', err instanceof Error ? err.message : 'Try again.');
     }
@@ -291,6 +329,7 @@ export default function JoinPartyScreen() {
 
   const handleLock = async () => {
     if (!creds) return;
+    hapticTap();
     if (items.length === 0) { Alert.alert('Empty cart', 'Add at least one item before checking out.'); return; }
     setBusy(true);
     try {
@@ -305,6 +344,7 @@ export default function JoinPartyScreen() {
 
   const handleUnlock = async () => {
     if (!creds) return;
+    hapticTap();
     setBusy(true);
     try { await unlockSession(supabase, creds); }
     catch (err) { Alert.alert('Could not unlock', err instanceof Error ? err.message : 'Try again.'); }
@@ -326,6 +366,7 @@ export default function JoinPartyScreen() {
 
   const handlePayMyShare = async () => {
     if (!creds) return;
+    hapticTap();
     if (!myPayment || myPayment.amount_cents <= 0) return;
     setBusy(true);
     try {
@@ -342,6 +383,7 @@ export default function JoinPartyScreen() {
 
   const handleCoverMember = async (memberId: string) => {
     if (!creds) return;
+    hapticTap();
     const target = members.find((m) => m.id === memberId);
     if (!target) return;
     Alert.alert(
@@ -372,6 +414,7 @@ export default function JoinPartyScreen() {
 
   const handleCancelSession = async () => {
     if (!creds) return;
+    hapticTap();
     setBusy(true);
     try {
       const result = await cancelSession(supabase, creds);
@@ -388,6 +431,7 @@ export default function JoinPartyScreen() {
 
   const handleLeave = async () => {
     if (!creds) return;
+    hapticTap();
     Alert.alert(
       'Leave group order?',
       'Your items (if any) will be removed if the cart is still open.',
@@ -407,6 +451,7 @@ export default function JoinPartyScreen() {
   };
 
   const handleShare = async () => {
+    hapticTap();
     const url = `https://rasvia.com/join?id=${sessionId}`;
     try {
       if (Platform.OS === 'web') await Clipboard.setStringAsync(url);
@@ -510,8 +555,8 @@ export default function JoinPartyScreen() {
                 <Text style={s.primaryBtnText}>{hasPrefill ? `Continue as ${nameInput.trim()}` : 'Join'}</Text>
               )}
             </Pressable>
-            <Pressable onPress={() => router.back()} style={s.textBtn}>
-              <Text style={s.textBtnText}>Not now</Text>
+            <Pressable onPress={() => { hapticTap(); router.back(); }} style={s.joinNotNowBtn}>
+              <Text style={s.joinNotNowText}>Not now</Text>
             </Pressable>
           </Animated.View>
         </KeyboardAvoidingView>
@@ -563,7 +608,10 @@ export default function JoinPartyScreen() {
                 isHost={isHost}
                 onCoverMember={handleCoverMember}
                 onRetry={handlePayMyShare}
-                onMemberTap={(id) => setViewingMemberId(id)}
+                onMemberTap={(id) => {
+                  hapticTap();
+                  setViewingMemberId(id);
+                }}
               />
             </View>
 
@@ -597,7 +645,7 @@ export default function JoinPartyScreen() {
                     <Text style={s.secondaryBtnText}>Back to editing</Text>
                   </Pressable>
                 ) : null}
-                <Pressable onPress={() => setShowCancelConfirm(true)} disabled={busy} style={s.dangerBtn}>
+                <Pressable onPress={() => { hapticTap(); setShowCancelConfirm(true); }} disabled={busy} style={s.dangerBtn}>
                   <X size={16} color="#EF4444" />
                   <Text style={s.dangerBtnText}>Cancel group order</Text>
                 </Pressable>
@@ -657,7 +705,7 @@ export default function JoinPartyScreen() {
         />
 
         {/* Members strip — tap a member to see what they've ordered */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.membersStrip} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.membersStrip} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 6, gap: 10, alignItems: 'center' }}>
           {members.map((m, idx) => (
             <MemberChip
               key={m.id}
@@ -683,15 +731,23 @@ export default function JoinPartyScreen() {
         </View>
 
         {/* Categories */}
-        <CategoryChips menu={menu} active={categoryFilter} onChange={setCategoryFilter} />
+        <CategoryChips tags={menuTags} active={categoryFilter} onChange={setCategoryFilter} />
 
         {/* Menu list */}
         <FlatList
           data={filteredMenu}
           keyExtractor={(m) => String(m.id)}
-          contentContainerStyle={{ padding: 16, paddingBottom: 180 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 180 }}
           renderItem={({ item }) => (
-            <MenuRow item={item} inCartCount={cartCountFor(items, item.id)} onAdd={() => handleAddItem(item.id)} />
+            <MenuRow
+              item={item}
+              inCartCount={cartCountFor(items, item.id)}
+              onAdd={() => handleAddItem(item.id)}
+              onOpenDetails={() => {
+                hapticTap();
+                setSelectedMenuItem(item);
+              }}
+            />
           )}
           ListEmptyComponent={
             <View style={{ alignItems: 'center', paddingVertical: 56, gap: 6 }}>
@@ -723,6 +779,12 @@ export default function JoinPartyScreen() {
           isSelf={viewingMemberId === creds.memberId}
           onClose={() => setViewingMemberId(null)}
         />
+        <MenuItemDetailsModal
+          item={selectedMenuItem}
+          onClose={() => setSelectedMenuItem(null)}
+          onAdd={() => selectedMenuItem ? handleAddItem(selectedMenuItem.id) : undefined}
+          menuTags={menuTags}
+        />
       </View>
     </>
   );
@@ -735,7 +797,13 @@ export default function JoinPartyScreen() {
 function TopBar({ title, subtitle, onBack, rightIcon, onRight }: { title: string; subtitle?: string; onBack?: () => void; rightIcon?: 'share' | 'close'; onRight?: () => void }) {
   return (
     <View style={s.topBar}>
-      <Pressable onPress={onBack} hitSlop={12}>
+      <Pressable
+        onPress={() => {
+          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onBack?.();
+        }}
+        hitSlop={12}
+      >
         <ArrowLeft size={22} color="#F4F4F5" />
       </Pressable>
       <View style={{ flex: 1, marginLeft: 8 }}>
@@ -743,7 +811,13 @@ function TopBar({ title, subtitle, onBack, rightIcon, onRight }: { title: string
         {subtitle ? <Text style={s.topSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
       {onRight && rightIcon === 'share' ? (
-        <Pressable onPress={onRight} hitSlop={12}>
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onRight();
+          }}
+          hitSlop={12}
+        >
           <Share2 size={20} color="#F4F4F5" />
         </Pressable>
       ) : null}
@@ -759,10 +833,13 @@ function MemberChip({
   const color = colorForMember(member.id, []);
   const fallback = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'][index % 8];
   return (
-    <Pressable onPress={onPress} style={[s.memberChip, isSelf && { borderColor: '#FF9933' }]}>
+    <Pressable onPress={() => {
+      if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onPress?.();
+    }} style={[s.memberChip, isSelf && { borderColor: '#FF9933' }]}>
       <View style={[s.avatarSm, { backgroundColor: color || fallback }]}>
         <Text style={s.avatarSmText}>{memberInitials(member.display_name)}</Text>
-        {member.role === 'host' ? <Crown size={10} color="#FFF" style={{ position: 'absolute', top: -4, right: -4 }} strokeWidth={3} /> : null}
+        {member.role === 'host' ? <Crown size={10} color="#FFF" style={{ position: 'absolute', top: -2, right: -2 }} strokeWidth={3} /> : null}
       </View>
       <Text style={s.memberChipText} numberOfLines={1}>
         {isSelf ? `${member.display_name} · You` : member.display_name}
@@ -776,52 +853,126 @@ function MemberChip({
   );
 }
 
-function CategoryChips({ menu, active, onChange }: { menu: MenuItem[]; active: string | null; onChange: (v: string | null) => void }) {
-  const cats = useMemo(() => Array.from(new Set(menu.map((m) => m.category).filter(Boolean))) as string[], [menu]);
-  if (cats.length === 0) return null;
+function CategoryChips({ tags, active, onChange }: { tags: MenuTagConfig[]; active: string | null; onChange: (v: string | null) => void }) {
+  const enabledTags = tags.filter((t) => t.enabled);
+  if (enabledTags.length === 0) return null;
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      style={{ marginTop: 8, maxHeight: 40 }}
-      contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}
+      style={{ marginTop: 12, minHeight: 46 }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 4, gap: 8, alignItems: 'center' }}
     >
-      <Pressable onPress={() => onChange(null)} style={[s.catChip, !active && s.catChipActive]}>
+      <Pressable onPress={() => {
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onChange(null);
+      }} style={[s.catChip, !active && s.catChipActive]}>
         <Text numberOfLines={1} style={[s.catChipText, !active && s.catChipTextActive]}>All</Text>
       </Pressable>
-      {cats.map((c) => (
-        <Pressable key={c} onPress={() => onChange(c === active ? null : c)} style={[s.catChip, active === c && s.catChipActive]}>
-          <Text numberOfLines={1} style={[s.catChipText, active === c && s.catChipTextActive]}>{c}</Text>
+      {enabledTags.map((t) => (
+        <Pressable
+          key={t.key}
+          onPress={() => {
+            if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onChange(t.key === active ? null : t.key);
+          }}
+          style={[
+            s.catChip,
+            active === t.key && { backgroundColor: t.bg, borderColor: t.border },
+          ]}
+        >
+          <Text numberOfLines={1} style={[s.catChipText, active === t.key && { color: t.color }]}>
+            {t.label}
+          </Text>
         </Pressable>
       ))}
     </ScrollView>
   );
 }
 
-function MenuRow({ item, inCartCount, onAdd }: { item: MenuItem; inCartCount: number; onAdd: () => void }) {
+function MenuRow({ item, inCartCount, onAdd, onOpenDetails }: { item: MenuItem; inCartCount: number; onAdd: () => void; onOpenDetails: () => void }) {
   return (
     <Animated.View entering={FadeInDown} style={s.menuRow}>
-      {item.image_url ? (
-        <Image source={{ uri: item.image_url }} style={s.menuImg} />
-      ) : (
-        <View style={[s.menuImg, { backgroundColor: '#27272A', alignItems: 'center', justifyContent: 'center' }]}>
-          <Text style={{ color: '#52525B' }}>—</Text>
+      <Pressable onPress={onOpenDetails} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        {item.image_url ? (
+          <Image source={{ uri: item.image_url }} style={s.menuImg} />
+        ) : (
+          <View style={[s.menuImg, { backgroundColor: '#27272A', alignItems: 'center', justifyContent: 'center' }]}>
+            <Text style={{ color: '#52525B' }}>—</Text>
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={s.menuName} numberOfLines={1}>{item.name}</Text>
+            {item.is_vegetarian ? <Leaf size={12} color="#22C55E" /> : null}
+            {item.is_spicy ? <Flame size={12} color="#EF4444" /> : null}
+          </View>
+          {item.description ? <Text style={s.menuDesc} numberOfLines={2}>{item.description}</Text> : null}
+          <Text style={s.menuPrice}>${Number(item.price).toFixed(2)}</Text>
         </View>
-      )}
-      <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={s.menuName} numberOfLines={1}>{item.name}</Text>
-          {item.is_vegetarian ? <Leaf size={12} color="#22C55E" /> : null}
-          {item.is_spicy ? <Flame size={12} color="#EF4444" /> : null}
-        </View>
-        {item.description ? <Text style={s.menuDesc} numberOfLines={2}>{item.description}</Text> : null}
-        <Text style={s.menuPrice}>${Number(item.price).toFixed(2)}</Text>
-      </View>
+      </Pressable>
       <Pressable onPress={onAdd} style={s.addBtn}>
         <Plus size={16} color="#0f0f0f" strokeWidth={3} />
         {inCartCount > 0 ? <Text style={s.addBtnCount}>{inCartCount}</Text> : null}
       </Pressable>
     </Animated.View>
+  );
+}
+
+function MenuItemDetailsModal({
+  item,
+  onClose,
+  onAdd,
+  menuTags,
+}: {
+  item: MenuItem | null;
+  onClose: () => void;
+  onAdd: () => void;
+  menuTags: MenuTagConfig[];
+}) {
+  if (!item) return null;
+  const tags = normalizeMenuItemTags(item.meal_times ?? [], menuTags.filter((t) => t.enabled));
+  const tagMap = new Map(menuTags.map((t) => [t.key, t]));
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={s.sheetBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={s.itemDetailsSheet}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Text style={s.itemDetailsTitle}>Item details</Text>
+            <Pressable onPress={onClose} style={s.memberSheetClose}>
+              <X size={18} color="#A1A1AA" />
+            </Pressable>
+          </View>
+          {item.image_url ? (
+            <Image source={{ uri: item.image_url }} style={s.itemDetailsImage} />
+          ) : (
+            <View style={[s.itemDetailsImage, { backgroundColor: '#232326', alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={{ color: '#52525B' }}>No image</Text>
+            </View>
+          )}
+          <Text style={s.itemDetailsName}>{item.name}</Text>
+          {!!item.description && <Text style={s.itemDetailsDesc}>{item.description}</Text>}
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            {tags.map((k) => {
+              const t = tagMap.get(k);
+              if (!t) return null;
+              return (
+                <View key={k} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: t.border, backgroundColor: t.bg }}>
+                  <Text style={{ color: t.color, fontSize: 12, fontWeight: '700' }}>{t.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+          <View style={{ marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={s.itemDetailsPrice}>${Number(item.price).toFixed(2)}</Text>
+            <Pressable onPress={onAdd} style={[s.primaryBtn, { paddingHorizontal: 18, paddingVertical: 12 }]}>
+              <Text style={s.primaryBtnText}>Add to cart</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -838,11 +989,27 @@ function CartSummary(props: {
 }) {
   const [open, setOpen] = useState(false);
   const total = totalCartCents(props.items);
-  const myItems = props.items.filter((i) => i.added_by_member_id === props.selfMemberId);
+  const confirmRemove = useCallback((it: PartyItem) => {
+    Alert.alert(
+      "Remove item",
+      `Remove ${it.menu_item?.name ?? "this item"} from the cart?`,
+      [
+        { text: "Keep", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => props.onRemove(it),
+        },
+      ],
+    );
+  }, [props]);
 
   return (
     <View style={s.cartContainer}>
-      <Pressable onPress={() => setOpen((v) => !v)} style={s.cartHeader}>
+      <Pressable onPress={() => {
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setOpen((v) => !v);
+      }} style={s.cartHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <ShoppingCart size={18} color="#FF9933" />
           <Text style={s.cartTitle}>{props.items.length} item{props.items.length === 1 ? '' : 's'}</Text>
@@ -861,15 +1028,24 @@ function CartSummary(props: {
                 item={it}
                 members={props.members}
                 canEdit={it.added_by_member_id === props.selfMemberId || props.isHost}
-                onRemove={() => props.onRemove(it)}
-                onChangeQty={(delta) => props.onChangeQty(it, delta)}
+                onRemove={() => confirmRemove(it)}
+                onChangeQty={(delta) => {
+                  if (delta < 0 && (it.quantity ?? 1) <= 1) {
+                    confirmRemove(it);
+                    return;
+                  }
+                  props.onChangeQty(it, delta);
+                }}
               />
             ))
           )}
         </ScrollView>
       ) : null}
       <View style={{ flexDirection: 'row', padding: 12, gap: 10 }}>
-        <Pressable onPress={props.onLeave} style={[s.secondaryBtn, { flex: 1 }]}>
+        <Pressable onPress={() => {
+          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          props.onLeave();
+        }} style={[s.secondaryBtn, { flex: 1 }]}>
           <Text style={s.secondaryBtnText}>Leave</Text>
         </Pressable>
         {props.isHost ? (() => {
@@ -879,7 +1055,10 @@ function CartSummary(props: {
           const label = needsGuests ? 'Waiting for guests to join…' : 'Review & checkout';
           return (
             <Pressable
-              onPress={props.onReview}
+              onPress={() => {
+                if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                props.onReview?.();
+              }}
               disabled={disabled}
               style={[s.primaryBtn, { flex: 2 }, disabled && { opacity: 0.55 }]}
             >
@@ -912,10 +1091,34 @@ function CartRow({ item, members, canEdit, onRemove, onChangeQty }: {
       </View>
       {canEdit ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Pressable onPress={() => onChangeQty(-1)} style={s.qtyBtn}><Minus size={14} color="#F4F4F5" /></Pressable>
+          <Pressable
+            onPress={() => {
+              if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onChangeQty(-1);
+            }}
+            style={s.qtyBtn}
+          >
+            <Minus size={14} color="#F4F4F5" />
+          </Pressable>
           <Text style={s.qtyText}>{item.quantity}</Text>
-          <Pressable onPress={() => onChangeQty(1)} style={s.qtyBtn}><Plus size={14} color="#F4F4F5" /></Pressable>
-          <Pressable onPress={onRemove} style={s.qtyBtn}><Trash2 size={14} color="#EF4444" /></Pressable>
+          <Pressable
+            onPress={() => {
+              if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onChangeQty(1);
+            }}
+            style={s.qtyBtn}
+          >
+            <Plus size={14} color="#F4F4F5" />
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onRemove();
+            }}
+            style={s.qtyTrashBtn}
+          >
+            <Trash2 size={14} color="#fca5a5" />
+          </Pressable>
         </View>
       ) : (
         <Text style={{ color: '#A1A1AA', fontSize: 12 }}>x{item.quantity}</Text>
@@ -933,9 +1136,13 @@ function ReviewStage({
   onSetMode: (mode: PaymentMode) => Promise<void>;
   onLock: () => Promise<void>; busy: boolean;
 }) {
-  const mode = (snapshot.session.payment_mode === 'split' ? 'per_person'
+  const modeFromSnapshot = (snapshot.session.payment_mode === 'split' ? 'per_person'
     : snapshot.session.payment_mode === 'assign' ? 'assigned'
     : snapshot.session.payment_mode) as PaymentMode;
+  const [mode, setMode] = useState<PaymentMode>(modeFromSnapshot);
+  useEffect(() => {
+    setMode(modeFromSnapshot);
+  }, [modeFromSnapshot]);
 
   const total = totalCartCents(snapshot.items);
 
@@ -956,7 +1163,16 @@ function ReviewStage({
           <Text style={s.sectionLabel}>How should the bill be paid?</Text>
           <View style={{ gap: 10 }}>
             {PAYMENT_MODES.map((m) => (
-              <Pressable key={m.key} onPress={() => onSetMode(m.key)} style={[s.modeCard, mode === m.key && s.modeCardActive]}>
+              <Pressable
+                key={m.key}
+                onPress={() => {
+                  if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (mode === m.key) return;
+                  setMode(m.key); // optimistic for instant UI response
+                  onSetMode(m.key);
+                }}
+                style={[s.modeCard, mode === m.key && s.modeCardActive]}
+              >
                 <View style={{ flex: 1 }}>
                   <Text style={[s.modeTitle, mode === m.key && { color: '#FF9933' }]}>{m.title}</Text>
                   <Text style={s.modeSubtitle}>{m.subtitle}</Text>
@@ -1049,15 +1265,18 @@ function SplitItemRow({ item, members, onSetSplit }: { item: PartyItem; members:
 
 function CancelSheet({ visible, onCancel, onConfirm, busy }: { visible: boolean; onCancel: () => void; onConfirm: () => void; busy: boolean }) {
   if (!visible) return null;
+  const tap = () => {
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
   return (
     <Animated.View entering={FadeIn} exiting={FadeOut} style={s.sheetBackdrop}>
-      <Animated.View entering={SlideInUp} style={s.sheet}>
+      <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutDown.duration(160)} style={s.sheet}>
         <Text style={s.sheetTitle}>Cancel group order?</Text>
-        <Text style={s.sheetBody}>Any paid shares will be refunded via Stripe. This can't be undone.</Text>
-        <Pressable onPress={onConfirm} disabled={busy} style={[s.dangerBtnSolid, busy && { opacity: 0.6 }]}>
+        <Text style={s.sheetBody}>Any paid shares will be refunded via Stripe. This can&apos;t be undone.</Text>
+        <Pressable onPress={() => { tap(); onConfirm(); }} disabled={busy} style={[s.dangerBtnSolid, busy && { opacity: 0.6 }]}>
           {busy ? <ActivityIndicator color="#FFF" /> : <Text style={s.dangerBtnSolidText}>Cancel & refund</Text>}
         </Pressable>
-        <Pressable onPress={onCancel} style={s.textBtn}>
+        <Pressable onPress={() => { tap(); onCancel(); }} style={s.textBtn}>
           <Text style={s.textBtnText}>Never mind</Text>
         </Pressable>
       </Animated.View>
@@ -1085,7 +1304,7 @@ function MemberItemsSheet({
   return (
     <Animated.View entering={FadeIn} exiting={FadeOut} style={s.sheetBackdrop}>
       <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
-      <Animated.View entering={SlideInUp} style={s.memberSheet}>
+      <Animated.View entering={FadeInDown.duration(180)} style={s.memberSheet}>
         <View style={s.memberSheetHeader}>
           <View style={[s.avatarMd, { backgroundColor: color }]}>
             <Text style={s.avatarMdText}>{memberInitials(member.display_name)}</Text>
@@ -1235,28 +1454,30 @@ const s = StyleSheet.create({
   joinTitle: { color: '#F4F4F5', fontSize: 26, fontWeight: '900', lineHeight: 32 },
   joinSubtitle: { color: '#A1A1AA', marginTop: 8, fontSize: 14, lineHeight: 20 },
   nameInput: { marginTop: 18, backgroundColor: '#0f0f0f', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, color: '#F4F4F5', fontSize: 16 },
+  joinNotNowBtn: { marginTop: 10, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(161,161,170,0.35)', backgroundColor: '#1a1a1a' },
+  joinNotNowText: { color: '#A1A1AA', fontWeight: '700' },
 
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 54, paddingBottom: 12, gap: 8 },
-  topTitle: { color: '#F4F4F5', fontWeight: '800', fontSize: 18 },
-  topSubtitle: { color: '#A1A1AA', fontSize: 12, marginTop: 2 },
+  topTitle: { color: '#F4F4F5', fontFamily: 'BricolageGrotesque_700Bold', fontSize: 18 },
+  topSubtitle: { color: '#A1A1AA', fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 },
 
-  membersStrip: { maxHeight: 58, marginBottom: 4 },
-  memberChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  memberChipText: { color: '#F4F4F5', fontSize: 12, fontWeight: '600', maxWidth: 120 },
+  membersStrip: { marginTop: 8, marginBottom: 10, minHeight: 56 },
+  memberChip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  memberChipText: { color: '#F4F4F5', fontSize: 13, lineHeight: 18, fontWeight: '600', maxWidth: 165 },
   memberChipCount: { marginLeft: 2, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.15)', minWidth: 18, alignItems: 'center' },
   memberChipCountText: { color: '#FF9933', fontSize: 10, fontWeight: '800' },
-  avatarSm: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  avatarSmText: { color: '#0f0f0f', fontWeight: '800', fontSize: 10 },
+  avatarSm: { width: 27, height: 27, borderRadius: 13.5, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  avatarSmText: { color: '#0f0f0f', fontWeight: '800', fontSize: 11 },
   avatarMd: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   avatarMdText: { color: '#0f0f0f', fontWeight: '900', fontSize: 15 },
   crownBadge: { position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#151515' },
 
-  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 10, backgroundColor: '#151515', borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 14, backgroundColor: '#151515', borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   searchInput: { flex: 1, color: '#F4F4F5', paddingVertical: Platform.OS === 'ios' ? 12 : 8 },
 
-  catChip: { height: 30, paddingHorizontal: 12, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+  catChip: { minHeight: 38, paddingHorizontal: 15, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
   catChipActive: { backgroundColor: '#FF9933', borderColor: '#FF9933' },
-  catChipText: { color: '#A1A1AA', fontSize: 12, fontWeight: '600', lineHeight: 14 },
+  catChipText: { color: '#A1A1AA', fontSize: 13, fontWeight: '600', lineHeight: 16 },
   catChipTextActive: { color: '#0f0f0f' },
 
   menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: '#151515', borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
@@ -1267,7 +1488,7 @@ const s = StyleSheet.create({
   addBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FF9933', alignItems: 'center', justifyContent: 'center', position: 'relative' },
   addBtnCount: { position: 'absolute', top: -6, right: -6, backgroundColor: '#0f0f0f', color: '#FF9933', fontSize: 10, paddingHorizontal: 5, borderRadius: 10, overflow: 'hidden', fontWeight: '800', borderWidth: 1, borderColor: '#FF9933' },
 
-  cartContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#151515', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  cartContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: 20, backgroundColor: '#151515', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   cartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
   cartTitle: { color: '#F4F4F5', fontWeight: '700' },
   cartTotal: { color: '#FF9933', fontWeight: '800', marginLeft: 'auto' },
@@ -1275,6 +1496,7 @@ const s = StyleSheet.create({
   cartItemName: { color: '#F4F4F5', fontWeight: '700', fontSize: 13 },
   cartItemMeta: { color: '#71717A', fontSize: 11 },
   qtyBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#27272A', alignItems: 'center', justifyContent: 'center' },
+  qtyTrashBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)', alignItems: 'center', justifyContent: 'center' },
   qtyText: { color: '#F4F4F5', fontWeight: '700', width: 22, textAlign: 'center' },
 
   primaryBtn: { backgroundColor: '#FF9933', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
@@ -1306,7 +1528,7 @@ const s = StyleSheet.create({
   assignPillActive: { backgroundColor: '#FF9933', borderColor: '#FF9933' },
   assignPillText: { color: '#A1A1AA', fontSize: 12, fontWeight: '700' },
 
-  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 14, backgroundColor: '#0f0f0f', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 14, paddingHorizontal: 14, paddingBottom: 30, backgroundColor: '#0f0f0f', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
 
   payCta: { marginTop: 16, backgroundColor: '#151515', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,153,51,0.35)' },
   payCtaLabel: { color: '#A1A1AA', fontWeight: '700' },
@@ -1337,4 +1559,10 @@ const s = StyleSheet.create({
   receiptLabel: { color: '#71717A', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
   receiptName: { color: '#F4F4F5', fontSize: 18, fontWeight: '800', marginTop: 4 },
   receiptAmount: { color: '#FF9933', fontWeight: '800', marginTop: 4 },
+  itemDetailsSheet: { backgroundColor: '#151515', padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  itemDetailsTitle: { color: '#F4F4F5', fontWeight: '800', fontSize: 18 },
+  itemDetailsImage: { width: '100%', height: 180, borderRadius: 14, backgroundColor: '#27272A' },
+  itemDetailsName: { color: '#F4F4F5', fontWeight: '800', fontSize: 20, marginTop: 12 },
+  itemDetailsDesc: { color: '#A1A1AA', fontSize: 13, marginTop: 6, lineHeight: 19 },
+  itemDetailsPrice: { color: '#FF9933', fontSize: 24, fontWeight: '900' },
 });

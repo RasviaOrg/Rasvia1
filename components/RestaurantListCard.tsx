@@ -77,7 +77,12 @@ export function RestaurantListCard({
         ]}
       >
           {/* ─── Full-width image ─── */}
-          <View style={{ height: 155, position: "relative", backgroundColor: "#2a2a2a" }}>
+          <Pressable
+            onPress={onPress}
+            onPressIn={() => { pressScale.value = withSpring(0.96); }}
+            onPressOut={() => { pressScale.value = withSpring(1); }}
+            style={{ height: 155, position: "relative", backgroundColor: "#2a2a2a" }}
+          >
             <RestaurantMediaFrame
               defaultImage={restaurant.image}
               slides={mediaSlides}
@@ -153,7 +158,7 @@ export function RestaurantListCard({
                 {restaurant.priceRange}
               </Text>
             </View>
-          </View>
+          </Pressable>
 
           {/* ─── Info section (only this area opens menu) ─── */}
           <Pressable

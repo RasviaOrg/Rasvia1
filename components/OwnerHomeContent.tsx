@@ -384,21 +384,42 @@ function OrderDetailModal({
     const [items, setItems] = useState<OrderItem[]>(order.items ?? []);
     const [loadingItems, setLoadingItems] = useState(!order.items);
     const [cancellingOrder, setCancellingOrder] = useState(false);
+    const mountedRef = useRef(true);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
 
     useEffect(() => {
         setCurrentOrder(order);
+        if (order.items) setItems(order.items);
     }, [order]);
 
     useEffect(() => {
-        if (order.items) return;
-        supabase
-            .from("order_items")
-            .select("id, name, quantity, price")
-            .eq("order_id", order.id)
-            .then(({ data }) => {
+        if (order.items) {
+            setLoadingItems(false);
+            return;
+        }
+        setLoadingItems(true);
+        const loadItems = async () => {
+            try {
+                const { data } = await supabase
+                    .from("order_items")
+                    .select("id, name, quantity, price")
+                    .eq("order_id", order.id);
+                if (!mountedRef.current) return;
                 setItems((data as OrderItem[]) ?? []);
                 setLoadingItems(false);
-            });
+            } catch {
+                if (!mountedRef.current) return;
+                setItems([]);
+                setLoadingItems(false);
+            }
+        };
+        void loadItems();
     }, [order.id, order.items]);
 
     const cancelableStatuses = new Set(["pending", "pending_payment", "active"]);
@@ -416,7 +437,7 @@ function OrderDetailModal({
                     style: "destructive",
                     onPress: async () => {
                         try {
-                            setCancellingOrder(true);
+                            if (mountedRef.current) setCancellingOrder(true);
                             const { data, error } = await supabase
                                 .from("orders")
                                 .update({ status: "cancelled" })
@@ -429,21 +450,25 @@ function OrderDetailModal({
                                 Alert.alert("Order Not Cancelled", "Only pending orders can be cancelled.");
                                 return;
                             }
-                            const nextOrder = data as Order;
-                            setCurrentOrder(nextOrder);
+                            const nextOrder = {
+                                ...currentOrder,
+                                ...(data as Partial<Order>),
+                                items,
+                            } as Order;
+                            if (mountedRef.current) setCurrentOrder(nextOrder);
                             onOrderUpdated?.(nextOrder);
                             if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                         } catch (e: any) {
                             Alert.alert("Could Not Cancel Order", e?.message || "Please try again.");
                             if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                         } finally {
-                            setCancellingOrder(false);
+                            if (mountedRef.current) setCancellingOrder(false);
                         }
                     },
                 },
             ]
         );
-    }, [canCancelOrder, cancellingOrder, currentOrder, onOrderUpdated]);
+    }, [canCancelOrder, cancellingOrder, currentOrder, items, onOrderUpdated]);
 
     return (
         <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>

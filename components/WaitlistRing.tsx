@@ -11,12 +11,14 @@ import Animated, {
   FadeIn,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
+import { Bell } from "lucide-react-native";
 
 interface WaitlistRingProps {
   position: number;
   totalInQueue: number;
   estimatedMinutes: number;
   restaurantName: string;
+  isTableReady?: boolean;
 }
 
 export function WaitlistRing({
@@ -24,6 +26,7 @@ export function WaitlistRing({
   totalInQueue,
   estimatedMinutes,
   restaurantName,
+  isTableReady = false,
 }: WaitlistRingProps) {
   const progress = useSharedValue(0);
   const pulseScale = useSharedValue(1);
@@ -33,7 +36,9 @@ export function WaitlistRing({
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
-  const progressPercent = totalInQueue > 0
+  const progressPercent = isTableReady
+    ? 1
+    : totalInQueue > 0
     ? Math.min(1, Math.max(0, (totalInQueue - position + 1) / totalInQueue))
     : 0;
 
@@ -104,7 +109,7 @@ export function WaitlistRing({
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke="#FF9933"
+            stroke={isTableReady ? "#22C55E" : "#FF9933"}
             strokeWidth={strokeWidth}
             fill="none"
             strokeDasharray={circumference}
@@ -124,26 +129,58 @@ export function WaitlistRing({
             bottom: 0,
           }}
         >
-          <Text
-            style={{
-              fontFamily: "JetBrainsMono_600SemiBold",
-              color: "#FF9933",
-              fontSize: 56,
-              lineHeight: 60,
-            }}
-          >
-            #{position}
-          </Text>
-          <Text
-            style={{
-              fontFamily: "Manrope_500Medium",
-              color: "#999999",
-              fontSize: 14,
-              marginTop: 2,
-            }}
-          >
-            in queue
-          </Text>
+          {isTableReady ? (
+            <>
+              <View
+                style={{
+                  width: 76,
+                  height: 76,
+                  borderRadius: 38,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(34,197,94,0.16)",
+                  borderWidth: 1.5,
+                  borderColor: "rgba(34,197,94,0.42)",
+                }}
+              >
+                <Bell size={32} color="#22C55E" />
+              </View>
+              <Text
+                style={{
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  color: "#22C55E",
+                  fontSize: 14,
+                  marginTop: 10,
+                  letterSpacing: 0.4,
+                }}
+              >
+                TABLE READY
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text
+                style={{
+                  fontFamily: "JetBrainsMono_600SemiBold",
+                  color: "#FF9933",
+                  fontSize: 56,
+                  lineHeight: 60,
+                }}
+              >
+                #{position}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: "#999999",
+                  fontSize: 14,
+                  marginTop: 2,
+                }}
+              >
+                in queue
+              </Text>
+            </>
+          )}
         </View>
       </View>
 
@@ -161,12 +198,13 @@ export function WaitlistRing({
         <Text
           style={{
             fontFamily: "JetBrainsMono_600SemiBold",
-            color: "#f5f5f5",
-            fontSize: 32,
+            color: isTableReady ? "#22C55E" : "#f5f5f5",
+            fontSize: isTableReady ? 24 : 32,
             marginTop: 2,
+            textAlign: "center",
           }}
         >
-          {estimatedMinutes} min
+          {isTableReady ? "See host to be seated" : `${estimatedMinutes} min`}
         </Text>
       </View>
     </Animated.View>

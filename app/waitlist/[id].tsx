@@ -711,6 +711,7 @@ export default function WaitlistStatus() {
               totalInQueue={totalInQueue || restaurant.queueLength}
               estimatedMinutes={restaurant.waitTime > 0 ? restaurant.waitTime : 0}
               restaurantName={restaurant.name}
+              isTableReady={showTableReady}
             />
           </View>
 

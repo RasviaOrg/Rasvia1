@@ -17,7 +17,7 @@ import {
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map as MapIcon, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation, Camera } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map as MapIcon, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, ShoppingCart, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation, Camera, AlertTriangle } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -310,6 +310,15 @@ export default function DiscoveryFeed() {
       LIVE_ORDER_ICON_BORDER
     ),
   }));
+
+  const activeLiveOrders = useMemo(
+    () => allLiveOrders.filter((o) => o.status !== "cancelled" && o.status !== "completed"),
+    [allLiveOrders]
+  );
+  const additionalActiveOrderCount = useMemo(() => {
+    if (!liveOrderTrack) return activeLiveOrders.length;
+    return activeLiveOrders.filter((o) => o.id !== liveOrderTrack.id).length;
+  }, [activeLiveOrders, liveOrderTrack]);
 
   useEffect(() => {
     (async () => {
@@ -621,7 +630,7 @@ export default function DiscoveryFeed() {
           .eq('id', parsed.sessionId)
           .single();
 
-        if (!error && sess && sess.status === 'open') {
+        if (!error && sess && ['open', 'locked', 'paying'].includes(String((sess as any).status))) {
           setActiveGroupOrder({
             ...parsed,
             restaurantName: (sess.restaurants as any)?.name ?? parsed.restaurantName,
@@ -637,7 +646,7 @@ export default function DiscoveryFeed() {
         .from('party_sessions')
         .select('id, restaurants(name)')
         .eq('host_user_id', currentUserId)
-        .eq('status', 'open')
+        .in('status', ['open', 'locked', 'paying'])
         .order('created_at', { ascending: false })
         .limit(1);
 
@@ -673,7 +682,7 @@ export default function DiscoveryFeed() {
         .from("orders")
         .select("id, status, restaurants(name)")
         .eq("created_by", currentUserId)
-        .in("status", ["pending", "pending_payment", "preparing", "ready", "served"])
+        .in("status", ["pending", "pending_payment", "preparing", "ready", "served", "cancelled"])
         .order("created_at", { ascending: false })
         .limit(5);
 
@@ -682,7 +691,7 @@ export default function DiscoveryFeed() {
         restaurantName: (r.restaurants as { name?: string } | null)?.name ?? "Restaurant",
         status: r.status as OrderStatus,
       }));
-      setAllLiveOrders(allRows);
+      setAllLiveOrders(allRows.filter((r) => r.status !== "cancelled" && r.status !== "completed"));
 
       const row = data?.[0];
       if (error || !row) {
@@ -1509,7 +1518,6 @@ export default function DiscoveryFeed() {
 
           {/* Live order tracker — directly above Trending (swipe left → remove to hide) */}
           {liveOrderTrack &&
-            liveStepIndex(liveOrderTrack.status) >= 0 &&
             !dismissedLiveOrderIds.has(liveOrderTrack.id) && (
             <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
               <Animated.View style={liveOrderBannerOpacityStyle}>
@@ -1564,6 +1572,90 @@ export default function DiscoveryFeed() {
                     router.push("/my-orders" as any);
                   }}
                 >
+                  {liveOrderTrack.status === "cancelled" ? (
+                    <View
+                      style={{
+                        borderRadius: 20,
+                        borderWidth: 1.5,
+                        borderColor: "rgba(239,68,68,0.45)",
+                        backgroundColor: "rgba(239,68,68,0.12)",
+                        padding: 16,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 14,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          borderWidth: 2,
+                          borderColor: "rgba(239,68,68,0.5)",
+                          backgroundColor: "rgba(239,68,68,0.2)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <AlertTriangle size={21} color="#FCA5A5" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            fontFamily: "Manrope_700Bold",
+                            color: "#FCA5A5",
+                            fontSize: 11,
+                            letterSpacing: 0.5,
+                            textTransform: "uppercase",
+                            marginBottom: 4,
+                          }}
+                        >
+                          Live order cancelled
+                        </Text>
+                        <Text
+                          style={{
+                            fontFamily: "BricolageGrotesque_700Bold",
+                            color: "#f5f5f5",
+                            fontSize: 16,
+                            letterSpacing: -0.2,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {liveOrderTrack.restaurantName}
+                        </Text>
+                        <Text
+                          style={{
+                            fontFamily: "Manrope_500Medium",
+                            color: "#d4d4d4",
+                            fontSize: 12,
+                            marginTop: 3,
+                          }}
+                          numberOfLines={1}
+                        >
+                          Tap to view details in My Orders
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          dismissLiveOrderBanner(liveOrderTrack.id);
+                        }}
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 19,
+                          borderWidth: 1,
+                          borderColor: "#EF4444",
+                          backgroundColor: "rgba(239,68,68,0.35)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Trash2 size={16} color="#FEE2E2" />
+                      </Pressable>
+                    </View>
+                  ) : (
                   <Animated.View
                     style={[
                       liveOrderCardSurfaceStyle,
@@ -1699,6 +1791,7 @@ export default function DiscoveryFeed() {
                     />
                   </View>
                   </Animated.View>
+                  )}
                 </Pressable>
               </Swipeable>
               </Animated.View>
@@ -1706,7 +1799,7 @@ export default function DiscoveryFeed() {
           )}
 
           {/* Additional active orders beyond the primary banner */}
-          {allLiveOrders.length > 1 && (
+          {additionalActiveOrderCount > 0 && (
             <Pressable
               onPress={() => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1728,9 +1821,9 @@ export default function DiscoveryFeed() {
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <ShoppingBag size={14} color="#FF9933" />
+                <ShoppingCart size={14} color="#FF9933" />
                 <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 13 }}>
-                  +{allLiveOrders.length - 1} more active order{allLiveOrders.length > 2 ? "s" : ""}
+                  +{additionalActiveOrderCount} more active order{additionalActiveOrderCount > 1 ? "s" : ""}
                 </Text>
               </View>
               <ChevronRight size={16} color="#FF9933" />
