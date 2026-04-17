@@ -387,6 +387,7 @@ export async function fetchSnapshot(
 const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'You are not authorized for this session.',
   session_not_found: 'This group order no longer exists.',
+  session_cancelled: 'The host cancelled this group order.',
   session_closed: 'This group order has ended.',
   session_not_open: 'The cart is closed — ask the host to unlock it to add more items.',
   session_locked_or_closed: 'The cart is no longer editable.',

@@ -33,6 +33,7 @@ type LedgerRowProps = {
   showCoverButton: boolean;
   onCover?: () => void;
   onRetry?: () => void;
+  onPress?: () => void;
 };
 
 function StatusDot({ status }: { status: PartyPayment['status'] | 'idle' }) {
@@ -54,7 +55,7 @@ function StatusDot({ status }: { status: PartyPayment['status'] | 'idle' }) {
   );
 }
 
-function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, onCover, onRetry }: LedgerRowProps) {
+function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, onCover, onRetry, onPress }: LedgerRowProps) {
   const status = payment?.status ?? 'idle';
   const amount = payment?.amount_cents ?? 0;
   const color = MEMBER_COLORS[index % MEMBER_COLORS.length];
@@ -62,49 +63,51 @@ function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, on
   const isFailed = status === 'failed' || status === 'cancelled';
 
   return (
-    <Animated.View entering={FadeInDown.delay(index * 60)} layout={Layout.springify()} style={styles.row}>
-      <View style={[styles.avatar, { backgroundColor: color }]}>
-        <Text style={styles.avatarText}>{memberInitials(member.display_name)}</Text>
-        {member.role === 'host' ? (
-          <View style={styles.crown}>
-            <Crown size={10} color="#FFF" strokeWidth={3} />
+    <Animated.View entering={FadeInDown.delay(index * 60)} layout={Layout.springify()}>
+      <Pressable onPress={onPress} style={styles.row}>
+        <View style={[styles.avatar, { backgroundColor: color }]}>
+          <Text style={styles.avatarText}>{memberInitials(member.display_name)}</Text>
+          {member.role === 'host' ? (
+            <View style={styles.crown}>
+              <Crown size={10} color="#FFF" strokeWidth={3} />
+            </View>
+          ) : null}
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.name} numberOfLines={1}>{member.display_name}</Text>
+            {isSelf ? <Text style={styles.youPill}>You</Text> : null}
           </View>
-        ) : null}
-      </View>
-
-      <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={styles.name} numberOfLines={1}>{member.display_name}</Text>
-          {isSelf ? <Text style={styles.youPill}>You</Text> : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+            <StatusDot status={status} />
+            <Text style={[styles.statusLabel, isPaid && { color: '#22C55E' }, isFailed && { color: '#EF4444' }]}>
+              {status === 'paid' && 'Paid'}
+              {status === 'covered' && 'Covered by host'}
+              {status === 'pending' && amount > 0 && 'Awaiting payment'}
+              {status === 'pending' && amount === 0 && 'Nothing owed'}
+              {status === 'failed' && 'Payment failed'}
+              {status === 'cancelled' && 'Cancelled'}
+              {status === 'refunded' && 'Refunded'}
+              {status === 'idle' && 'Waiting'}
+            </Text>
+          </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          <StatusDot status={status} />
-          <Text style={[styles.statusLabel, isPaid && { color: '#22C55E' }, isFailed && { color: '#EF4444' }]}>
-            {status === 'paid' && 'Paid'}
-            {status === 'covered' && 'Covered by host'}
-            {status === 'pending' && amount > 0 && 'Awaiting payment'}
-            {status === 'pending' && amount === 0 && 'Nothing owed'}
-            {status === 'failed' && 'Payment failed'}
-            {status === 'cancelled' && 'Cancelled'}
-            {status === 'refunded' && 'Refunded'}
-            {status === 'idle' && 'Waiting'}
-          </Text>
-        </View>
-      </View>
 
-      <View style={{ alignItems: 'flex-end', gap: 4 }}>
-        <Text style={[styles.amount, isPaid && { color: '#22C55E' }]}>{formatCents(amount)}</Text>
-        {showCoverButton && !isPaid && amount > 0 && !isSelf ? (
-          <Pressable onPress={onCover} style={styles.coverBtn}>
-            <Text style={styles.coverBtnText}>Pay for them</Text>
-          </Pressable>
-        ) : null}
-        {isFailed && isSelf && onRetry ? (
-          <Pressable onPress={onRetry} style={styles.retryBtn}>
-            <Text style={styles.retryBtnText}>Retry</Text>
-          </Pressable>
-        ) : null}
-      </View>
+        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+          <Text style={[styles.amount, isPaid && { color: '#22C55E' }]}>{formatCents(amount)}</Text>
+          {showCoverButton && !isPaid && amount > 0 && !isSelf ? (
+            <Pressable onPress={onCover} style={styles.coverBtn}>
+              <Text style={styles.coverBtnText}>Pay for them</Text>
+            </Pressable>
+          ) : null}
+          {isFailed && isSelf && onRetry ? (
+            <Pressable onPress={onRetry} style={styles.retryBtn}>
+              <Text style={styles.retryBtnText}>Retry</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -116,31 +119,36 @@ export function PartyLedger(props: {
   isHost: boolean;
   onCoverMember?: (memberId: string) => void;
   onRetry?: () => void;
+  onMemberTap?: (memberId: string) => void;
 }) {
-  const { members, payments, selfMemberId, isHost, onCoverMember, onRetry } = props;
+  const { members, payments, selfMemberId, isHost, onCoverMember, onRetry, onMemberTap } = props;
 
   const paidCount = useMemo(
     () => payments.filter((p) => p.status === 'paid' || p.status === 'covered').length,
     [payments],
   );
   const totalCount = payments.filter((p) => p.amount_cents > 0 || p.status === 'paid' || p.status === 'covered').length;
+  const progressPct = totalCount === 0 ? 0 : Math.round((paidCount / totalCount) * 100);
 
   return (
     <Animated.View entering={FadeIn} style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>Group</Text>
-        <Text style={styles.progressText}>
-          <Text style={{ color: '#22C55E' }}>{paidCount}</Text>
-          <Text style={{ color: '#71717A' }}>{` / ${totalCount} paid`}</Text>
-        </Text>
+        <View>
+          <Text style={styles.headerTitle}>Who's paid</Text>
+          <Text style={styles.headerSub}>Tap a name to see what they ordered</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={styles.progressText}>
+            <Text style={{ color: '#22C55E' }}>{paidCount}</Text>
+            <Text style={{ color: '#71717A' }}>{` of ${totalCount}`}</Text>
+          </Text>
+          <Text style={styles.progressMeta}>{progressPct}% there</Text>
+        </View>
       </View>
       <View style={styles.progressBar}>
         <Animated.View
           layout={Layout.springify()}
-          style={[
-            styles.progressFill,
-            { width: `${totalCount === 0 ? 0 : Math.round((paidCount / totalCount) * 100)}%` },
-          ]}
+          style={[styles.progressFill, { width: `${progressPct}%` }]}
         />
       </View>
       <View style={{ marginTop: 10 }}>
@@ -158,6 +166,7 @@ export function PartyLedger(props: {
               showCoverButton={isHost && !isSelf}
               onCover={() => onCoverMember?.(m.id)}
               onRetry={onRetry}
+              onPress={onMemberTap ? () => onMemberTap(m.id) : undefined}
             />
           );
         })}
@@ -174,9 +183,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerTitle: { color: '#F4F4F5', fontSize: 16, fontWeight: '700' },
-  progressText: { fontSize: 13, fontWeight: '600' },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  headerTitle: { color: '#F4F4F5', fontSize: 16, fontWeight: '800' },
+  headerSub: { color: '#71717A', fontSize: 11, fontWeight: '600', marginTop: 2 },
+  progressText: { fontSize: 13, fontWeight: '700' },
+  progressMeta: { color: '#71717A', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
   progressBar: { height: 6, backgroundColor: '#27272A', borderRadius: 3, marginTop: 10, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: '#22C55E', borderRadius: 3 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },

@@ -40,7 +40,10 @@ import {
   formatCents, memberById, paymentForMember, isFullyPaid, totalCartCents,
   type PartyCreds, type PartySnapshot, type PaymentMode, type PartyMember, type PartyItem,
 } from '../../lib/party-session';
-import { loadPartyCreds, savePartyCreds, clearPartyCreds } from '../../lib/party-credentials';
+import {
+  loadPartyCreds, savePartyCreds, clearPartyCreds,
+  loadLastDisplayName, saveLastDisplayName,
+} from '../../lib/party-credentials';
 import { subscribeToParty } from '../../lib/party-realtime';
 import { PartyLedger, colorForMember, memberInitials } from '../../components/party/PartyLedger';
 
@@ -59,10 +62,10 @@ type MenuItem = {
 type Restaurant = { id: number; name: string; image_url: string | null };
 
 const PAYMENT_MODES: { key: PaymentMode; title: string; subtitle: string }[] = [
-  { key: 'host_pays',   title: 'Host pays',        subtitle: 'You cover the whole bill' },
-  { key: 'equal_split', title: 'Split equally',    subtitle: '1 / N across everyone' },
-  { key: 'per_person',  title: 'Each pays theirs', subtitle: 'Split per item/shares' },
-  { key: 'assigned',    title: 'Host assigns',     subtitle: 'Pick who pays for each item' },
+  { key: 'host_pays',   title: 'Host covers everyone', subtitle: 'You pay the whole bill.' },
+  { key: 'equal_split', title: 'Split evenly',         subtitle: 'Everyone pays the same share.' },
+  { key: 'per_person',  title: 'Each pays their own',  subtitle: 'You pay for the items you added.' },
+  { key: 'assigned',    title: 'Host decides',         subtitle: 'You choose who pays for each item.' },
 ];
 
 export default function JoinPartyScreen() {
@@ -72,6 +75,7 @@ export default function JoinPartyScreen() {
   const { session: authSession } = useAuth();
 
   const [creds, setCreds] = useState<PartyCreds | null>(null);
+  const [credsLoaded, setCredsLoaded] = useState(false);
   const [snapshot, setSnapshot] = useState<PartySnapshot | null>(null);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -88,6 +92,7 @@ export default function JoinPartyScreen() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [viewingMemberId, setViewingMemberId] = useState<string | null>(null);
 
   const session = snapshot?.session ?? null;
   const members = snapshot?.members ?? [];
@@ -96,6 +101,19 @@ export default function JoinPartyScreen() {
   const me = creds ? members.find((m) => m.id === creds.memberId) ?? null : null;
   const isHost = me?.role === 'host';
   const myPayment = creds ? paymentForMember(payments, creds.memberId) : null;
+
+  // NOTE: All hooks (useState/useEffect/useMemo/useCallback) must be called
+  // unconditionally BEFORE any early-return branches below. The filtered-menu
+  // memo in particular was previously invoked from JSX in the browse stage,
+  // which made the hook count change between renders (e.g. loading vs browse).
+  const filteredMenu = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return menu.filter((m) => {
+      if (categoryFilter && m.category !== categoryFilter) return false;
+      if (!q) return true;
+      return m.name.toLowerCase().includes(q) || (m.description ?? '').toLowerCase().includes(q);
+    });
+  }, [menu, search, categoryFilter]);
 
   // Derived view based on session status
   useEffect(() => {
@@ -116,14 +134,43 @@ export default function JoinPartyScreen() {
     setView((prev) => (prev === 'review' ? 'review' : 'browse'));
   }, [session?.status]);
 
-  // Load saved credentials once we have sessionId
+  // Load saved credentials once we have sessionId. `credsLoaded` flips once
+  // we know whether the device has any saved creds — we gate the name-entry
+  // screen on this so returning users don't flicker through the name prompt.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) { setCredsLoaded(true); return; }
+    let cancelled = false;
     (async () => {
       const saved = await loadPartyCreds(sessionId);
+      if (cancelled) return;
       if (saved) setCreds(saved);
+      setCredsLoaded(true);
     })();
+    return () => { cancelled = true; };
   }, [sessionId]);
+
+  // Pre-fill nameInput with (a) the last name the user joined a party with,
+  // and (b) as a final fallback, the logged-in user's profile name/email.
+  // This means a returning guest who previously typed "John" never has to
+  // type their name again for any subsequent party.
+  useEffect(() => {
+    if (nameInput.trim().length > 0) return;
+    let cancelled = false;
+    (async () => {
+      const last = await loadLastDisplayName();
+      if (cancelled) return;
+      if (last) { setNameInput(last); return; }
+      const meta: any = authSession?.user?.user_metadata ?? {};
+      const candidate = (
+        meta.full_name || meta.name || meta.display_name ||
+        [meta.first_name, meta.last_name].filter(Boolean).join(' ') ||
+        (authSession?.user?.email ? String(authSession.user.email).split('@')[0] : '')
+      );
+      const fallback = typeof candidate === 'string' ? candidate.trim() : '';
+      if (fallback) setNameInput(fallback);
+    })();
+    return () => { cancelled = true; };
+  }, [authSession?.user?.id]);
 
   // Fetch initial snapshot + menu
   const loadAll = useCallback(async () => {
@@ -184,13 +231,14 @@ export default function JoinPartyScreen() {
   // ── Actions ─────────────────────────────────────────────────────────────
   const handleJoin = async () => {
     const name = nameInput.trim();
-    if (!name) { Alert.alert('Enter your name', 'A display name is required.'); return; }
+    if (!name) { Alert.alert('Enter your name', 'Please enter your name to continue.'); return; }
     setJoining(true);
     try {
       const result = await joinSession(supabase, sessionId, name);
       const next: PartyCreds = { sessionId, memberId: result.member_id, memberToken: result.member_token };
       setCreds(next);
       await savePartyCreds(next);
+      await saveLastDisplayName(name);
       await loadAll();
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
@@ -374,7 +422,11 @@ export default function JoinPartyScreen() {
       </View>
     );
   }
-  if (loading) {
+  // Wait for BOTH the initial snapshot load AND the saved-creds read before
+  // deciding whether to show the name-entry screen. Otherwise a returning
+  // guest sees a brief flicker of the name prompt before being switched to
+  // the browse view once creds resolve.
+  if (loading || !credsLoaded) {
     return (
       <View style={s.centered}>
         <ActivityIndicator color="#FF9933" />
@@ -400,28 +452,63 @@ export default function JoinPartyScreen() {
     );
   }
 
+  // ── Cancelled session kicks everyone out ────────────────────────────────
+  if (session.status === 'cancelled') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={s.centered}>
+          <Animated.View entering={FadeIn} style={{ alignItems: 'center', gap: 10, maxWidth: 340 }}>
+            <View style={s.cancelledBadge}><X size={32} color="#EF4444" strokeWidth={3} /></View>
+            <Text style={s.successTitle}>Group order ended</Text>
+            <Text style={s.successSubtitle}>
+              {restaurant?.name ? `The host cancelled the group order at ${restaurant.name}.` : 'The host cancelled this group order.'}
+              {' '}Any paid shares have been refunded.
+            </Text>
+            <Pressable
+              onPress={async () => { await clearPartyCreds(sessionId); router.replace('/'); }}
+              style={[s.primaryBtn, { marginTop: 10, alignSelf: 'stretch' }]}
+            >
+              <Text style={s.primaryBtnText}>Back to home</Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </>
+    );
+  }
+
   // ── Name entry ──────────────────────────────────────────────────────────
   if (!creds || !me) {
-    // If the user is authenticated, prefill name from profile.
-    const fallback = authSession?.user?.user_metadata?.full_name ?? authSession?.user?.email ?? '';
+    const hasPrefill = nameInput.trim().length > 0;
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.joinContainer}>
           <Animated.View entering={FadeIn} style={s.joinCard}>
-            <Text style={s.joinTitle}>Join group order</Text>
-            <Text style={s.joinSubtitle}>at {restaurant?.name ?? 'this restaurant'}</Text>
+            <View style={s.joinBadge}>
+              <Users size={14} color="#FF9933" />
+              <Text style={s.joinBadgeText}>Group order</Text>
+            </View>
+            <Text style={s.joinTitle}>Join at {restaurant?.name ?? 'this restaurant'}</Text>
+            <Text style={s.joinSubtitle}>Your name shows up on the order so everyone knows who added what.</Text>
             <TextInput
               placeholder="Your name"
               placeholderTextColor="#71717A"
               style={s.nameInput}
-              value={nameInput || fallback}
+              value={nameInput}
               onChangeText={setNameInput}
-              autoFocus
+              autoFocus={!hasPrefill}
+              selectTextOnFocus
               maxLength={60}
+              returnKeyType="go"
+              onSubmitEditing={handleJoin}
             />
             <Pressable onPress={handleJoin} disabled={joining} style={[s.primaryBtn, joining && { opacity: 0.6 }]}>
-              {joining ? <ActivityIndicator color="#0f0f0f" /> : <Text style={s.primaryBtnText}>Join</Text>}
+              {joining ? (
+                <ActivityIndicator color="#0f0f0f" />
+              ) : (
+                <Text style={s.primaryBtnText}>{hasPrefill ? `Continue as ${nameInput.trim()}` : 'Join'}</Text>
+              )}
             </Pressable>
             <Pressable onPress={() => router.back()} style={s.textBtn}>
               <Text style={s.textBtnText}>Not now</Text>
@@ -460,13 +547,11 @@ export default function JoinPartyScreen() {
           />
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
             <Animated.View entering={FadeInDown} style={s.headerCard}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={s.summaryLabel}>Total</Text>
-                <Text style={s.summaryValue}>{formatCents(session.total_cents)}</Text>
-              </View>
-              <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={s.summaryLabel}>Group total</Text>
+              <Text style={s.summaryValue}>{formatCents(session.total_cents)}</Text>
+              <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Lock size={12} color="#A1A1AA" />
-                <Text style={s.summaryMeta}>Cart locked · {members.length} members</Text>
+                <Text style={s.summaryMeta}>{members.length} {members.length === 1 ? 'member' : 'members'} · {items.length} {items.length === 1 ? 'item' : 'items'}</Text>
               </View>
             </Animated.View>
 
@@ -478,6 +563,7 @@ export default function JoinPartyScreen() {
                 isHost={isHost}
                 onCoverMember={handleCoverMember}
                 onRetry={handlePayMyShare}
+                onMemberTap={(id) => setViewingMemberId(id)}
               />
             </View>
 
@@ -520,6 +606,15 @@ export default function JoinPartyScreen() {
           </ScrollView>
 
           <CancelSheet visible={showCancelConfirm} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
+
+          <MemberItemsSheet
+            visible={viewingMemberId !== null}
+            member={members.find((m) => m.id === viewingMemberId) ?? null}
+            memberIndex={Math.max(0, members.findIndex((m) => m.id === viewingMemberId))}
+            items={items.filter((it) => it.added_by_member_id === viewingMemberId)}
+            isSelf={viewingMemberId === creds.memberId}
+            onClose={() => setViewingMemberId(null)}
+          />
         </View>
       </>
     );
@@ -561,10 +656,17 @@ export default function JoinPartyScreen() {
           onRight={handleShare}
         />
 
-        {/* Members strip */}
+        {/* Members strip — tap a member to see what they've ordered */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.membersStrip} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
           {members.map((m, idx) => (
-            <MemberChip key={m.id} member={m} index={idx} isSelf={m.id === creds.memberId} />
+            <MemberChip
+              key={m.id}
+              member={m}
+              index={idx}
+              isSelf={m.id === creds.memberId}
+              itemCount={items.filter((it) => it.added_by_member_id === m.id).reduce((sum, it) => sum + (it.quantity ?? 1), 0)}
+              onPress={() => setViewingMemberId(m.id)}
+            />
           ))}
         </ScrollView>
 
@@ -585,15 +687,17 @@ export default function JoinPartyScreen() {
 
         {/* Menu list */}
         <FlatList
-          data={useFilteredMenu(menu, search, categoryFilter)}
+          data={filteredMenu}
           keyExtractor={(m) => String(m.id)}
           contentContainerStyle={{ padding: 16, paddingBottom: 180 }}
           renderItem={({ item }) => (
             <MenuRow item={item} inCartCount={cartCountFor(items, item.id)} onAdd={() => handleAddItem(item.id)} />
           )}
           ListEmptyComponent={
-            <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-              <Text style={{ color: '#71717A' }}>No menu items match that filter.</Text>
+            <View style={{ alignItems: 'center', paddingVertical: 56, gap: 6 }}>
+              <Search size={24} color="#3F3F46" />
+              <Text style={{ color: '#A1A1AA', fontWeight: '600', fontSize: 13 }}>Nothing matches that filter.</Text>
+              <Text style={{ color: '#52525B', fontSize: 11 }}>Try clearing the search or category.</Text>
             </View>
           }
         />
@@ -609,6 +713,15 @@ export default function JoinPartyScreen() {
           canEdit={true}
           isHost={isHost}
           onLeave={handleLeave}
+        />
+
+        <MemberItemsSheet
+          visible={viewingMemberId !== null}
+          member={members.find((m) => m.id === viewingMemberId) ?? null}
+          memberIndex={Math.max(0, members.findIndex((m) => m.id === viewingMemberId))}
+          items={items.filter((it) => it.added_by_member_id === viewingMemberId)}
+          isSelf={viewingMemberId === creds.memberId}
+          onClose={() => setViewingMemberId(null)}
         />
       </View>
     </>
@@ -638,19 +751,28 @@ function TopBar({ title, subtitle, onBack, rightIcon, onRight }: { title: string
   );
 }
 
-function MemberChip({ member, index, isSelf }: { member: PartyMember; index: number; isSelf: boolean }) {
+function MemberChip({
+  member, index, isSelf, itemCount = 0, onPress,
+}: {
+  member: PartyMember; index: number; isSelf: boolean; itemCount?: number; onPress?: () => void;
+}) {
   const color = colorForMember(member.id, []);
   const fallback = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'][index % 8];
   return (
-    <View style={[s.memberChip, isSelf && { borderColor: '#FF9933' }]}>
+    <Pressable onPress={onPress} style={[s.memberChip, isSelf && { borderColor: '#FF9933' }]}>
       <View style={[s.avatarSm, { backgroundColor: color || fallback }]}>
         <Text style={s.avatarSmText}>{memberInitials(member.display_name)}</Text>
         {member.role === 'host' ? <Crown size={10} color="#FFF" style={{ position: 'absolute', top: -4, right: -4 }} strokeWidth={3} /> : null}
       </View>
       <Text style={s.memberChipText} numberOfLines={1}>
-        {member.display_name}{isSelf ? ' · You' : ''}
+        {isSelf ? `${member.display_name} · You` : member.display_name}
       </Text>
-    </View>
+      {itemCount > 0 ? (
+        <View style={s.memberChipCount}>
+          <Text style={s.memberChipCountText}>{itemCount}</Text>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -658,13 +780,18 @@ function CategoryChips({ menu, active, onChange }: { menu: MenuItem[]; active: s
   const cats = useMemo(() => Array.from(new Set(menu.map((m) => m.category).filter(Boolean))) as string[], [menu]);
   if (cats.length === 0) return null;
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ marginTop: 8, maxHeight: 40 }}
+      contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}
+    >
       <Pressable onPress={() => onChange(null)} style={[s.catChip, !active && s.catChipActive]}>
-        <Text style={[s.catChipText, !active && s.catChipTextActive]}>All</Text>
+        <Text numberOfLines={1} style={[s.catChipText, !active && s.catChipTextActive]}>All</Text>
       </Pressable>
       {cats.map((c) => (
         <Pressable key={c} onPress={() => onChange(c === active ? null : c)} style={[s.catChip, active === c && s.catChipActive]}>
-          <Text style={[s.catChipText, active === c && s.catChipTextActive]}>{c}</Text>
+          <Text numberOfLines={1} style={[s.catChipText, active === c && s.catChipTextActive]}>{c}</Text>
         </Pressable>
       ))}
     </ScrollView>
@@ -745,11 +872,21 @@ function CartSummary(props: {
         <Pressable onPress={props.onLeave} style={[s.secondaryBtn, { flex: 1 }]}>
           <Text style={s.secondaryBtnText}>Leave</Text>
         </Pressable>
-        {props.isHost ? (
-          <Pressable onPress={props.onReview} disabled={props.items.length === 0} style={[s.primaryBtn, { flex: 2 }, props.items.length === 0 && { opacity: 0.6 }]}>
-            <Text style={s.primaryBtnText}>Review & checkout</Text>
-          </Pressable>
-        ) : (
+        {props.isHost ? (() => {
+          const needsGuests = props.members.length < 2;
+          const noItems = props.items.length === 0;
+          const disabled = needsGuests || noItems;
+          const label = needsGuests ? 'Waiting for guests to join…' : 'Review & checkout';
+          return (
+            <Pressable
+              onPress={props.onReview}
+              disabled={disabled}
+              style={[s.primaryBtn, { flex: 2 }, disabled && { opacity: 0.55 }]}
+            >
+              <Text style={s.primaryBtnText}>{label}</Text>
+            </Pressable>
+          );
+        })() : (
           <View style={[s.primaryBtn, { flex: 2, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
             <Text style={[s.primaryBtnText, { color: '#A1A1AA' }]}>Waiting on host…</Text>
           </View>
@@ -806,15 +943,17 @@ function ReviewStage({
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={s.container}>
-        <TopBar title="Review & split" subtitle={restaurant?.name ?? undefined} onBack={onBack} />
+        <TopBar title="Review" subtitle={restaurant?.name ?? undefined} onBack={onBack} />
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 180 }}>
           <Animated.View entering={FadeInDown} style={s.headerCard}>
-            <Text style={s.summaryLabel}>Total</Text>
+            <Text style={s.summaryLabel}>Group total</Text>
             <Text style={s.summaryValue}>{formatCents(total)}</Text>
-            <Text style={s.summaryMeta}>{snapshot.items.length} items · {snapshot.members.length} members</Text>
+            <Text style={s.summaryMeta}>
+              {snapshot.members.length} {snapshot.members.length === 1 ? 'member' : 'members'} · {snapshot.items.length} {snapshot.items.length === 1 ? 'item' : 'items'}
+            </Text>
           </Animated.View>
 
-          <Text style={s.sectionLabel}>How will you split?</Text>
+          <Text style={s.sectionLabel}>How should the bill be paid?</Text>
           <View style={{ gap: 10 }}>
             {PAYMENT_MODES.map((m) => (
               <Pressable key={m.key} onPress={() => onSetMode(m.key)} style={[s.modeCard, mode === m.key && s.modeCardActive]}>
@@ -829,7 +968,7 @@ function ReviewStage({
 
           {mode === 'assigned' ? (
             <>
-              <Text style={[s.sectionLabel, { marginTop: 22 }]}>Assign each item</Text>
+              <Text style={[s.sectionLabel, { marginTop: 22 }]}>Choose a payer for each item</Text>
               {snapshot.items.map((it) => (
                 <AssignItemRow key={it.id} item={it} members={snapshot.members} onAssign={(pid) => onAssignPayer(it.id, pid)} />
               ))}
@@ -838,9 +977,9 @@ function ReviewStage({
 
           {mode === 'per_person' ? (
             <>
-              <Text style={[s.sectionLabel, { marginTop: 22 }]}>Per-item shares</Text>
+              <Text style={[s.sectionLabel, { marginTop: 22 }]}>Fine-tune who pays for what</Text>
               <Text style={{ color: '#71717A', fontSize: 12, marginBottom: 10 }}>
-                By default each item is billed to whoever added it. Tap to split an item across multiple members.
+                By default each person pays for the items they added. Tap names below to share an item between multiple people.
               </Text>
               {snapshot.items.map((it) => (
                 <SplitItemRow key={it.id} item={it} members={snapshot.members} onSetSplit={(ids) => onSetSplit(it.id, ids)} />
@@ -854,7 +993,7 @@ function ReviewStage({
             {busy ? <ActivityIndicator color="#0f0f0f" /> : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Lock size={16} color="#0f0f0f" />
-                <Text style={s.primaryBtnText}>Lock cart & collect</Text>
+                <Text style={s.primaryBtnText}>Lock cart &amp; start collecting</Text>
               </View>
             )}
           </Pressable>
@@ -921,6 +1060,79 @@ function CancelSheet({ visible, onCancel, onConfirm, busy }: { visible: boolean;
         <Pressable onPress={onCancel} style={s.textBtn}>
           <Text style={s.textBtnText}>Never mind</Text>
         </Pressable>
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+function MemberItemsSheet({
+  visible, member, memberIndex, items, isSelf, onClose,
+}: {
+  visible: boolean;
+  member: PartyMember | null;
+  memberIndex: number;
+  items: PartyItem[];
+  isSelf: boolean;
+  onClose: () => void;
+}) {
+  if (!visible || !member) return null;
+  const color = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'][memberIndex % 8];
+  const totalCents = items.reduce((sum, it) => {
+    const price = Math.round(Number(it.menu_item?.price ?? 0) * 100);
+    return sum + price * (it.quantity ?? 1);
+  }, 0);
+  const itemCount = items.reduce((sum, it) => sum + (it.quantity ?? 1), 0);
+  return (
+    <Animated.View entering={FadeIn} exiting={FadeOut} style={s.sheetBackdrop}>
+      <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
+      <Animated.View entering={SlideInUp} style={s.memberSheet}>
+        <View style={s.memberSheetHeader}>
+          <View style={[s.avatarMd, { backgroundColor: color }]}>
+            <Text style={s.avatarMdText}>{memberInitials(member.display_name)}</Text>
+            {member.role === 'host' ? (
+              <View style={s.crownBadge}><Crown size={10} color="#FFF" strokeWidth={3} /></View>
+            ) : null}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.memberSheetTitle} numberOfLines={1}>
+              {isSelf ? `${member.display_name} · You` : member.display_name}
+            </Text>
+            <Text style={s.memberSheetSubtitle}>
+              {itemCount === 0 ? 'No items yet' : `${itemCount} ${itemCount === 1 ? 'item' : 'items'} · ${formatCents(totalCents)}`}
+            </Text>
+          </View>
+          <Pressable onPress={onClose} hitSlop={12} style={s.memberSheetClose}>
+            <X size={18} color="#A1A1AA" />
+          </Pressable>
+        </View>
+
+        {items.length === 0 ? (
+          <View style={{ paddingVertical: 28, alignItems: 'center' }}>
+            <ShoppingCart size={22} color="#3F3F46" />
+            <Text style={{ color: '#71717A', marginTop: 8, fontSize: 13 }}>
+              {isSelf ? "You haven't added anything yet." : `${member.display_name.split(' ')[0]} hasn't added anything yet.`}
+            </Text>
+          </View>
+        ) : (
+          <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ paddingBottom: 6 }}>
+            {items.map((it) => {
+              const priceCents = Math.round(Number(it.menu_item?.price ?? 0) * 100);
+              return (
+                <View key={it.id} style={s.memberSheetRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.memberSheetItemName} numberOfLines={1}>
+                      {it.quantity > 1 ? `${it.quantity}× ` : ''}{it.menu_item?.name ?? 'Item'}
+                    </Text>
+                    {it.special_requests ? (
+                      <Text style={s.memberSheetNote} numberOfLines={2}>{it.special_requests}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={s.memberSheetPrice}>{formatCents(priceCents * (it.quantity ?? 1))}</Text>
+                </View>
+              );
+            })}
+          </ScrollView>
+        )}
       </Animated.View>
     </Animated.View>
   );
@@ -1005,17 +1217,6 @@ function cartCountFor(items: PartyItem[], menuItemId: number): number {
   return items.filter((i) => i.menu_item_id === menuItemId).reduce((sum, i) => sum + (i.quantity ?? 1), 0);
 }
 
-function useFilteredMenu(menu: MenuItem[], search: string, category: string | null): MenuItem[] {
-  return useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return menu.filter((m) => {
-      if (category && m.category !== category) return false;
-      if (!q) return true;
-      return m.name.toLowerCase().includes(q) || (m.description ?? '').toLowerCase().includes(q);
-    });
-  }, [menu, search, category]);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Styles
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1028,9 +1229,11 @@ const s = StyleSheet.create({
   retryBtnText: { color: '#0f0f0f', fontWeight: '700' },
 
   joinContainer: { flex: 1, backgroundColor: '#0f0f0f', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  joinCard: { width: '100%', maxWidth: 420, backgroundColor: '#151515', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  joinTitle: { color: '#F4F4F5', fontSize: 24, fontWeight: '800' },
-  joinSubtitle: { color: '#A1A1AA', marginTop: 4 },
+  joinCard: { width: '100%', maxWidth: 420, backgroundColor: '#151515', borderRadius: 24, padding: 26, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  joinBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.12)', marginBottom: 12 },
+  joinBadgeText: { color: '#FF9933', fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
+  joinTitle: { color: '#F4F4F5', fontSize: 26, fontWeight: '900', lineHeight: 32 },
+  joinSubtitle: { color: '#A1A1AA', marginTop: 8, fontSize: 14, lineHeight: 20 },
   nameInput: { marginTop: 18, backgroundColor: '#0f0f0f', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, color: '#F4F4F5', fontSize: 16 },
 
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 54, paddingBottom: 12, gap: 8 },
@@ -1040,15 +1243,20 @@ const s = StyleSheet.create({
   membersStrip: { maxHeight: 58, marginBottom: 4 },
   memberChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   memberChipText: { color: '#F4F4F5', fontSize: 12, fontWeight: '600', maxWidth: 120 },
+  memberChipCount: { marginLeft: 2, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.15)', minWidth: 18, alignItems: 'center' },
+  memberChipCountText: { color: '#FF9933', fontSize: 10, fontWeight: '800' },
   avatarSm: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   avatarSmText: { color: '#0f0f0f', fontWeight: '800', fontSize: 10 },
+  avatarMd: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  avatarMdText: { color: '#0f0f0f', fontWeight: '900', fontSize: 15 },
+  crownBadge: { position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#151515' },
 
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 10, backgroundColor: '#151515', borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   searchInput: { flex: 1, color: '#F4F4F5', paddingVertical: Platform.OS === 'ios' ? 12 : 8 },
 
-  catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  catChip: { height: 30, paddingHorizontal: 12, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
   catChipActive: { backgroundColor: '#FF9933', borderColor: '#FF9933' },
-  catChipText: { color: '#A1A1AA', fontSize: 12, fontWeight: '600' },
+  catChipText: { color: '#A1A1AA', fontSize: 12, fontWeight: '600', lineHeight: 14 },
   catChipTextActive: { color: '#0f0f0f' },
 
   menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: '#151515', borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
@@ -1109,8 +1317,19 @@ const s = StyleSheet.create({
   sheetTitle: { color: '#F4F4F5', fontSize: 18, fontWeight: '800' },
   sheetBody: { color: '#A1A1AA', marginTop: 8 },
 
+  memberSheet: { backgroundColor: '#151515', padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 32, borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  memberSheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  memberSheetTitle: { color: '#F4F4F5', fontSize: 16, fontWeight: '800' },
+  memberSheetSubtitle: { color: '#A1A1AA', fontSize: 12, marginTop: 2, fontWeight: '600' },
+  memberSheetClose: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.04)' },
+  memberSheetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
+  memberSheetItemName: { color: '#F4F4F5', fontSize: 14, fontWeight: '700' },
+  memberSheetNote: { color: '#71717A', fontSize: 12, marginTop: 2 },
+  memberSheetPrice: { color: '#FF9933', fontSize: 14, fontWeight: '800' },
+
   successBadgeWrapper: { width: 72, height: 72, marginBottom: 14, alignItems: 'center', justifyContent: 'center' },
   successBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,153,51,0.12)', alignItems: 'center', justifyContent: 'center' },
+  cancelledBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(239,68,68,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   pulseRing: { position: 'absolute', width: 72, height: 72, borderRadius: 36, borderWidth: 2, borderColor: 'rgba(255,153,51,0.6)' },
   successTitle: { color: '#F4F4F5', fontWeight: '900', fontSize: 24 },
   successSubtitle: { color: '#A1A1AA', textAlign: 'center', marginTop: 6 },
