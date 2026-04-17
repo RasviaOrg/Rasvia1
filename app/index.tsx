@@ -187,9 +187,11 @@ export default function DiscoveryFeed() {
         setAddressInput(display);
       }
 
-      // Save to profile
+      // Save to profile — persist the reverse-geocoded display string when we
+      // have one, otherwise null so we don't freeze a literal "GPS Location"
+      // fallback onto the profile (which would surface on the home chip).
       if (session?.user?.id) {
-        const displayAddr = addressInput || "GPS Location";
+        const displayAddr = addressInput?.trim() ? addressInput.trim() : null;
         await supabase.from("profiles").update({
           home_lat: coords.latitude,
           home_long: coords.longitude,
@@ -1121,11 +1123,11 @@ export default function DiscoveryFeed() {
               style={{
                 flexShrink: 1,
                 fontFamily: "Manrope_600SemiBold",
-                color: locationLabel ? "#e2e2e2" : "#777",
+                color: locationLabel && locationLabel !== "GPS Location" ? "#e2e2e2" : "#777",
                 fontSize: 13,
               }}
             >
-              {locationLabel ?? "Set location"}
+              {locationLabel && locationLabel !== "GPS Location" ? locationLabel : "Unknown"}
             </Text>
             <ChevronDown
               size={13}
@@ -2150,7 +2152,7 @@ export default function DiscoveryFeed() {
                     marginTop: 2,
                   }}
                 >
-                  Your saved spots, sorted by wait
+                  Your saved spots, sorted by wait time
                 </Text>
               </View>
               <FlatList

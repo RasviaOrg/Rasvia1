@@ -42,6 +42,8 @@ import Animated, {
   useAnimatedScrollHandler,
   interpolate,
   Extrapolation,
+  FadeIn,
+  FadeOut,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { WaitBadge } from "@/components/WaitBadge";
@@ -2390,24 +2392,47 @@ export default function RestaurantDetail() {
         }}
       />
 
-      {/* ── Order Type Picker (Takeout vs Dine In) ── */}
+      {/* ── Order Type Picker (Takeout vs Dine In) ──
+          The backdrop fades in independently so only the bottom sheet slides
+          up from the bottom — previously the whole modal (including the dim
+          backdrop) slid up which looked jarring. */}
       <Modal
         visible={showOrderTypePicker}
         transparent
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setShowOrderTypePicker(false)}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}>
-          <Pressable style={{ flex: 1 }} onPress={() => setShowOrderTypePicker(false)} />
-          <View style={{
-            backgroundColor: "#1a1a1a",
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            padding: 28,
-            paddingBottom: Platform.OS === "ios" ? 44 : 28,
-            borderWidth: 1,
-            borderColor: "#2a2a2a",
-          }}>
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <Animated.View
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.6)",
+            }}
+          >
+            <Pressable style={{ flex: 1 }} onPress={() => setShowOrderTypePicker(false)} />
+          </Animated.View>
+          <Animated.View
+            // Fade the sheet in alongside the backdrop — no slide — so the
+            // overlay simply materializes instead of animating from the
+            // bottom edge.
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+            style={{
+              backgroundColor: "#1a1a1a",
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              padding: 28,
+              paddingBottom: Platform.OS === "ios" ? 44 : 28,
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+            }}
+          >
             <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 24, marginBottom: 6 }}>
               How would you like to order?
             </Text>
@@ -2525,7 +2550,7 @@ export default function RestaurantDetail() {
                 </Text>
               </View>
             </Pressable>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 

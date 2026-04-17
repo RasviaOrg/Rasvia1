@@ -21,6 +21,8 @@ export type PartyMember = {
   joined_at: string;
   last_seen_at: string;
   left_at: string | null;
+  /** Profile avatar snapshot captured at join time (see `party_join_session`). */
+  avatar_url?: string | null;
 };
 
 export type PartyItem = {
@@ -372,9 +374,38 @@ export async function fetchSnapshot(
   if (memRes.error) throw new Error(memRes.error.message);
   if (itemRes.error) throw new Error(itemRes.error.message);
   if (payRes.error) throw new Error(payRes.error.message);
+
+  // `party_members.avatar_url` is snapshotted at join time by the
+  // `party_join_session` RPC. RLS on `profiles` blocks reading other users'
+  // rows, so we only backfill the caller's own avatar when it's missing
+  // (e.g. a member row that joined before the snapshot column existed).
+  const rawMembers = (memRes.data ?? []) as PartyMember[];
+  let selfId: string | null = null;
+  let selfAvatar: string | null = null;
+  try {
+    const { data: me } = await supabase.auth.getUser();
+    selfId = me?.user?.id ?? null;
+    if (selfId) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('avatar_url')
+        .eq('id', selfId)
+        .maybeSingle();
+      selfAvatar = (prof as { avatar_url?: string | null } | null)?.avatar_url ?? null;
+    }
+  } catch {
+    // non-fatal — we'll just render initials
+  }
+  const members: PartyMember[] = rawMembers.map((m) => ({
+    ...m,
+    avatar_url:
+      m.avatar_url ??
+      (m.user_id && selfId && m.user_id === selfId ? selfAvatar : null),
+  }));
+
   return {
     session: sessRes.data as PartySession,
-    members: (memRes.data ?? []) as PartyMember[],
+    members,
     items: (itemRes.data ?? []) as PartyItem[],
     payments: (payRes.data ?? []) as PartyPayment[],
   };

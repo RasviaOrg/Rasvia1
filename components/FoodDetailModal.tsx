@@ -280,30 +280,31 @@ export function FoodDetailModal({
                 all_day:   { bg: "rgba(129,140,248,0.15)", border: "rgba(129,140,248,0.4)",  color: "#818CF8", label: "Main Course" },
                 specials:  { bg: "rgba(245,158,11,0.15)", border: "rgba(245,158,11,0.4)",  color: "#F59E0B", label: "Specials" },
               };
-              const chips = item.mealTimes.map((mt) => MEAL_STYLES[mt] ?? {
-                bg: "rgba(148,163,184,0.15)",
-                border: "rgba(148,163,184,0.4)",
-                color: "#A3A3A3",
-                label: String(mt).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-              });
+              // Dedupe chips by display label so e.g. lunch+dinner don't
+              // both render as "Main Course".
+              const seen = new Set<string>();
+              const chips: Array<{ key: string; style: typeof MEAL_STYLES[string] }> = [];
+              for (const mt of item.mealTimes) {
+                const s = MEAL_STYLES[mt] ?? {
+                  bg: "rgba(148,163,184,0.15)",
+                  border: "rgba(148,163,184,0.4)",
+                  color: "#A3A3A3",
+                  label: String(mt).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+                };
+                if (seen.has(s.label)) continue;
+                seen.add(s.label);
+                chips.push({ key: mt, style: s });
+              }
               if (chips.length === 0) return null;
               return (
                 <View className="flex-row flex-wrap mb-4" style={{ gap: 6 }}>
-                  {item.mealTimes.map((mt, i) => {
-                    const s = MEAL_STYLES[mt] ?? {
-                      bg: "rgba(148,163,184,0.15)",
-                      border: "rgba(148,163,184,0.4)",
-                      color: "#A3A3A3",
-                      label: String(mt).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-                    };
-                    return (
-                      <View key={i} style={{ backgroundColor: s.bg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: s.border }}>
-                        <Text style={{ fontFamily: "Manrope_700Bold", color: s.color, fontSize: 12 }}>
-                          {s.label}
-                        </Text>
-                      </View>
-                    );
-                  })}
+                  {chips.map(({ key, style: s }) => (
+                    <View key={key} style={{ backgroundColor: s.bg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: s.border }}>
+                      <Text style={{ fontFamily: "Manrope_700Bold", color: s.color, fontSize: 12 }}>
+                        {s.label}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               );
             })()}

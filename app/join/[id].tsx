@@ -97,6 +97,10 @@ export default function JoinPartyScreen() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [viewingMemberId, setViewingMemberId] = useState<string | null>(null);
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
+  /** Optimistic +1 overlay for the menu Add buttons, keyed by menu_item_id.
+   *  Cleared on snapshot refresh so the badge reflects the tap instantly
+   *  without waiting for the Supabase RPC round-trip. */
+  const [pendingAdds, setPendingAdds] = useState<Record<number, number>>({});
 
   const session = snapshot?.session ?? null;
   const members = snapshot?.members ?? [];
@@ -209,6 +213,7 @@ export default function JoinPartyScreen() {
     try {
       const snap = await fetchSnapshot(supabase, sessionId);
       setSnapshot(snap);
+      setPendingAdds({});
       if (!restaurant || restaurant.id !== snap.session.restaurant_id) {
         const { data: rest } = await supabase
           .from('restaurants')
@@ -246,7 +251,7 @@ export default function JoinPartyScreen() {
     const handle = subscribeToParty(
       supabase,
       sessionId,
-      (snap) => setSnapshot(snap),
+      (snap) => { setSnapshot(snap); setPendingAdds({}); },
       (err) => console.warn('Party realtime error:', err.message),
     );
     return () => handle.unsubscribe();
@@ -288,10 +293,19 @@ export default function JoinPartyScreen() {
 
   const handleAddItem = async (menuItemId: number) => {
     if (!creds) return;
+    // Optimistic +1 so the badge reacts instantly — the real snapshot will
+    // replace this within a few hundred ms via realtime.
+    setPendingAdds((prev) => ({ ...prev, [menuItemId]: (prev[menuItemId] ?? 0) + 1 }));
+    hapticTap();
     try {
-      hapticTap();
       await addItem(supabase, creds, menuItemId, 1);
     } catch (err) {
+      setPendingAdds((prev) => {
+        const next = { ...prev };
+        const current = next[menuItemId] ?? 0;
+        if (current <= 1) delete next[menuItemId]; else next[menuItemId] = current - 1;
+        return next;
+      });
       Alert.alert('Could not add item', err instanceof Error ? err.message : 'Try again.');
     }
   };
@@ -735,13 +749,14 @@ export default function JoinPartyScreen() {
 
         {/* Menu list */}
         <FlatList
+          style={{ flex: 1 }}
           data={filteredMenu}
           keyExtractor={(m) => String(m.id)}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 180 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 180, flexGrow: 1 }}
           renderItem={({ item }) => (
             <MenuRow
               item={item}
-              inCartCount={cartCountFor(items, item.id)}
+              inCartCount={cartCountFor(items, item.id) + (pendingAdds[Number(item.id)] ?? 0)}
               onAdd={() => handleAddItem(item.id)}
               onOpenDetails={() => {
                 hapticTap();
@@ -837,8 +852,12 @@ function MemberChip({
       if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onPress?.();
     }} style={[s.memberChip, isSelf && { borderColor: '#FF9933' }]}>
-      <View style={[s.avatarSm, { backgroundColor: color || fallback }]}>
-        <Text style={s.avatarSmText}>{memberInitials(member.display_name)}</Text>
+      <View style={[s.avatarSm, { backgroundColor: member.avatar_url ? '#1f1f1f' : color || fallback, overflow: 'hidden' }]}>
+        {member.avatar_url ? (
+          <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
+        ) : (
+          <Text style={s.avatarSmText}>{memberInitials(member.display_name)}</Text>
+        )}
         {member.role === 'host' ? <Crown size={10} color="#FFF" style={{ position: 'absolute', top: -2, right: -2 }} strokeWidth={3} /> : null}
       </View>
       <Text style={s.memberChipText} numberOfLines={1}>
@@ -860,8 +879,8 @@ function CategoryChips({ tags, active, onChange }: { tags: MenuTagConfig[]; acti
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      style={{ marginTop: 12, minHeight: 46 }}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 4, gap: 8, alignItems: 'center' }}
+      style={{ marginTop: 8, height: 46, flexGrow: 0, flexShrink: 0 }}
+      contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}
     >
       <Pressable onPress={() => {
         if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1220,14 +1239,34 @@ function ReviewStage({
 }
 
 function AssignItemRow({ item, members, onAssign }: { item: PartyItem; members: PartyMember[]; onAssign: (payerId: string) => Promise<void> }) {
-  const current = memberById(members, item.assigned_payer_id) ?? memberById(members, item.added_by_member_id);
+  const serverCurrentId = (memberById(members, item.assigned_payer_id) ?? memberById(members, item.added_by_member_id))?.id ?? null;
+  // Optimistic selection so the tapped chip highlights immediately. Clears
+  // once the realtime snapshot catches up with the pending value.
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingId && pendingId === serverCurrentId) setPendingId(null);
+  }, [pendingId, serverCurrentId]);
+  const currentId = pendingId ?? serverCurrentId;
   return (
     <View style={s.assignRow}>
       <Text style={s.assignName} numberOfLines={1}>{item.quantity > 1 ? `${item.quantity}× ` : ''}{item.menu_item?.name ?? 'Item'}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
         {members.map((m) => (
-          <Pressable key={m.id} onPress={() => onAssign(m.id)} style={[s.assignPill, current?.id === m.id && s.assignPillActive]}>
-            <Text style={[s.assignPillText, current?.id === m.id && { color: '#0f0f0f' }]} numberOfLines={1}>
+          <Pressable
+            key={m.id}
+            onPress={async () => {
+              if (Platform.OS !== 'web') Haptics.selectionAsync();
+              const prev = pendingId;
+              setPendingId(m.id);
+              try {
+                await onAssign(m.id);
+              } catch {
+                setPendingId(prev);
+              }
+            }}
+            style={[s.assignPill, currentId === m.id && s.assignPillActive]}
+          >
+            <Text style={[s.assignPillText, currentId === m.id && { color: '#0f0f0f' }]} numberOfLines={1}>
               {m.display_name.split(' ')[0]}
             </Text>
           </Pressable>
@@ -1238,11 +1277,29 @@ function AssignItemRow({ item, members, onAssign }: { item: PartyItem; members: 
 }
 
 function SplitItemRow({ item, members, onSetSplit }: { item: PartyItem; members: PartyMember[]; onSetSplit: (ids: string[]) => Promise<void> }) {
-  const currentIds = item.split_member_ids ?? [];
-  const toggleId = (id: string) => {
+  const serverIds = useMemo(() => item.split_member_ids ?? [], [item.split_member_ids]);
+  // Optimistic overlay so tapping a chip flips it instantly; the overlay is
+  // cleared once the server snapshot matches.
+  const [pendingIds, setPendingIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!pendingIds) return;
+    const a = [...pendingIds].sort().join(',');
+    const b = [...serverIds].sort().join(',');
+    if (a === b) setPendingIds(null);
+  }, [pendingIds, serverIds]);
+  const currentIds = pendingIds ?? serverIds;
+  const toggleId = async (id: string) => {
     const set = new Set(currentIds);
     if (set.has(id)) set.delete(id); else set.add(id);
-    onSetSplit(Array.from(set));
+    const next = Array.from(set);
+    const prev = pendingIds;
+    setPendingIds(next);
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    try {
+      await onSetSplit(next);
+    } catch {
+      setPendingIds(prev);
+    }
   };
   return (
     <View style={s.assignRow}>
@@ -1270,14 +1327,14 @@ function CancelSheet({ visible, onCancel, onConfirm, busy }: { visible: boolean;
   };
   return (
     <Animated.View entering={FadeIn} exiting={FadeOut} style={s.sheetBackdrop}>
-      <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutDown.duration(160)} style={s.sheet}>
+      <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutDown.duration(160)} style={s.cancelSheet}>
         <Text style={s.sheetTitle}>Cancel group order?</Text>
         <Text style={s.sheetBody}>Any paid shares will be refunded via Stripe. This can&apos;t be undone.</Text>
         <Pressable onPress={() => { tap(); onConfirm(); }} disabled={busy} style={[s.dangerBtnSolid, busy && { opacity: 0.6 }]}>
           {busy ? <ActivityIndicator color="#FFF" /> : <Text style={s.dangerBtnSolidText}>Cancel & refund</Text>}
         </Pressable>
-        <Pressable onPress={() => { tap(); onCancel(); }} style={s.textBtn}>
-          <Text style={s.textBtnText}>Never mind</Text>
+        <Pressable onPress={() => { tap(); onCancel(); }} style={s.neverMindBtn}>
+          <Text style={s.neverMindBtnText}>Never mind</Text>
         </Pressable>
       </Animated.View>
     </Animated.View>
@@ -1306,8 +1363,12 @@ function MemberItemsSheet({
       <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
       <Animated.View entering={FadeInDown.duration(180)} style={s.memberSheet}>
         <View style={s.memberSheetHeader}>
-          <View style={[s.avatarMd, { backgroundColor: color }]}>
-            <Text style={s.avatarMdText}>{memberInitials(member.display_name)}</Text>
+          <View style={[s.avatarMd, { backgroundColor: member.avatar_url ? '#1f1f1f' : color, overflow: 'hidden' }]}>
+            {member.avatar_url ? (
+              <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <Text style={s.avatarMdText}>{memberInitials(member.display_name)}</Text>
+            )}
             {member.role === 'host' ? (
               <View style={s.crownBadge}><Crown size={10} color="#FFF" strokeWidth={3} /></View>
             ) : null}
@@ -1461,7 +1522,10 @@ const s = StyleSheet.create({
   topTitle: { color: '#F4F4F5', fontFamily: 'BricolageGrotesque_700Bold', fontSize: 18 },
   topSubtitle: { color: '#A1A1AA', fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 },
 
-  membersStrip: { marginTop: 8, marginBottom: 10, minHeight: 56 },
+  // Horizontal ScrollViews don't know their intrinsic height, so without
+  // an explicit cap they greedily fill the column — which is what was
+  // pushing the search bar / category chips way down the screen.
+  membersStrip: { marginTop: 6, marginBottom: 6, height: 56, flexGrow: 0, flexShrink: 0 },
   memberChip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   memberChipText: { color: '#F4F4F5', fontSize: 13, lineHeight: 18, fontWeight: '600', maxWidth: 165 },
   memberChipCount: { marginLeft: 2, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.15)', minWidth: 18, alignItems: 'center' },
@@ -1472,7 +1536,7 @@ const s = StyleSheet.create({
   avatarMdText: { color: '#0f0f0f', fontWeight: '900', fontSize: 15 },
   crownBadge: { position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#151515' },
 
-  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 14, backgroundColor: '#151515', borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 4, backgroundColor: '#151515', borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   searchInput: { flex: 1, color: '#F4F4F5', paddingVertical: Platform.OS === 'ios' ? 12 : 8 },
 
   catChip: { minHeight: 38, paddingHorizontal: 15, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
@@ -1528,7 +1592,7 @@ const s = StyleSheet.create({
   assignPillActive: { backgroundColor: '#FF9933', borderColor: '#FF9933' },
   assignPillText: { color: '#A1A1AA', fontSize: 12, fontWeight: '700' },
 
-  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 14, paddingHorizontal: 14, paddingBottom: 30, backgroundColor: '#0f0f0f', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 14, paddingHorizontal: 14, paddingBottom: 40, backgroundColor: '#0f0f0f', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
 
   payCta: { marginTop: 16, backgroundColor: '#151515', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,153,51,0.35)' },
   payCtaLabel: { color: '#A1A1AA', fontWeight: '700' },
@@ -1536,6 +1600,9 @@ const s = StyleSheet.create({
 
   sheetBackdrop: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#151515', padding: 20, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
+  cancelSheet: { backgroundColor: '#151515', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
+  neverMindBtn: { marginTop: 10, backgroundColor: '#262626', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, alignItems: 'center', alignSelf: 'center', borderWidth: 1, borderColor: '#2f2f2f' },
+  neverMindBtnText: { color: '#D4D4D8', fontWeight: '800', fontSize: 13 },
   sheetTitle: { color: '#F4F4F5', fontSize: 18, fontWeight: '800' },
   sheetBody: { color: '#A1A1AA', marginTop: 8 },
 

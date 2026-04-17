@@ -1,7 +1,7 @@
 // components/party/PartyLedger.tsx
 // Stunning live view of who has paid and who hasn't. Animated status dots.
 import React, { useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import Animated, { FadeIn, FadeInDown, Layout } from 'react-native-reanimated';
 import { Check, Clock, Crown, AlertCircle, RefreshCcw } from 'lucide-react-native';
 import {
@@ -65,8 +65,12 @@ function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, on
   return (
     <Animated.View entering={FadeInDown.delay(index * 60)} layout={Layout.springify()}>
       <Pressable onPress={onPress} style={styles.row}>
-        <View style={[styles.avatar, { backgroundColor: color }]}>
-          <Text style={styles.avatarText}>{memberInitials(member.display_name)}</Text>
+        <View style={[styles.avatar, { backgroundColor: member.avatar_url ? '#1f1f1f' : color, overflow: 'hidden' }]}>
+          {member.avatar_url ? (
+            <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
+          ) : (
+            <Text style={styles.avatarText}>{memberInitials(member.display_name)}</Text>
+          )}
           {member.role === 'host' ? (
             <View style={styles.crown}>
               <Crown size={10} color="#FFF" strokeWidth={3} />

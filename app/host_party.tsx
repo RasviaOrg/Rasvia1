@@ -669,8 +669,9 @@ export default function HostPartyScreen() {
             </View>
 
             <ScrollView
+              style={{ flex: 1 }}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 120 }}
+              contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
               keyboardShouldPersistTaps="handled"
             >
               {loadingRestaurants ? (

@@ -81,33 +81,46 @@ export default function CartScreen() {
       const userId = session?.user?.id;
       if (!userId) return;
       const key = `${row.restaurantId}:${row.menuItemId}`;
+
+      // Capture snapshot for rollback on failure.
+      const previousItems = items;
+
+      // Optimistically update UI first so taps feel instant; reconcile with
+      // Supabase in the background and roll back on error.
+      setItems((prev) =>
+        nextQty <= 0
+          ? prev.filter((p) => !(p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId))
+          : prev.map((p) =>
+              p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId
+                ? {
+                    ...p,
+                    quantity: nextQty,
+                    subtotal: Number((p.unitPrice * nextQty).toFixed(2)),
+                  }
+                : p
+            )
+      );
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      setSavingKey(key);
       try {
-        setSavingKey(key);
         await upsertUserCartItem({
           userId,
           restaurantId: row.restaurantId,
           menuItemId: row.menuItemId,
           quantity: nextQty,
         });
-        setItems((prev) =>
-          nextQty <= 0
-            ? prev.filter((p) => !(p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId))
-            : prev.map((p) =>
-                p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId
-                  ? {
-                      ...p,
-                      quantity: nextQty,
-                      subtotal: Number((p.unitPrice * nextQty).toFixed(2)),
-                    }
-                  : p
-              )
+      } catch (err) {
+        setItems(previousItems);
+        Alert.alert(
+          "Couldn't update cart",
+          err instanceof Error ? err.message : "Please try again."
         );
-        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } finally {
         setSavingKey(null);
       }
     },
-    [session?.user?.id]
+    [items, session?.user?.id]
   );
 
   const openRestaurant = useCallback(

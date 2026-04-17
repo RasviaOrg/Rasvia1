@@ -210,9 +210,13 @@ export function MenuGridItem({
             >
               {item.description}
             </Text>
-            {/* Meal time chips only — no category badges */}
+            {/* Meal time chips only — no category badges.
+                Multiple raw keys (e.g. `lunch` + `dinner`, or `main_course` +
+                `all_day`) can resolve to the same display label, so we dedupe
+                by label before rendering. */}
             <View className="flex-row flex-wrap mb-1.5" style={{ gap: 3 }}>
-              {item.mealTimes && item.mealTimes.map((mt, i) => {
+              {(() => {
+                if (!item.mealTimes) return null;
                 const mealTimeStyles: Record<string, { bg: string; border: string; color: string; label: string }> = {
                   breakfast: { bg: "rgba(249,115,22,0.15)", border: "rgba(249,115,22,0.4)", color: "#F97316", label: "Entree" },
                   lunch:     { bg: "rgba(129,140,248,0.15)",border: "rgba(129,140,248,0.4)",color: "#818CF8", label: "Main Course" },
@@ -226,20 +230,27 @@ export function MenuGridItem({
                   all_day:   { bg: "rgba(129,140,248,0.15)", border: "rgba(129,140,248,0.4)", color: "#818CF8", label: "Main Course" },
                   specials:  { bg: "rgba(245,158,11,0.15)", border: "rgba(245,158,11,0.4)", color: "#F59E0B", label: "Specials" },
                 };
-                const style = mealTimeStyles[mt] ?? {
-                  bg: "rgba(148,163,184,0.15)",
-                  border: "rgba(148,163,184,0.4)",
-                  color: "#A3A3A3",
-                  label: String(mt).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-                };
-                return (
-                  <View key={i} style={{ backgroundColor: style.bg, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, borderWidth: 0.5, borderColor: style.border }}>
+                const seen = new Set<string>();
+                const chips: Array<{ key: string; style: typeof mealTimeStyles[string] }> = [];
+                for (const mt of item.mealTimes) {
+                  const style = mealTimeStyles[mt] ?? {
+                    bg: "rgba(148,163,184,0.15)",
+                    border: "rgba(148,163,184,0.4)",
+                    color: "#A3A3A3",
+                    label: String(mt).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+                  };
+                  if (seen.has(style.label)) continue;
+                  seen.add(style.label);
+                  chips.push({ key: mt, style });
+                }
+                return chips.map(({ key, style }) => (
+                  <View key={key} style={{ backgroundColor: style.bg, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, borderWidth: 0.5, borderColor: style.border }}>
                     <Text style={{ fontFamily: "Manrope_600SemiBold", color: style.color, fontSize: 8 }}>
                       {style.label}
                     </Text>
                   </View>
-                );
-              })}
+                ));
+              })()}
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Text

@@ -43,6 +43,9 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           { height: 315, borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 16, overflow: "hidden" },
         ]}
       >
+        {/* Card-level pressable. We clip its tap region so the top-right
+            corner is reserved for the favorites heart — otherwise the heart
+            press is swallowed by the card press even with zIndex. */}
         <Pressable
           onPress={onPress}
           onPressIn={() => {
@@ -51,7 +54,17 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           onPressOut={() => {
             pressScale.value = withSpring(1);
           }}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 }}
+          style={{ position: "absolute", top: 64, left: 0, right: 0, bottom: 0, zIndex: 1 }}
+        />
+        <Pressable
+          onPress={onPress}
+          onPressIn={() => {
+            pressScale.value = withSpring(0.95);
+          }}
+          onPressOut={() => {
+            pressScale.value = withSpring(1);
+          }}
+          style={{ position: "absolute", top: 0, left: 0, right: 64, height: 64, zIndex: 1 }}
         />
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
           <RestaurantMediaFrame
@@ -87,6 +100,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               backgroundColor: "rgba(0,0,0,0.7)",
               borderRadius: 20,
               padding: 8,
+              zIndex: 5,
             }}
           >
             <Heart size={16} color={isFavorite ? "#EF4444" : "#fff"} fill={isFavorite ? "#EF4444" : "transparent"} />
