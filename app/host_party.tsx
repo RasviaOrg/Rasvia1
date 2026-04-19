@@ -48,6 +48,8 @@ interface Restaurant {
   current_wait_time: number | null;
   lat: number | null;
   long: number | null;
+  /** Null/empty when the restaurant is cash-only — group orders disabled. */
+  stripe_account_id?: string | null;
 }
 
 type SortOption = "none" | "waitTime" | "distance";
@@ -101,7 +103,7 @@ export default function HostPartyScreen() {
     const run = async () => {
       const { data, error } = await supabase
         .from("restaurants")
-        .select("id, name, cuisine_tags, image_url, current_wait_time, lat, long")
+        .select("id, name, cuisine_tags, image_url, current_wait_time, lat, long, stripe_account_id")
         .eq("id", paramRestaurantId)
         .single();
 
@@ -114,6 +116,17 @@ export default function HostPartyScreen() {
 
       if (closedRestaurantIds.has(String(r.id))) {
         Alert.alert("Restaurant Closed", `${r.name} is currently closed and cannot accept group orders.`);
+        return;
+      }
+
+      // Cash-only restaurants can't host group orders because the
+      // split-pay flow needs Stripe to collect each guest's share.
+      if (!(data as any).stripe_account_id) {
+        Alert.alert(
+          "Cash-Only Restaurant",
+          `${r.name} only accepts cash, so split-pay group orders aren't available. You can still order together in person and pay individually at the counter.`,
+          [{ text: "OK", onPress: () => router.back() }],
+        );
         return;
       }
 
@@ -240,7 +253,7 @@ export default function HostPartyScreen() {
       const { data, error } = await supabase
         .from("restaurants")
         .select(
-          "id, name, cuisine_tags, image_url, current_wait_time, lat, long",
+          "id, name, cuisine_tags, image_url, current_wait_time, lat, long, stripe_account_id",
         )
         .or("is_enabled.is.null,is_enabled.eq.true")
         .order("name", { ascending: true });
@@ -305,6 +318,13 @@ export default function HostPartyScreen() {
   const handleSelectRestaurant = (r: Restaurant) => {
     if (closedRestaurantIds.has(String(r.id))) {
       Alert.alert("Restaurant Closed", `${r.name} is currently closed and cannot accept group orders.`);
+      return;
+    }
+    if (!r.stripe_account_id) {
+      Alert.alert(
+        "Cash-Only Restaurant",
+        `${r.name} only accepts cash, so split-pay group orders aren't available. Pick a card-enabled restaurant to host a group order.`,
+      );
       return;
     }
     if (Platform.OS !== "web")
@@ -695,11 +715,13 @@ export default function HostPartyScreen() {
                     const isSelected = selectedRestaurant?.id === r.id;
                     const wt = waitLabel(r);
                     const isClosed = closedRestaurantIds.has(String(r.id));
+                    const isCashOnly = !r.stripe_account_id;
+                    const rowDisabled = isClosed || isCashOnly;
                     return (
                       <View
                         key={r.id}
                       >
-                        <View style={{ opacity: isClosed ? 0.5 : 1 }}>
+                        <View style={{ opacity: rowDisabled ? 0.5 : 1 }}>
                           <Pressable
                             onPress={() => handleSelectRestaurant(r)}
                             disabled={isClosed}
@@ -770,6 +792,18 @@ export default function HostPartyScreen() {
                                   numberOfLines={1}
                                 >
                                   {r.cuisine_tags.join(" · ")}
+                                </Text>
+                              )}
+                              {isCashOnly && !isClosed && (
+                                <Text
+                                  style={{
+                                    fontFamily: "Manrope_600SemiBold",
+                                    color: "#F59E0B",
+                                    fontSize: 11,
+                                    marginTop: 3,
+                                  }}
+                                >
+                                  Cash only · group orders unavailable
                                 </Text>
                               )}
                             </View>

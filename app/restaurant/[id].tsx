@@ -159,6 +159,10 @@ export default function RestaurantDetail() {
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
   const [communityImageTarget, setCommunityImageTarget] = useState<UIMenuItem | null>(null);
   const [acceptCommunityImages, setAcceptCommunityImages] = useState(true);
+  // True when the restaurant has Stripe Connect linked. Cash-only
+  // restaurants (no stripe_account_id) cannot host Group Orders because
+  // the split-pay flow depends on Stripe.
+  const [acceptsCard, setAcceptsCard] = useState(true);
   // Chain / multi-location picker
   const [chainLocations, setChainLocations] = useState<UIRestaurant[]>([]);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
@@ -431,6 +435,7 @@ export default function RestaurantDetail() {
       if (data) {
         const uiRestaurant = mapSupabaseToUI(data as SupabaseRestaurant, userCoords);
         setRestaurant(uiRestaurant);
+        setAcceptsCard(!!(data as any).stripe_account_id);
         // Fetch live review stats from restaurant_reviews (not the DB rating column)
         const stats = await fetchReviewStats(id);
         setLiveReviewCount(stats.count);
@@ -2519,38 +2524,55 @@ export default function RestaurantDetail() {
               </View>
             </Pressable>
 
-            {/* Group Order */}
-            <Pressable
-              onPress={() => {
-                if (isClosed) {
-                  Alert.alert("Restaurant Closed", "Group orders are not available while the restaurant is closed.");
-                  return;
-                }
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                setShowOrderTypePicker(false);
-                router.push(`/host_party?restaurantId=${restaurant?.id}` as any);
-              }}
-              style={{
-                backgroundColor: isClosed ? "#141414" : "rgba(139,92,246,0.08)",
-                borderRadius: 18,
-                padding: 20,
-                flexDirection: "row",
-                alignItems: "center",
-                borderWidth: 1.5,
-                borderColor: isClosed ? "#1e1e1e" : "rgba(139,92,246,0.25)",
-                opacity: isClosed ? 0.5 : 1,
-              }}
-            >
-              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: isClosed ? "#1a1a1a" : "rgba(139,92,246,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
-                <Users size={22} color={isClosed ? "#555" : "#8B5CF6"} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isClosed ? "#666" : "#f5f5f5", fontSize: 18 }}>Group Order</Text>
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
-                  {isClosed ? "Unavailable while closed" : "Order together with friends"}
-                </Text>
-              </View>
-            </Pressable>
+            {/* Group Order — requires Stripe so split-pay can collect each
+                guest's share. Cash-only restaurants disable this option. */}
+            {(() => {
+              const groupDisabled = isClosed || !acceptsCard;
+              return (
+                <Pressable
+                  onPress={() => {
+                    if (isClosed) {
+                      Alert.alert("Restaurant Closed", "Group orders are not available while the restaurant is closed.");
+                      return;
+                    }
+                    if (!acceptsCard) {
+                      Alert.alert(
+                        "Cash-Only Restaurant",
+                        "Group orders require card payments so each guest can pay their own share. This restaurant only accepts cash, so group orders aren't available here. You can still order together in person and pay individually at the counter.",
+                      );
+                      return;
+                    }
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setShowOrderTypePicker(false);
+                    router.push(`/host_party?restaurantId=${restaurant?.id}` as any);
+                  }}
+                  style={{
+                    backgroundColor: groupDisabled ? "#141414" : "rgba(139,92,246,0.08)",
+                    borderRadius: 18,
+                    padding: 20,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    borderWidth: 1.5,
+                    borderColor: groupDisabled ? "#1e1e1e" : "rgba(139,92,246,0.25)",
+                    opacity: groupDisabled ? 0.5 : 1,
+                  }}
+                >
+                  <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: groupDisabled ? "#1a1a1a" : "rgba(139,92,246,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
+                    <Users size={22} color={groupDisabled ? "#555" : "#8B5CF6"} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: groupDisabled ? "#666" : "#f5f5f5", fontSize: 18 }}>Group Order</Text>
+                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
+                      {isClosed
+                        ? "Unavailable while closed"
+                        : !acceptsCard
+                        ? "Not available — cash-only restaurant"
+                        : "Order together with friends"}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })()}
           </Animated.View>
         </View>
       </Modal>

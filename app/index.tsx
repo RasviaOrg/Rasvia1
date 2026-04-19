@@ -57,6 +57,25 @@ import { OwnerHomeContent } from "@/components/OwnerHomeContent";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { withTimeout } from "@/lib/with-timeout";
 import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRecentlyViewedRestaurant, type RestaurantMediaSlide } from "@/lib/restaurant-media";
+import {
+  HOME_RESTAURANT_FRESH_MS,
+  clearUserHomeCache,
+  getHomeCacheAnnouncement,
+  getHomeCacheDietary,
+  getHomeCacheFavorites,
+  getHomeCacheMedia,
+  getHomeCacheOwnerId,
+  getHomeCacheRecentlyViewed,
+  getHomeCacheRestaurants,
+  isHomeCacheRestaurantsFresh,
+  patchHomeCacheRestaurant,
+  setHomeCacheAnnouncement,
+  setHomeCacheDietary,
+  setHomeCacheFavorites,
+  setHomeCacheMedia,
+  setHomeCacheRecentlyViewed,
+  setHomeCacheRestaurants,
+} from "@/lib/home-cache";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -380,11 +399,11 @@ export default function DiscoveryFeed() {
   }, []);
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
-  const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
-  const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>([]);
-  const [announcementBanner, setAnnouncementBanner] = useState("");
-  const [userDietaryType, setUserDietaryType] = useState("");
-  const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
+  const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>(() => getHomeCacheFavorites());
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>(() => getHomeCacheRecentlyViewed());
+  const [announcementBanner, setAnnouncementBanner] = useState(() => getHomeCacheAnnouncement());
+  const [userDietaryType, setUserDietaryType] = useState(() => getHomeCacheDietary().userDietaryType);
+  const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>(() => getHomeCacheDietary().userRestrictedDays);
   const [ownerHomeMode, setOwnerHomeMode] = useState<"discover" | "dashboard">("dashboard");
 
   // Owners see their dashboard inline — no redirect needed
@@ -392,9 +411,12 @@ export default function DiscoveryFeed() {
   // ==================================================
   // STATE MANAGEMENT - Replace Mock Data
   // ==================================================
-  const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
-  const [restaurantMediaById, setRestaurantMediaById] = useState<Record<string, RestaurantMediaSlide[]>>({});
-  const [loading, setLoading] = useState(true);
+  const [restaurants, setRestaurants] = useState<UIRestaurant[]>(() => getHomeCacheRestaurants());
+  const [restaurantMediaById, setRestaurantMediaById] = useState<Record<string, RestaurantMediaSlide[]>>(() => getHomeCacheMedia());
+  // Only show the loading splash on the very first cold start. Once we
+  // have any cached restaurants, subsequent tab returns must NOT flash
+  // the loader.
+  const [loading, setLoading] = useState(() => getHomeCacheRestaurants().length === 0);
 
   useEffect(() => {
     if (!loading) return;
@@ -417,15 +439,28 @@ export default function DiscoveryFeed() {
         .select("value")
         .eq("key", "announcement_banner")
         .single();
-      setAnnouncementBanner((data as any)?.value ?? "");
+      const next = (data as any)?.value ?? "";
+      setAnnouncementBanner(next);
+      setHomeCacheAnnouncement(next);
     } catch {
       setAnnouncementBanner("");
+      setHomeCacheAnnouncement("");
     }
   }, []);
 
   useEffect(() => {
-    fetchRestaurants();
-    fetchAnnouncementBanner();
+    // Only refetch on mount if cache is stale or empty. The realtime
+    // subscription below keeps the cached list current, so a tab switch
+    // doesn't need to re-hit the network.
+    if (!isHomeCacheRestaurantsFresh()) {
+      fetchRestaurants();
+    } else {
+      // Cache is fresh — just clear the loading state immediately
+      setLoading(false);
+    }
+    if (!getHomeCacheAnnouncement()) {
+      fetchAnnouncementBanner();
+    }
 
     const subscription = supabase
       .channel('public:restaurants')
@@ -434,6 +469,7 @@ export default function DiscoveryFeed() {
         { event: 'UPDATE', schema: 'public', table: 'restaurants' },
         (payload) => {
           const updatedRestaurant = mapSupabaseToUI(payload.new as SupabaseRestaurant, userCoordsRef.current);
+          patchHomeCacheRestaurant(updatedRestaurant);
           setRestaurants((currentData) =>
             currentData.map((item) =>
               item.id === updatedRestaurant.id ? updatedRestaurant : item
@@ -449,7 +485,9 @@ export default function DiscoveryFeed() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'system_config', filter: 'key=eq.announcement_banner' },
         (payload) => {
-          setAnnouncementBanner((payload.new as any)?.value ?? "");
+          const next = (payload.new as any)?.value ?? "";
+          setAnnouncementBanner(next);
+          setHomeCacheAnnouncement(next);
         }
       )
       .subscribe();
@@ -464,6 +502,7 @@ export default function DiscoveryFeed() {
   const fetchFavoriteRestaurantIds = useCallback(async () => {
     const userId = session?.user?.id;
     if (!userId) {
+      clearUserHomeCache();
       setFavoriteRestaurantIds([]);
       return;
     }
@@ -473,23 +512,39 @@ export default function DiscoveryFeed() {
         .select("favorite_restaurants")
         .eq("id", userId)
         .single();
-      setFavoriteRestaurantIds(parseFavorites((data as any)?.favorite_restaurants));
+      const ids = parseFavorites((data as any)?.favorite_restaurants);
+      setFavoriteRestaurantIds(ids);
+      setHomeCacheFavorites(ids, userId);
     } catch {
       setFavoriteRestaurantIds([]);
+      setHomeCacheFavorites([], userId);
     }
   }, [session?.user?.id]);
 
   useEffect(() => {
+    const userId = session?.user?.id ?? null;
+    // If the cached data belongs to a different user, drop it before
+    // hydrating so we don't briefly show another user's favorites.
+    if (getHomeCacheOwnerId() !== userId) {
+      clearUserHomeCache();
+      setFavoriteRestaurantIds([]);
+      setRecentlyViewedIds([]);
+      setUserDietaryType("");
+      setUserRestrictedDays([]);
+    }
     fetchFavoriteRestaurantIds();
-  }, [fetchFavoriteRestaurantIds]);
+  }, [fetchFavoriteRestaurantIds, session?.user?.id]);
 
   const fetchRecentlyViewedIds = useCallback(async () => {
     const userId = session?.user?.id;
     if (!userId) {
       setRecentlyViewedIds([]);
+      setHomeCacheRecentlyViewed([]);
       return;
     }
-    setRecentlyViewedIds(await fetchRecentlyViewedRestaurantIds(userId));
+    const ids = await fetchRecentlyViewedRestaurantIds(userId);
+    setRecentlyViewedIds(ids);
+    setHomeCacheRecentlyViewed(ids);
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -509,6 +564,7 @@ export default function DiscoveryFeed() {
     
     // Optimistic UI update
     setFavoriteRestaurantIds(nextFavs);
+    setHomeCacheFavorites(nextFavs, userId);
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
@@ -520,6 +576,7 @@ export default function DiscoveryFeed() {
     } catch (e) {
       // Revert if error
       setFavoriteRestaurantIds(favoriteRestaurantIds);
+      setHomeCacheFavorites(favoriteRestaurantIds, userId);
     }
   }, [session?.user?.id, favoriteRestaurantIds]);
 
@@ -528,6 +585,7 @@ export default function DiscoveryFeed() {
     if (!userId) {
       setUserDietaryType("");
       setUserRestrictedDays([]);
+      setHomeCacheDietary("", []);
       return;
     }
     try {
@@ -536,11 +594,15 @@ export default function DiscoveryFeed() {
         .select("dietary_type, restricted_days")
         .eq("id", userId)
         .single();
-      setUserDietaryType((data as any)?.dietary_type ?? "");
-      setUserRestrictedDays(((data as any)?.restricted_days as string[]) ?? []);
+      const dietary = (data as any)?.dietary_type ?? "";
+      const restricted = ((data as any)?.restricted_days as string[]) ?? [];
+      setUserDietaryType(dietary);
+      setUserRestrictedDays(restricted);
+      setHomeCacheDietary(dietary, restricted);
     } catch {
       setUserDietaryType("");
       setUserRestrictedDays([]);
+      setHomeCacheDietary("", []);
     }
   }, [session?.user?.id]);
 
@@ -591,6 +653,7 @@ export default function DiscoveryFeed() {
       if (data) {
         const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userCoordsRef.current));
         setRestaurants(uiRestaurants);
+        setHomeCacheRestaurants(uiRestaurants);
         // Overlay live review stats (count + average) from restaurant_reviews
         const ids = uiRestaurants.map((r: UIRestaurant) => r.id);
         const statsMap = await withTimeout(
@@ -604,7 +667,10 @@ export default function DiscoveryFeed() {
           return { ...r, rating: s.average, reviewCount: s.count };
         });
         setRestaurants(withReviews);
-        setRestaurantMediaById(await fetchRestaurantMediaSlides(withReviews.map((r: UIRestaurant) => r.id)));
+        setHomeCacheRestaurants(withReviews);
+        const media = await fetchRestaurantMediaSlides(withReviews.map((r: UIRestaurant) => r.id));
+        setRestaurantMediaById(media);
+        setHomeCacheMedia(media);
       }
     } catch (error) {
       console.error('Error fetching restaurants:', error);
@@ -911,13 +977,19 @@ export default function DiscoveryFeed() {
     };
   }, [liveWaitlistBanner?.entryId, currentUserId, fetchLiveWaitlist]);
 
+  // The home page used to refetch favorites, the live order banner, the
+  // live waitlist banner and any active group order on every focus. With
+  // the bottom-tab nav remounting this screen, that produced a visible
+  // re-render flash on every tab switch. We now rely on:
+  //   • the global subscriptions in `useEffect` for restaurants / orders /
+  //     waitlist entries that update state in-place
+  //   • the in-memory home cache that survives remounts
+  // A focus pass only kicks the active-group-order check, which is cheap
+  // and depends on AsyncStorage state that other screens may have changed.
   useFocusEffect(
     useCallback(() => {
       checkActiveGroupOrder();
-      fetchFavoriteRestaurantIds();
-      void fetchLiveOrder();
-      void fetchLiveWaitlist();
-    }, [checkActiveGroupOrder, fetchFavoriteRestaurantIds, fetchLiveOrder, fetchLiveWaitlist])
+    }, [checkActiveGroupOrder])
   );
 
   // Recalculate distances when userCoords arrives after initial fetch
@@ -1063,14 +1135,30 @@ export default function DiscoveryFeed() {
 
   const nothingToShow = trendingRestaurants.length === 0 && nearbyRestaurants.length === 0 && quickBites.length === 0;
 
+  // Debounce restaurant card presses so a double-tap doesn't push the
+  // detail screen twice (which would stack two copies on the navigator
+  // and force the user to back twice). 800ms covers the slowest navigation
+  // animation on low-end Androids.
+  const restaurantNavLockRef = useRef<{ id: string; at: number } | null>(null);
   const handleRestaurantPress = useCallback(
     (id: string) => {
+      const now = Date.now();
+      const lock = restaurantNavLockRef.current;
+      if (lock && lock.id === id && now - lock.at < 800) {
+        return;
+      }
+      restaurantNavLockRef.current = { id, at: now };
+
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
       const restaurantIdNum = Number(id);
       if (Number.isFinite(restaurantIdNum) && restaurantIdNum > 0) {
-        setRecentlyViewedIds((prev) => [restaurantIdNum, ...prev.filter((x) => x !== restaurantIdNum)].slice(0, 10));
+        setRecentlyViewedIds((prev) => {
+          const next = [restaurantIdNum, ...prev.filter((x) => x !== restaurantIdNum)].slice(0, 10);
+          setHomeCacheRecentlyViewed(next);
+          return next;
+        });
         const userId = session?.user?.id;
         if (userId) {
           void recordRecentlyViewedRestaurant(userId, restaurantIdNum);

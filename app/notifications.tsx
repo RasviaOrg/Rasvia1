@@ -592,10 +592,12 @@ function WaitlistWidget({
 function NotificationRow({
   event,
   onDismiss,
+  onPress,
   isLast,
 }: {
   event: NotificationEvent;
   onDismiss: () => void;
+  onPress?: () => void;
   isLast: boolean;
 }) {
   const swipeableRef = useRef<Swipeable>(null);
@@ -657,16 +659,25 @@ function NotificationRow({
         overshootRight={false}
         friction={2}
       >
-        <View
-          style={{
+        <Pressable
+          onPress={onPress}
+          disabled={!onPress}
+          android_ripple={onPress ? { color: "#222" } : undefined}
+          style={({ pressed }) => ({
             flexDirection: "row",
             alignItems: "flex-start",
             paddingHorizontal: 16,
             paddingVertical: 14,
             borderBottomWidth: isLast ? 0 : 1,
             borderBottomColor: "#1e1e1e",
-            backgroundColor: event.read ? "#1a1a1a" : "rgba(255,153,51,0.04)",
-          }}
+            backgroundColor: event.read
+              ? pressed && onPress
+                ? "#202020"
+                : "#1a1a1a"
+              : pressed && onPress
+              ? "rgba(255,153,51,0.08)"
+              : "rgba(255,153,51,0.04)",
+          })}
         >
           {/* Icon */}
           <View
@@ -759,7 +770,7 @@ function NotificationRow({
               }}
             />
           )}
-        </View>
+        </Pressable>
       </Swipeable>
     </Animated.View>
   );
@@ -802,6 +813,56 @@ export default function NotificationsScreen() {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     clearAll();
   };
+
+  // Resolve the deep-link target for an event row. Returning `null` means
+  // the row stays non-pressable (e.g. admin-only events that don't make
+  // sense to open from a customer view).
+  const resolveEventRoute = useCallback((event: NotificationEvent): string | null => {
+    const restaurantId = (event.restaurantId ?? "").trim();
+    const entryId = (event.entryId ?? "").trim();
+    switch (event.type) {
+      case "order_placed":
+        // Deep link to the user's order list — the relevant order is
+        // pinned to the top because it's the most recent.
+        return "/my-orders";
+      case "table_ready":
+      case "joined":
+        if (restaurantId && entryId && entryId !== restaurantId) {
+          return `/waitlist/${restaurantId}?entry_id=${entryId}&party_size=${event.partySize || 1}`;
+        }
+        if (restaurantId) return `/restaurant/${restaurantId}`;
+        return null;
+      case "seated":
+      case "left":
+      case "removed":
+        return restaurantId ? `/restaurant/${restaurantId}` : null;
+      case "group_created":
+      case "group_joined":
+      case "group_item_added":
+      case "group_submitted":
+      case "group_ended":
+        return restaurantId ? `/restaurant/${restaurantId}` : null;
+      case "menu_image_submitted":
+      case "menu_image_request_new":
+      case "menu_image_approved":
+      case "menu_image_rejected":
+        return restaurantId ? `/restaurant/${restaurantId}` : null;
+      case "review_report_submitted":
+      case "review_report_new":
+      case "review_report_declined":
+      case "review_report_deleted":
+        return restaurantId ? `/restaurant/${restaurantId}` : null;
+      default:
+        return null;
+    }
+  }, []);
+
+  const handleEventPress = useCallback((event: NotificationEvent) => {
+    const target = resolveEventRoute(event);
+    if (!target) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(target as any);
+  }, [resolveEventRoute, router]);
 
   const isEmpty = activeEntries.length === 0 && events.length === 0;
 
@@ -1009,17 +1070,21 @@ export default function NotificationsScreen() {
                       overflow: "hidden",
                     }}
                   >
-                    {events.map((event, idx) => (
-                      <NotificationRow
-                        key={event.id}
-                        event={event}
-                        isLast={idx === events.length - 1}
-                        onDismiss={() => {
-                          if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          removeEvent(event.id);
-                        }}
-                      />
-                    ))}
+                    {events.map((event, idx) => {
+                      const route = resolveEventRoute(event);
+                      return (
+                        <NotificationRow
+                          key={event.id}
+                          event={event}
+                          isLast={idx === events.length - 1}
+                          onPress={route ? () => handleEventPress(event) : undefined}
+                          onDismiss={() => {
+                            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            removeEvent(event.id);
+                          }}
+                        />
+                      );
+                    })}
                   </View>
                 </View>
               )}

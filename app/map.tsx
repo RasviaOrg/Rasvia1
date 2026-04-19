@@ -52,6 +52,12 @@ import { AddRestaurantModal } from "@/components/AddRestaurantModal";
 import { AdminRestaurantPanel } from "@/components/AdminRestaurantPanel";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import {
+  getHomeCacheRestaurants,
+  isHomeCacheRestaurantsFresh,
+  patchHomeCacheRestaurant,
+  setHomeCacheRestaurants,
+} from "@/lib/home-cache";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -208,8 +214,10 @@ export default function MapScreen() {
     useAdminMode();
 
   // State
-  const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [restaurants, setRestaurants] = useState<UIRestaurant[]>(() => getHomeCacheRestaurants());
+  // Skip the loading splash if we already have restaurants cached from
+  // a previous home/map render — switching tabs should not reset the map.
+  const [loading, setLoading] = useState(() => getHomeCacheRestaurants().length === 0);
   const [mapCenter, setMapCenter] = useState<Region>(DEFAULT_REGION);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newRestCoords, setNewRestCoords] = useState<{ lat: number, lng: number } | null>(null);
@@ -285,14 +293,17 @@ export default function MapScreen() {
         if (data) {
           const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userLocationRef.current));
           setRestaurants(uiRestaurants);
+          setHomeCacheRestaurants(uiRestaurants);
           // Overlay live review stats from restaurant_reviews
           const ids = uiRestaurants.map((r) => r.id);
           const statsMap = await fetchBatchReviewStats(ids);
-          setRestaurants(uiRestaurants.map((r) => {
+          const enriched = uiRestaurants.map((r) => {
             const s = statsMap.get(r.id);
             if (!s) return r;
             return { ...r, rating: s.average, reviewCount: s.count };
-          }));
+          });
+          setRestaurants(enriched);
+          setHomeCacheRestaurants(enriched);
         }
       } catch (err) {
         console.error("Map: error fetching restaurants:", err);
@@ -300,7 +311,13 @@ export default function MapScreen() {
         setLoading(false);
       }
     }
-    fetchRestaurants();
+    // Reuse the in-memory home cache so switching tabs doesn't blank the
+    // map and trigger another network round-trip.
+    if (!isHomeCacheRestaurantsFresh()) {
+      fetchRestaurants();
+    } else {
+      setLoading(false);
+    }
 
     const subscription = supabase
       .channel("map:restaurants")
@@ -310,12 +327,17 @@ export default function MapScreen() {
         (payload) => {
           if (payload.eventType === "UPDATE") {
             const updated = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocationRef.current);
+            patchHomeCacheRestaurant(updated);
             setRestaurants((prev) =>
               prev.map((r) => (r.id === updated.id ? updated : r)),
             );
           } else if (payload.eventType === "INSERT") {
             const added = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocationRef.current);
-            setRestaurants((prev) => [...prev, added]);
+            setRestaurants((prev) => {
+              const next = [...prev, added];
+              setHomeCacheRestaurants(next);
+              return next;
+            });
           }
         },
       )
@@ -1363,6 +1385,7 @@ function SelectedRestaurantCard({
   isAdmin?: boolean;
   onAdminPress?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const translateY = useRef(new RNAnimated.Value(CARD_HEIGHT)).current;
 
   // Slide in on mount
@@ -1416,7 +1439,9 @@ function SelectedRestaurantCard({
       {...panResponder.panHandlers}
       style={{
         position: "absolute",
-        bottom: 40,
+        // Sit just above the bottom nav so the card and its drag handle
+        // are never hidden behind the tab bar.
+        bottom: getBottomNavTopInset(insets.bottom) + 12,
         left: 16,
         right: 16,
         transform: [{ translateY }],

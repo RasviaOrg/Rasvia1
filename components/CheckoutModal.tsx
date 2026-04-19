@@ -151,6 +151,17 @@ export function CheckoutModal({
     const [hasStripe, setHasStripe] = useState(false);
     const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
 
+    // Takeout orders are cash-only by policy — pickup happens at the
+    // counter so the customer hands payment over there. We force cash
+    // whenever the order type is takeout to avoid customers reaching
+    // the Stripe sheet for a payment we don't want to process online.
+    const lockToCash = orderType === 'takeout';
+    useEffect(() => {
+        if (lockToCash && paymentMethod !== 'cash') {
+            setPaymentMethod('cash');
+        }
+    }, [lockToCash, paymentMethod]);
+
     const subtotal = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
 
     const reset = useCallback(() => {
@@ -772,6 +783,10 @@ export function CheckoutModal({
                                         </Pressable>
                                         <Pressable
                                             onPress={() => {
+                                                if (lockToCash) {
+                                                    Alert.alert('Cash Only', 'Takeout orders are paid in cash at the counter when you pick up.');
+                                                    return;
+                                                }
                                                 if (!hasStripe) {
                                                     Alert.alert('Card Not Available', 'This restaurant does not accept card payments yet.');
                                                     return;
@@ -790,7 +805,7 @@ export function CheckoutModal({
                                                 borderWidth: 1.5,
                                                 backgroundColor: paymentMethod === 'card' ? 'rgba(129,140,248,0.12)' : '#0f0f0f',
                                                 borderColor: paymentMethod === 'card' ? '#818CF8' : '#2a2a2a',
-                                                opacity: hasStripe ? 1 : 0.5,
+                                                opacity: lockToCash || !hasStripe ? 0.5 : 1,
                                             }}
                                         >
                                             <CreditCard size={16} color={paymentMethod === 'card' ? '#818CF8' : '#666'} />
@@ -799,6 +814,11 @@ export function CheckoutModal({
                                             </Text>
                                         </Pressable>
                                     </View>
+                                    {lockToCash && (
+                                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 8 }}>
+                                            Takeout orders are paid in cash when you pick up.
+                                        </Text>
+                                    )}
                                 </View>
                             </Animated.View>
 
