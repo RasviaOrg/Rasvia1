@@ -126,7 +126,13 @@ const NotificationsContext = createContext<NotificationsContextValue>({
 });
 
 const STORAGE_KEY = "rasvia.notifications.v2";
-const DISMISSED_KEY = "rasvia.dismissed_entries.v1";
+/** Legacy global dismissed waitlist entry ids (v1); v2 is per-user. */
+const DISMISSED_WAITLIST_ENTRIES_LEGACY_KEY = "rasvia.dismissed_entries.v1";
+
+function dismissedWaitlistEntriesStorageKey(userId: string) {
+  return `rasvia_dismissed_waitlist_entries_v2_${userId}`;
+}
+
 const LEGACY_STORAGE_KEY = "rasvia:notifications:v2";
 
 // ==========================================
@@ -178,19 +184,38 @@ async function saveEvents(events: NotificationEvent[]): Promise<void> {
   }
 }
 
-async function loadDismissedIds(): Promise<Set<string>> {
+async function loadDismissedWaitlistEntryIds(userId: string | undefined): Promise<Set<string>> {
+  const next = new Set<string>();
+  if (!userId) return next;
   try {
-    const raw = await SecureStore.getItemAsync(DISMISSED_KEY);
-    if (!raw) return new Set();
-    return new Set(JSON.parse(raw) as string[]);
+    const raw = await SecureStore.getItemAsync(dismissedWaitlistEntriesStorageKey(userId));
+    if (raw) {
+      for (const id of JSON.parse(raw) as string[]) {
+        if (typeof id === "string") next.add(id);
+      }
+    }
   } catch {
-    return new Set();
+    /* ignore */
   }
+  try {
+    const leg = await SecureStore.getItemAsync(DISMISSED_WAITLIST_ENTRIES_LEGACY_KEY);
+    if (leg) {
+      for (const id of JSON.parse(leg) as string[]) {
+        if (typeof id === "string") next.add(id);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return next;
 }
 
-async function saveDismissedIds(ids: Set<string>): Promise<void> {
+async function saveDismissedWaitlistEntryIds(userId: string, ids: Set<string>): Promise<void> {
   try {
-    await SecureStore.setItemAsync(DISMISSED_KEY, JSON.stringify([...ids]));
+    await SecureStore.setItemAsync(
+      dismissedWaitlistEntriesStorageKey(userId),
+      JSON.stringify([...ids])
+    );
   } catch {
     // silently ignore
   }
@@ -217,11 +242,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const entryStateRef = useRef<Record<string, { status: string; notified_at: string | null }>>({});
 
   // ==========================================
-  // Load persisted events + dismissed IDs on mount
+  // Load persisted events on mount (waitlist dismissals load per-user in refreshActive)
   // ==========================================
   useEffect(() => {
     loadStoredEvents().then(setLocalEvents);
-    loadDismissedIds().then((ids) => { dismissedIdsRef.current = ids; });
   }, []);
 
   const refreshServerEvents = useCallback(async () => {
@@ -332,9 +356,17 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   // Fetch + watch active waitlist entries
   // ==========================================
   const refreshActive = useCallback(async () => {
-    if (!session?.user?.id) {
+    const userId = session?.user?.id;
+    if (!userId) {
       setActiveEntries([]);
       return;
+    }
+
+    try {
+      const fromStore = await loadDismissedWaitlistEntryIds(userId);
+      dismissedIdsRef.current = new Set([...fromStore, ...dismissedIdsRef.current]);
+    } catch {
+      /* ignore */
     }
 
     try {
@@ -355,7 +387,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             current_wait_time
           )
         `)
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .in("status", ["waiting", "notified", "seated"])
         .order("created_at", { ascending: false });
 
@@ -458,19 +490,22 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 partySize,
                 timestamp: new Date().toISOString(),
               });
-              setTableReadyAlert({ restaurantName, entryId });
+              if (!dismissedIdsRef.current.has(entryId)) {
+                setTableReadyAlert({ restaurantName, entryId });
+              }
               schedulePushNotification(
                 "🎉 Your Table is Ready!",
                 `${restaurantName} — your table is ready! Head over now.`,
                 { type: "table_ready", entryId, restaurantId },
               );
-              setActiveEntries((prevEntries) =>
-                prevEntries.map((e) =>
+              setActiveEntries((prevEntries) => {
+                if (dismissedIdsRef.current.has(entryId)) return prevEntries;
+                return prevEntries.map((e) =>
                   e.entryId === entryId
                     ? { ...e, status: "notified", notifiedAt: newRow.notified_at }
                     : e
-                )
-              );
+                );
+              });
             }
 
             if (newRow.status === "seated" && prev.status !== "seated") {
@@ -482,19 +517,22 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 partySize,
                 timestamp: new Date().toISOString(),
               });
-              setSeatedAlert({ restaurantName, entryId });
+              if (!dismissedIdsRef.current.has(entryId)) {
+                setSeatedAlert({ restaurantName, entryId });
+              }
               schedulePushNotification(
                 "🍽️ You're Seated!",
                 `Enjoy your meal at ${restaurantName}!`,
                 { type: "seated", entryId, restaurantId },
               );
-              setActiveEntries((prevEntries) =>
-                prevEntries.map((e) =>
+              setActiveEntries((prevEntries) => {
+                if (dismissedIdsRef.current.has(entryId)) return prevEntries;
+                return prevEntries.map((e) =>
                   e.entryId === entryId
                     ? { ...e, status: "seated", seatedAt: new Date().toISOString() }
                     : e
-                )
-              );
+                );
+              });
             }
 
             if (newRow.status === "removed" && prev.status !== "removed") {
@@ -537,8 +575,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     channelsRef.current = [];
     watchedEntryIds.current.clear();
 
-    refreshActive();
-    refreshServerEvents();
+    if (!session?.user?.id) {
+      dismissedIdsRef.current = new Set();
+      setActiveEntries([]);
+    }
+
+    void refreshActive();
+    void refreshServerEvents();
   }, [session?.user?.id, refreshActive, refreshServerEvents]);
 
   useEffect(() => {
@@ -700,11 +743,16 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     });
   }, [serverEvents, session?.user?.id]);
 
-  const dismissEntry = useCallback((entryId: string) => {
-    dismissedIdsRef.current.add(entryId);
-    saveDismissedIds(dismissedIdsRef.current);
-    setActiveEntries((prev) => prev.filter((e) => e.entryId !== entryId));
-  }, []);
+  const dismissEntry = useCallback(
+    (entryId: string) => {
+      const userId = session?.user?.id;
+      if (!userId) return;
+      dismissedIdsRef.current.add(entryId);
+      void saveDismissedWaitlistEntryIds(userId, dismissedIdsRef.current);
+      setActiveEntries((prev) => prev.filter((e) => e.entryId !== entryId));
+    },
+    [session?.user?.id]
+  );
 
   const markAllRead = useCallback(async () => {
     setLocalEvents((prev) => {
@@ -729,11 +777,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, [serverEvents, session?.user?.id]);
 
   const clearAll = useCallback(async () => {
+    const userId = session?.user?.id;
     setActiveEntries((prev) => {
       prev.forEach((e) => dismissedIdsRef.current.add(e.entryId));
       return [];
     });
-    saveDismissedIds(dismissedIdsRef.current);
+    if (userId) await saveDismissedWaitlistEntryIds(userId, dismissedIdsRef.current);
     setLocalEvents([]);
     setServerEvents([]);
     await AsyncStorage.removeItem(STORAGE_KEY);

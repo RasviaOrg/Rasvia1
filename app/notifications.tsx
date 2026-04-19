@@ -293,23 +293,24 @@ function WaitlistWidget({
             >
               Joined {formatJoinTime(entry.joinedAt)}
             </Text>
-            {/* Dismiss button — always visible for seated, tap to close */}
-            {entry.status === "seated" && (
-              <Pressable
-                onPress={(e) => { e.stopPropagation?.(); onDismiss(); }}
-                hitSlop={8}
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: 11,
-                  backgroundColor: "rgba(255,255,255,0.08)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <X size={12} color="#999" />
-              </Pressable>
-            )}
+            {/* Dismiss — hides this active waitlist card until the entry ends in-app; persisted per user */}
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onDismiss();
+              }}
+              hitSlop={8}
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: 11,
+                backgroundColor: "rgba(255,255,255,0.08)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <X size={12} color="#999" />
+            </Pressable>
           </View>
         </View>
 

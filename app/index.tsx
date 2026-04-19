@@ -109,8 +109,44 @@ function liveStepIndex(status: OrderStatus): number {
   return -1;
 }
 
-const HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia_home-live-order-dismissed-ids_v1";
-const HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia_home-waitlist-seated-dismissed-entry-ids_v1";
+/** Legacy global keys (v1); v2 is per-user so dismissals survive account switch and cold starts reliably. */
+const LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia_home-live-order-dismissed-ids_v1";
+const LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia_home-waitlist-seated-dismissed-entry-ids_v1";
+
+function homeLiveOrderDismissedStorageKey(userId: string) {
+  return `rasvia_home_live_order_dismissed_v2_${userId}`;
+}
+
+function homeWaitlistSeatedDismissedStorageKey(userId: string) {
+  return `rasvia_home_waitlist_seated_dismissed_v2_${userId}`;
+}
+
+async function readDismissedIdSet(primaryKey: string, legacyKey: string | null): Promise<Set<string>> {
+  const next = new Set<string>();
+  try {
+    const raw = await SecureStore.getItemAsync(primaryKey);
+    if (raw) {
+      for (const id of JSON.parse(raw) as string[]) {
+        if (typeof id === "string") next.add(id);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (legacyKey) {
+    try {
+      const leg = await SecureStore.getItemAsync(legacyKey);
+      if (leg) {
+        for (const id of JSON.parse(leg) as string[]) {
+          if (typeof id === "string") next.add(id);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return next;
+}
 
 /** Live order banner: Received → Preparing → Ready → Served (orange → blue → teal → green) */
 const LIVE_ORDER_CARD_BG = [
@@ -322,6 +358,7 @@ export default function DiscoveryFeed() {
   const liveOrderSwipeRef = useRef<Swipeable>(null);
   const liveOrderTrackRef = useRef<typeof liveOrderTrack>(null);
   const dismissedLiveOrderIdsRef = useRef<Set<string>>(new Set());
+  const dismissedSeatedWaitlistEntryIdsRef = useRef<Set<string>>(new Set());
   const liveOrderFadeOutRef = useRef(false);
   const bannerOpacity = useSharedValue(1);
   const liveColorProgress = useSharedValue(0);
@@ -333,6 +370,10 @@ export default function DiscoveryFeed() {
   useEffect(() => {
     dismissedLiveOrderIdsRef.current = dismissedLiveOrderIds;
   }, [dismissedLiveOrderIds]);
+
+  useEffect(() => {
+    dismissedSeatedWaitlistEntryIdsRef.current = dismissedSeatedWaitlistEntryIds;
+  }, [dismissedSeatedWaitlistEntryIds]);
 
   useEffect(() => {
     if (!liveOrderTrack) return;
@@ -380,34 +421,6 @@ export default function DiscoveryFeed() {
     return activeLiveOrders.filter((o) => o.id !== liveOrderTrack.id).length;
   }, [activeLiveOrders, liveOrderTrack]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await SecureStore.getItemAsync(HOME_LIVE_ORDER_DISMISSED_KEY);
-        if (raw) setDismissedLiveOrderIds(new Set(JSON.parse(raw) as string[]));
-        const rawWl = await SecureStore.getItemAsync(HOME_WAITLIST_SEATED_DISMISSED_KEY);
-        if (rawWl) setDismissedSeatedWaitlistEntryIds(new Set(JSON.parse(rawWl) as string[]));
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, []);
-
-  const dismissLiveOrderBanner = useCallback((orderId: string) => {
-    setDismissedLiveOrderIds((prev) => {
-      const next = new Set(prev).add(orderId);
-      void SecureStore.setItemAsync(HOME_LIVE_ORDER_DISMISSED_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }, []);
-
-  const dismissSeatedWaitlistBanner = useCallback((entryId: string) => {
-    setDismissedSeatedWaitlistEntryIds((prev) => {
-      const next = new Set(prev).add(entryId);
-      void SecureStore.setItemAsync(HOME_WAITLIST_SEATED_DISMISSED_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }, []);
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
   const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>(() => getHomeCacheFavorites());
@@ -699,6 +712,95 @@ export default function DiscoveryFeed() {
     ? `rasvia_active_group_order_${currentUserId}`
     : null;
 
+  useEffect(() => {
+    if (!currentUserId) {
+      setDismissedLiveOrderIds(new Set());
+      setDismissedSeatedWaitlistEntryIds(new Set());
+      dismissedLiveOrderIdsRef.current = new Set();
+      dismissedSeatedWaitlistEntryIdsRef.current = new Set();
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [liveDismissed, wlDismissed] = await Promise.all([
+          readDismissedIdSet(
+            homeLiveOrderDismissedStorageKey(currentUserId),
+            LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY
+          ),
+          readDismissedIdSet(
+            homeWaitlistSeatedDismissedStorageKey(currentUserId),
+            LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY
+          ),
+        ]);
+        if (cancelled) return;
+        // Never shrink refs: a slower read must not overwrite an in-session dismiss or a
+        // concurrent fetchLiveOrder merge (fixes cancelled banner reappearing after navigation).
+        dismissedLiveOrderIdsRef.current = new Set([
+          ...liveDismissed,
+          ...dismissedLiveOrderIdsRef.current,
+        ]);
+        dismissedSeatedWaitlistEntryIdsRef.current = new Set([
+          ...wlDismissed,
+          ...dismissedSeatedWaitlistEntryIdsRef.current,
+        ]);
+        setDismissedLiveOrderIds(new Set(dismissedLiveOrderIdsRef.current));
+        setDismissedSeatedWaitlistEntryIds(new Set(dismissedSeatedWaitlistEntryIdsRef.current));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId]);
+
+  const dismissLiveOrderBanner = useCallback(
+    (orderId: string) => {
+      if (!currentUserId) return;
+      const key = homeLiveOrderDismissedStorageKey(currentUserId);
+      setDismissedLiveOrderIds((prev) => {
+        const next = new Set(prev).add(orderId);
+        dismissedLiveOrderIdsRef.current = next;
+        return next;
+      });
+      void (async () => {
+        try {
+          await SecureStore.setItemAsync(
+            key,
+            JSON.stringify([...dismissedLiveOrderIdsRef.current])
+          );
+        } catch {
+          /* ignore */
+        }
+      })();
+    },
+    [currentUserId]
+  );
+
+  const dismissSeatedWaitlistBanner = useCallback(
+    (entryId: string) => {
+      if (!currentUserId) return;
+      const key = homeWaitlistSeatedDismissedStorageKey(currentUserId);
+      setDismissedSeatedWaitlistEntryIds((prev) => {
+        const next = new Set(prev).add(entryId);
+        dismissedSeatedWaitlistEntryIdsRef.current = next;
+        return next;
+      });
+      void (async () => {
+        try {
+          await SecureStore.setItemAsync(
+            key,
+            JSON.stringify([...dismissedSeatedWaitlistEntryIdsRef.current])
+          );
+        } catch {
+          /* ignore */
+        }
+      })();
+    },
+    [currentUserId]
+  );
+
   const discardGroupOrder = useCallback(async (sessId: string) => {
     Alert.alert(
       "Cancel Group Order",
@@ -791,6 +893,14 @@ export default function DiscoveryFeed() {
       return;
     }
     try {
+      const fromStore = await readDismissedIdSet(
+        homeLiveOrderDismissedStorageKey(currentUserId),
+        LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY
+      );
+      const mergedDismissed = new Set([...fromStore, ...dismissedLiveOrderIdsRef.current]);
+      dismissedLiveOrderIdsRef.current = mergedDismissed;
+      setDismissedLiveOrderIds(mergedDismissed);
+
       const { data, error } = await supabase
         .from("orders")
         .select("id, status, restaurants(name)")
@@ -806,8 +916,8 @@ export default function DiscoveryFeed() {
       }));
       setAllLiveOrders(allRows.filter((r) => r.status !== "cancelled" && r.status !== "completed"));
 
-      const row = data?.[0];
-      if (error || !row) {
+      const chosen = allRows.find((r) => !mergedDismissed.has(r.id)) ?? null;
+      if (error || !chosen) {
         const prev = liveOrderTrackRef.current;
         const dismissed = dismissedLiveOrderIdsRef.current;
         if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
@@ -832,9 +942,9 @@ export default function DiscoveryFeed() {
       liveOrderFadeOutRef.current = false;
       bannerOpacity.value = 1;
       setLiveOrderTrack({
-        id: String(row.id),
-        restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
-        status: row.status as OrderStatus,
+        id: chosen.id,
+        restaurantName: chosen.restaurantName,
+        status: chosen.status,
       });
     } catch {
       const prev = liveOrderTrackRef.current;
@@ -864,6 +974,14 @@ export default function DiscoveryFeed() {
       return;
     }
     try {
+      const fromStore = await readDismissedIdSet(
+        homeWaitlistSeatedDismissedStorageKey(currentUserId),
+        LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY
+      );
+      const mergedSeatedDismissed = new Set([...fromStore, ...dismissedSeatedWaitlistEntryIdsRef.current]);
+      dismissedSeatedWaitlistEntryIdsRef.current = mergedSeatedDismissed;
+      setDismissedSeatedWaitlistEntryIds(mergedSeatedDismissed);
+
       const { data, error } = await supabase
         .from("waitlist_entries")
         .select("id, party_size, restaurant_id, created_at, notified_at, status, restaurants(name)")
@@ -888,6 +1006,12 @@ export default function DiscoveryFeed() {
         phase = "in_queue";
       }
 
+      const entryId = String(row.id);
+      if (phase === "seated" && mergedSeatedDismissed.has(entryId)) {
+        setLiveWaitlistBanner(null);
+        return;
+      }
+
       let position = 1;
       if (phase === "in_queue") {
         const rid = row.restaurant_id;
@@ -902,7 +1026,7 @@ export default function DiscoveryFeed() {
       }
 
       setLiveWaitlistBanner({
-        entryId: String(row.id),
+        entryId,
         restaurantId: String(row.restaurant_id),
         restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
         partySize: row.party_size,
@@ -1049,19 +1173,42 @@ export default function DiscoveryFeed() {
     };
   }, [activeGroupOrder?.sessionId, checkActiveGroupOrder]);
 
-  // The home page used to refetch favorites, the live order banner, the
-  // live waitlist banner and any active group order on every focus. With
-  // the bottom-tab nav remounting this screen, that produced a visible
-  // re-render flash on every tab switch. We now rely on:
-  //   • the global subscriptions in `useEffect` for restaurants / orders /
-  //     waitlist entries that update state in-place
-  //   • the in-memory home cache that survives remounts
-  // A focus pass only kicks the active-group-order check, which is cheap
-  // and depends on AsyncStorage state that other screens may have changed.
+  // Re-merge persisted dismissals and refetch live order / waitlist on focus so a trash
+  // dismiss survives navigation (storage is awaited on dismiss; focus re-reads before fetch).
   useFocusEffect(
     useCallback(() => {
       checkActiveGroupOrder();
-    }, [checkActiveGroupOrder])
+      if (!currentUserId) return;
+      void (async () => {
+        try {
+          const [liveD, wlD] = await Promise.all([
+            readDismissedIdSet(
+              homeLiveOrderDismissedStorageKey(currentUserId),
+              LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY
+            ),
+            readDismissedIdSet(
+              homeWaitlistSeatedDismissedStorageKey(currentUserId),
+              LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY
+            ),
+          ]);
+          const mergedLive = new Set([...liveD, ...dismissedLiveOrderIdsRef.current]);
+          dismissedLiveOrderIdsRef.current = mergedLive;
+          setDismissedLiveOrderIds(mergedLive);
+          const mergedWl = new Set([...wlD, ...dismissedSeatedWaitlistEntryIdsRef.current]);
+          dismissedSeatedWaitlistEntryIdsRef.current = mergedWl;
+          setDismissedSeatedWaitlistEntryIds(mergedWl);
+        } catch {
+          /* ignore */
+        }
+        void fetchLiveOrder();
+        void fetchLiveWaitlist();
+      })();
+    }, [
+      checkActiveGroupOrder,
+      currentUserId,
+      fetchLiveOrder,
+      fetchLiveWaitlist,
+    ])
   );
 
   // Recalculate distances when userCoords arrives after initial fetch
