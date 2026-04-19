@@ -200,3 +200,6 @@ Current repo defaults:
 4. **Auth state changes fire `INITIAL_SESSION`** — skip this event in `onAuthStateChange` to avoid double-processing
 5. **Types are in `data/mockData.ts`** — despite the name, this file defines the canonical TypeScript types used across the app (CartItem, MenuItem, FilterType, etc.)
 6. **`create-checkout` and `payment-redirect` are mirrored in RasviaWeb** — keep both implementations in sync when changing payment/security behavior
+
+### After finishing
+Once you finish your work after a prompt, modify this file with any relevant information to aid future agents.
