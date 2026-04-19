@@ -148,7 +148,16 @@ export default function DiscoveryFeed() {
     effectiveOwnerRestaurantId,
     loading: roleLoading,
   } = useAdminMode();
-  const { userCoords, locationLabel, requestLocationPermission, setUserCoordsOverride, setSearchOverride, reloadLocationPrefs } = useLocation();
+  const {
+    userCoords,
+    locationLabel,
+    requestLocationPermission,
+    setUserCoordsOverride,
+    setSearchOverride,
+    reloadLocationPrefs,
+    isUsingDiningPreferenceFallback,
+    diningPreferenceAreaLabel,
+  } = useLocation();
   const [addressBarExpanded, setAddressBarExpanded] = useState(false);
   const [addressInput, setAddressInput] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: number; lon: number }>>([]);
@@ -156,6 +165,8 @@ export default function DiscoveryFeed() {
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [isSavingAddress, setIsSavingAddress] = useState(false);
   const addressSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Stable per screen mount so Realtime channel names never collide across remounts. */
+  const homeRealtimeInstanceId = useRef(`rt-${Math.random().toString(36).slice(2, 11)}`);
   const Location = require("expo-location");
 
   // Nominatim address autocomplete — guard against stale responses (fast
@@ -462,8 +473,12 @@ export default function DiscoveryFeed() {
       fetchAnnouncementBanner();
     }
 
+    // Use a dedicated channel name — avoid strings like `public:restaurants` that
+    // mirror Realtime topic ids; Supabase may treat them as the same channel and
+    // throw "cannot add postgres_changes callbacks … after subscribe()" on remount
+    // (e.g. React Strict Mode) or when the name collides with an active subscription.
     const subscription = supabase
-      .channel('public:restaurants')
+      .channel(`rasvia-home-restaurant-updates-${homeRealtimeInstanceId.current}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'restaurants' },
@@ -480,7 +495,7 @@ export default function DiscoveryFeed() {
       .subscribe();
 
     const bannerSubscription = supabase
-      .channel('system_config:announcement')
+      .channel(`rasvia-home-announcement-banner-${homeRealtimeInstanceId.current}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'system_config', filter: 'key=eq.announcement_banner' },
@@ -908,7 +923,9 @@ export default function DiscoveryFeed() {
     }
     void fetchLiveOrder();
     const ch = supabase
-      .channel(`home-live-order:${currentUserId}`)
+      .channel(
+        `rasvia-live-order-${currentUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      )
       .on(
         "postgres_changes",
         {
@@ -934,7 +951,9 @@ export default function DiscoveryFeed() {
     }
     void fetchLiveWaitlist();
     const ch = supabase
-      .channel(`home-waitlist:${currentUserId}`)
+      .channel(
+        `rasvia-waitlist-${currentUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      )
       .on(
         "postgres_changes",
         {
@@ -958,7 +977,9 @@ export default function DiscoveryFeed() {
     const eid = liveWaitlistBanner?.entryId;
     if (!eid || !currentUserId) return;
     const ch = supabase
-      .channel(`home-waitlist-entry:${eid}`)
+      .channel(
+        `rasvia-waitlist-entry-${eid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      )
       .on(
         "postgres_changes",
         {
@@ -976,6 +997,57 @@ export default function DiscoveryFeed() {
       supabase.removeChannel(ch);
     };
   }, [liveWaitlistBanner?.entryId, currentUserId, fetchLiveWaitlist]);
+
+  // Group order banner: session can finish while this tab stays mounted (no
+  // focus event). Subscribing to `party_sessions` keeps SecureStore + UI in sync.
+  useEffect(() => {
+    if (!currentUserId) return;
+    const ch = supabase
+      .channel(
+        `home-party-host-${currentUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "party_sessions",
+          filter: `host_user_id=eq.${currentUserId}`,
+        },
+        () => {
+          void checkActiveGroupOrder();
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [currentUserId, checkActiveGroupOrder]);
+
+  useEffect(() => {
+    const sid = activeGroupOrder?.sessionId;
+    if (!sid) return;
+    const ch = supabase
+      .channel(
+        `home-party-sess-${sid}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "party_sessions",
+          filter: `id=eq.${sid}`,
+        },
+        () => {
+          void checkActiveGroupOrder();
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [activeGroupOrder?.sessionId, checkActiveGroupOrder]);
 
   // The home page used to refetch favorites, the live order banner, the
   // live waitlist banner and any active group order on every focus. With
@@ -1279,11 +1351,7 @@ export default function DiscoveryFeed() {
             gap: 10,
           }}
         >
-          {isOwnerDashboardMode ? (
-            <UtensilsCrossed size={16} color="#f5f5f5" />
-          ) : (
-            <Search size={16} color="#FF9933" />
-          )}
+          <Search size={16} color="#FF9933" />
           <Text
             style={{
               flex: 1,
@@ -1311,6 +1379,49 @@ export default function DiscoveryFeed() {
               zIndex: 20,
             }}
           >
+            {isUsingDiningPreferenceFallback && diningPreferenceAreaLabel && (
+              <View
+                style={{
+                  marginBottom: 12,
+                  padding: 12,
+                  borderRadius: 12,
+                  backgroundColor: "rgba(255,153,51,0.08)",
+                  borderWidth: 1,
+                  borderColor: "rgba(255,153,51,0.22)",
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: "Manrope_600SemiBold",
+                    color: "#e8e8e8",
+                    fontSize: 13,
+                    lineHeight: 19,
+                  }}
+                >
+                  Showing nearby results for{" "}
+                  <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold" }}>
+                    {diningPreferenceAreaLabel}
+                  </Text>{" "}
+                  from your{" "}
+                  <Text
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      setAddressBarExpanded(false);
+                      router.push("/dining-preferences" as any);
+                    }}
+                    style={{
+                      color: "#FF9933",
+                      fontFamily: "Manrope_700Bold",
+                      textDecorationLine: "underline",
+                      textDecorationColor: "#FF9933",
+                    }}
+                  >
+                    dining preferences
+                  </Text>
+                  .
+                </Text>
+              </View>
+            )}
             {/* Address Input + Detect button */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View

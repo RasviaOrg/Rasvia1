@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import * as Location from "expo-location";
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from "@/lib/supabase";
@@ -9,6 +9,13 @@ interface LocationContextType {
     isLiveLocationEnabled: boolean;
     locationLabel: string | null;
     hasSavedAddress: boolean;
+    /** Onboarding / profile `location_city` (e.g. "Dallas, TX"), when set. */
+    diningPreferenceAreaLabel: string | null;
+    /**
+     * True when live GPS is off, there is no saved home coordinates on the profile,
+     * the user has a dining-preference city, and no transient search override is active.
+     */
+    isUsingDiningPreferenceFallback: boolean;
     reloadLocationPrefs: () => Promise<void>;
     setUserCoordsOverride: (coords: {latitude: number; longitude: number} | null) => void;
     /**
@@ -33,6 +40,8 @@ const LocationContext = createContext<LocationContextType>({
     isLiveLocationEnabled: true,
     locationLabel: null,
     hasSavedAddress: false,
+    diningPreferenceAreaLabel: null,
+    isUsingDiningPreferenceFallback: false,
     reloadLocationPrefs: async () => {},
     setUserCoordsOverride: () => {},
     setSearchOverride: () => {},
@@ -101,6 +110,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const [locationLabel, setLocationLabel] = useState<string | null>(null);
     const [savedAddress, setSavedAddress] = useState<string | null>(null);
     const [hasSavedAddress, setHasSavedAddress] = useState(false);
+    const [diningPreferenceAreaLabel, setDiningPreferenceAreaLabel] = useState<string | null>(null);
     const liveRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     /** Tracks whether location permission has been granted (without triggering prompts). */
     const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
@@ -166,16 +176,23 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             // we must NOT overwrite the user's pinned coords or label.
             const overrideActive = searchOverrideRef.current != null;
 
+            if (!session?.user?.id) {
+                setDiningPreferenceAreaLabel(null);
+            }
+
             if (session?.user?.id) {
                 const { data, error } = await supabase
                     .from("profiles")
-                    .select("home_lat, home_long, saved_address")
+                    .select("home_lat, home_long, saved_address, location_city")
                     .eq("id", session.user.id)
                     .maybeSingle();
 
                 if (!error && data) {
                     const addr = data.saved_address || null;
                     setSavedAddress(addr);
+
+                    const locationCityRaw = (data.location_city as string | undefined)?.trim() || null;
+                    setDiningPreferenceAreaLabel(locationCityRaw);
 
                     // Prefer stored GPS coords (saved address)
                     if (data.home_lat && data.home_long) {
@@ -193,13 +210,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                     } else {
                         // No GPS stored — fall back to onboarding city
                         setHasSavedAddress(false);
-                        const { data: profileData } = await supabase
-                            .from("profiles")
-                            .select("location_city")
-                            .eq("id", session!.user!.id)
-                            .maybeSingle();
-
-                        const locationCity = profileData?.location_city as string | undefined;
+                        const locationCity = locationCityRaw;
                         if (locationCity) {
                             const cityLabel = locationCity.split(",")[0].trim();
                             if (!liveEnabled && !overrideActive) {
@@ -335,12 +346,23 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         };
     }, [isLiveLocationEnabled, isLoaded, locationPermissionGranted]);
 
+    const isUsingDiningPreferenceFallback = useMemo(
+        () =>
+            !isLiveLocationEnabled &&
+            !hasSavedAddress &&
+            Boolean(diningPreferenceAreaLabel?.trim()) &&
+            searchOverride == null,
+        [isLiveLocationEnabled, hasSavedAddress, diningPreferenceAreaLabel, searchOverride],
+    );
+
     return (
         <LocationContext.Provider value={{
             userCoords,
             isLiveLocationEnabled,
             locationLabel,
             hasSavedAddress,
+            diningPreferenceAreaLabel,
+            isUsingDiningPreferenceFallback,
             reloadLocationPrefs,
             setUserCoordsOverride: setUserCoords,
             setSearchOverride,

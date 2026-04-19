@@ -666,10 +666,10 @@ function NotificationRow({
           style={({ pressed }) => ({
             flexDirection: "row",
             alignItems: "flex-start",
-            paddingHorizontal: 16,
-            paddingVertical: 14,
+            paddingHorizontal: 18,
+            paddingVertical: 16,
             borderBottomWidth: isLast ? 0 : 1,
-            borderBottomColor: "#1e1e1e",
+            borderBottomColor: "#2a2a2a",
             backgroundColor: event.read
               ? pressed && onPress
                 ? "#202020"
@@ -703,11 +703,11 @@ function NotificationRow({
               <Text
                 style={{
                   fontFamily: "Manrope_700Bold",
-                  color: "#888",
+                  color: "#A1A1AA",
                   fontSize: 11,
                   textTransform: "uppercase",
                   letterSpacing: 0.45,
-                  marginBottom: 4,
+                  marginBottom: 6,
                 }}
               >
                 {event.title}
@@ -748,8 +748,9 @@ function NotificationRow({
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#555555",
+                color: "#9CA3AF",
                 fontSize: 12,
+                marginTop: 2,
               }}
             >
               {timeAgo(event.timestamp)}
@@ -1068,6 +1069,7 @@ export default function NotificationsScreen() {
                       borderWidth: 1,
                       borderColor: "#2a2a2a",
                       overflow: "hidden",
+                      paddingVertical: 2,
                     }}
                   >
                     {events.map((event, idx) => {

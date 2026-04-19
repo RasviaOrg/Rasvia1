@@ -10,6 +10,17 @@ export type TabKey = "home" | "map" | "cart" | "notifications" | "profile";
 export const APP_BOTTOM_NAV_HEIGHT = 52;
 export const APP_BOTTOM_NAV_OFFSET = 10;
 
+/** Pixels from the screen bottom to the top edge of the tab bar — use to anchor bottom sheets flush above the nav. */
+export function getBottomNavTopInset(insetsBottom: number): number {
+  return (
+    APP_BOTTOM_NAV_HEIGHT +
+    8 +
+    Math.max(insetsBottom, 8) -
+    APP_BOTTOM_NAV_OFFSET -
+    1
+  );
+}
+
 export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey; hidden?: boolean }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -60,6 +71,7 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = tab.key === activeTab;
+          const showBadge = tab.key === "notifications" && notificationBadgeCount > 0;
           return (
             <Pressable
               key={tab.key}
@@ -74,40 +86,62 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
                 paddingVertical: 4,
                 borderRadius: 12,
                 backgroundColor: "transparent",
-                position: "relative",
               }}
             >
-              <Icon size={17} color={active ? "#FF9933" : "#8a8a8a"} />
-              <Text
-                style={{
-                  fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
-                  color: active ? "#FF9933" : "#8a8a8a",
-                  fontSize: 11,
-                  marginTop: 4,
-                }}
-              >
-                {tab.label}
-              </Text>
-              {tab.key === "notifications" && notificationBadgeCount > 0 && (
+              <View style={{ alignItems: "center" }}>
                 <View
                   style={{
-                    position: "absolute",
-                    top: 2,
-                    right: "26%",
-                    minWidth: 15,
-                    height: 15,
-                    borderRadius: 8,
-                    backgroundColor: "#EF4444",
+                    position: "relative",
                     alignItems: "center",
                     justifyContent: "center",
-                    paddingHorizontal: 3,
+                    minHeight: 22,
+                    minWidth: 28,
                   }}
                 >
-                  <Text style={{ color: "#fff", fontFamily: "JetBrainsMono_700Bold", fontSize: 8 }}>
-                    {notificationBadgeCount > 9 ? "9+" : notificationBadgeCount}
-                  </Text>
+                  <Icon size={17} color={active ? "#FF9933" : "#8a8a8a"} />
+                  {showBadge ? (
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: -5,
+                        right: -10,
+                        minWidth: 18,
+                        height: 18,
+                        borderRadius: 9,
+                        backgroundColor: "#FF9933",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingHorizontal: 4,
+                        borderWidth: 2,
+                        borderColor: "#0f0f0f",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "#0f0f0f",
+                          fontFamily: "Manrope_700Bold",
+                          fontSize: 10,
+                          lineHeight: 12,
+                          textAlign: "center",
+                          includeFontPadding: false,
+                        }}
+                      >
+                        {notificationBadgeCount > 9 ? "9+" : String(notificationBadgeCount)}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
-              )}
+                <Text
+                  style={{
+                    fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
+                    color: active ? "#FF9933" : "#8a8a8a",
+                    fontSize: 11,
+                    marginTop: 4,
+                  }}
+                >
+                  {tab.label}
+                </Text>
+              </View>
             </Pressable>
           );
         })}

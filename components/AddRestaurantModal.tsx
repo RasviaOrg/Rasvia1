@@ -8,13 +8,15 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  TouchableWithoutFeedback,
-  Keyboard,
   ScrollView,
+  StyleSheet,
+  useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
-import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
+import Animated, { Easing, FadeInDown, FadeOutDown } from "react-native-reanimated";
 import { supabase } from "@/lib/supabase";
+import { getBottomNavTopInset } from "@/components/AppBottomNav";
 
 interface AddRestaurantModalProps {
   coords: { lat: number; lng: number };
@@ -27,6 +29,14 @@ export function AddRestaurantModal({
   onClose,
   onSuccess,
 }: AddRestaurantModalProps) {
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  /** Distance from screen bottom to top of tab bar — sheet bottom is pinned here (0 visual gap). */
+  const tabBarTopInset = getBottomNavTopInset(insets.bottom);
+  const sheetMaxHeight = Math.min(
+    windowHeight * 0.88,
+    windowHeight - insets.top - tabBarTopInset - 12,
+  );
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
@@ -79,36 +89,35 @@ export function AddRestaurantModal({
 
   return (
     <View
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        justifyContent: "flex-end",
-        zIndex: 999,
-        backgroundColor: "rgba(0,0,0,0.4)",
-      }}
+      style={[StyleSheet.absoluteFill, { zIndex: 10000, elevation: 1000 }]}
     >
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={{ flex: 1 }} />
-      </TouchableWithoutFeedback>
+      <Pressable
+        onPress={onClose}
+        style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.4)" }]}
+      />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: tabBarTopInset,
+        }}
       >
         <Animated.View
-          entering={FadeInDown.springify().damping(18).stiffness(150)}
-          exiting={FadeOutDown.duration(200)}
+          entering={FadeInDown.duration(300).easing(Easing.out(Easing.cubic))}
+          exiting={FadeOutDown.duration(220).easing(Easing.in(Easing.cubic))}
           style={{
             backgroundColor: "#1a1a1a",
             borderTopLeftRadius: 24,
             borderTopRightRadius: 24,
             padding: 24,
-            paddingBottom: Platform.OS === "ios" ? 40 : 24,
+            paddingBottom: Math.max(insets.bottom, 16),
             borderWidth: 1,
             borderColor: "#2a2a2a",
-            maxHeight: "80%", // Ensure it fits the screen
+            maxHeight: sheetMaxHeight,
           }}
         >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>

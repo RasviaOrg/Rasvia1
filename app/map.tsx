@@ -51,7 +51,7 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { AddRestaurantModal } from "@/components/AddRestaurantModal";
 import { AdminRestaurantPanel } from "@/components/AdminRestaurantPanel";
 import { BrandedLoader } from "@/components/BrandedLoader";
-import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { APP_BOTTOM_NAV_HEIGHT, getBottomNavTopInset } from "@/components/AppBottomNav";
 import {
   getHomeCacheRestaurants,
   isHomeCacheRestaurantsFresh,
@@ -136,9 +136,6 @@ const getNearbyOverlayHeight = (restaurantCount: number) => {
     NEARBY_SHEET_BOTTOM_PADDING
   );
 };
-const getBottomNavTopInset = (safeBottom: number) =>
-  APP_BOTTOM_NAV_HEIGHT + 8 + Math.max(safeBottom, 8) - APP_BOTTOM_NAV_OFFSET - 1;
-
 // ==============================
 // Cluster type
 // ==============================

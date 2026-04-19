@@ -56,6 +56,7 @@ export function useAdminMode() {
           .from("restaurants")
           .select("id")
           .eq("owner_id", session.user.id)
+          .order("id", { ascending: true })
           .limit(1)
           .maybeSingle();
         if (fallbackOwned?.id != null) {
@@ -68,6 +69,7 @@ export function useAdminMode() {
             .from("restaurant_staff")
             .select("restaurant_id")
             .eq("user_id", session.user.id)
+            .order("restaurant_id", { ascending: true })
             .limit(1)
             .maybeSingle();
           setOwnedRestaurantId(
