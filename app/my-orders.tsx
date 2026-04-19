@@ -50,6 +50,7 @@ import {
   mapOrderToUI,
   type UIOrder,
 } from "@/lib/restaurant-types";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 const DISMISSED_ORDERS_KEY = "rasvia_my-orders-dismissed_v1";
 
@@ -1027,7 +1028,7 @@ export default function MyOrdersScreen() {
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20 }}
+            contentContainerStyle={{ paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 32, paddingHorizontal: 20 }}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}

@@ -2,17 +2,19 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
     View,
     Text,
-    Modal,
     Pressable,
     ScrollView,
     ActivityIndicator,
     Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { X, ShieldCheck, User } from "lucide-react-native";
+import { useRouter } from "expo-router";
+import { ArrowLeft, ShieldCheck, User } from "lucide-react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 type StaffMember = {
     id: string;
@@ -64,14 +66,18 @@ function formatSupabaseError(err: unknown): string {
     return String(err);
 }
 
-export function RolesModal({ onClose }: { onClose: () => void }) {
+export default function RolesScreen() {
+    const router = useRouter();
     const { ownedRestaurantId } = useAdminMode();
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const fetchStaff = useCallback(async () => {
-        if (!ownedRestaurantId) return;
+        if (!ownedRestaurantId) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         setError(null);
         try {
@@ -112,7 +118,7 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
             });
             setStaff(mapped);
         } catch (err: unknown) {
-            console.error("[RolesModal] fetchStaff", err);
+            console.error("[RolesScreen] fetchStaff", err);
             const msg = formatSupabaseError(err);
             setError(msg || "Could not load staff list.");
         }
@@ -122,33 +128,59 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
     useEffect(() => { fetchStaff(); }, [fetchStaff]);
 
     return (
-        <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top", "bottom"]}>
+        <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+            <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
                 {/* Header */}
-                <View style={{
-                    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                    paddingHorizontal: 20, paddingVertical: 16,
-                    borderBottomWidth: 1, borderBottomColor: "#1e1e1e",
-                }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                        <ShieldCheck size={20} color="#A78BFA" />
+                <Animated.View
+                    entering={FadeIn.duration(300)}
+                    style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingHorizontal: 16,
+                        paddingTop: 8,
+                        paddingBottom: 12,
+                    }}
+                >
+                    <Pressable
+                        onPress={() => {
+                            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            router.back();
+                        }}
+                        hitSlop={12}
+                        style={({ pressed }) => ({
+                            width: 40,
+                            height: 40,
+                            borderRadius: 20,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: "#1a1a1a",
+                            borderWidth: 1,
+                            borderColor: "#2a2a2a",
+                            opacity: pressed ? 0.6 : 1,
+                        })}
+                    >
+                        <ArrowLeft size={18} color="#f5f5f5" />
+                    </Pressable>
+
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <ShieldCheck size={18} color="#A78BFA" />
                         <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
                             Staff & Roles
                         </Text>
                     </View>
-                    <Pressable
-                        onPress={() => {
-                            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            onClose();
-                        }}
-                        hitSlop={10}
-                        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-                    >
-                        <X size={22} color="#666" />
-                    </Pressable>
-                </View>
 
-                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+                    {/* Spacer to keep the title centred */}
+                    <View style={{ width: 40, height: 40 }} />
+                </Animated.View>
+
+                <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{
+                        padding: 20,
+                        paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 40,
+                    }}
+                >
                     <Text style={{
                         fontFamily: "Manrope_500Medium", fontSize: 12, color: "#555",
                         marginBottom: 16, lineHeight: 18,
@@ -160,7 +192,7 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
                         <ActivityIndicator color="#A78BFA" style={{ marginTop: 40 }} />
                     ) : error ? (
                         <View style={{ alignItems: "center", marginTop: 60, gap: 10 }}>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#EF4444" }}>{error}</Text>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#EF4444", textAlign: "center" }}>{error}</Text>
                         </View>
                     ) : staff.length === 0 ? (
                         <View style={{ alignItems: "center", marginTop: 60, gap: 12 }}>
@@ -184,7 +216,6 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
                                         flexDirection: "row", alignItems: "center",
                                         paddingVertical: 14, paddingHorizontal: 16, gap: 12,
                                     }}>
-                                        {/* Avatar circle */}
                                         <View style={{
                                             width: 38, height: 38, borderRadius: 19,
                                             backgroundColor: `${roleColor(member.role)}20`,
@@ -194,7 +225,6 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
                                             <User size={16} color={roleColor(member.role)} />
                                         </View>
 
-                                        {/* Name + email */}
                                         <View style={{ flex: 1 }}>
                                             <Text style={{
                                                 fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5",
@@ -217,7 +247,6 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
                                             ) : null}
                                         </View>
 
-                                        {/* Role badge */}
                                         <View style={{
                                             backgroundColor: `${roleColor(member.role)}18`,
                                             borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4,
@@ -237,6 +266,6 @@ export function RolesModal({ onClose }: { onClose: () => void }) {
                     )}
                 </ScrollView>
             </SafeAreaView>
-        </Modal>
+        </View>
     );
 }

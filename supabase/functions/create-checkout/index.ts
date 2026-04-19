@@ -138,12 +138,34 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
-function mapStripeError(err: unknown): string {
-  const message = err instanceof Error ? err.message : 'Unknown error'
-  if (message.includes('missing the required capabilities')) {
-    return "Stripe Configuration Error: This restaurant has not finished onboarding to receive payouts. Please go to the web dashboard and click 'Finish Onboarding'."
+type MappedCheckoutError = { error: string; code?: string; title?: string }
+
+function mapStripeError(err: unknown): MappedCheckoutError {
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Unknown error'
+  // Stripe Connect: destination (restaurant) account is not fully onboarded —
+  // it's missing the `transfers` capability (or we never stored a connect
+  // account at all). Stripe phrases this a few different ways so we match
+  // broadly, and we also surface our own internal "not linked" sentinels
+  // from the party v2 pre-flight check.
+  const lowered = message.toLowerCase()
+  const isNotLinked =
+    lowered.includes('missing the required capabilities') ||
+    lowered.includes('required capabilities enabled') ||
+    lowered.includes('needs to have at least one of the following capabilities') ||
+    lowered.includes('transfers capability') ||
+    lowered.includes('stripe_transfers capability') ||
+    lowered.includes('requirements.currently_due') ||
+    lowered.includes('capability_disabled_requirements') ||
+    lowered.includes('restaurant is not linked with stripe') ||
+    lowered.includes('stripe account') && lowered.includes('not found')
+  if (isNotLinked) {
+    return {
+      error: 'The restaurant does not appear to be linked with Stripe. Please contact a staff member for assistance.',
+      code: 'restaurant_not_linked',
+      title: 'Checkout unavailable',
+    }
   }
-  return 'Unable to create checkout session.'
+  return { error: `Checkout failed: ${message}` }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,9 +180,22 @@ serve(async (req: Request) => {
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY') ?? ''
 
-  if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey || !stripeSecretKey) {
-    console.error('create-checkout missing required environment variables')
-    return json({ error: 'Checkout service is not configured.' }, 500)
+  const missingEnv: string[] = []
+  if (!supabaseUrl)        missingEnv.push('SUPABASE_URL')
+  if (!supabaseAnonKey)    missingEnv.push('SUPABASE_ANON_KEY')
+  if (!supabaseServiceKey) missingEnv.push('SUPABASE_SERVICE_ROLE_KEY')
+  if (!stripeSecretKey)    missingEnv.push('STRIPE_SECRET_KEY')
+  if (missingEnv.length > 0) {
+    // Log the specific missing secret names server-side (where only project
+    // staff can see them), but never surface those names to the client.
+    console.error('create-checkout missing required environment variables:', missingEnv.join(', '))
+    return json({
+      code: 'checkout_misconfigured',
+      title: 'Checkout unavailable',
+      error:
+        'Checkout is temporarily unavailable due to a server configuration issue. ' +
+        'Please contact a staff member for assistance.',
+    }, 500)
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -272,7 +307,11 @@ async function handlePartyV2(args: {
 
   const stripeAccountId = asString(restaurant.stripe_account_id)
   if (!stripeAccountId) {
-    return json({ error: 'Online payments are not enabled for this restaurant yet.' }, 400)
+    return json({
+      error: 'The restaurant does not appear to be linked with Stripe. Please contact a staff member for assistance.',
+      code: 'restaurant_not_linked',
+      title: 'Checkout unavailable',
+    }, 400)
   }
 
   const amountCents = Math.round(paymentRow.amount_cents)
@@ -341,7 +380,7 @@ async function handlePartyV2(args: {
     })
   } catch (err: unknown) {
     console.error('create-checkout (party v2) error:', err)
-    return json({ error: mapStripeError(err) }, 400)
+    return json(mapStripeError(err), 400)
   }
 }
 
@@ -519,7 +558,13 @@ async function handleSoloOrLegacyParty(args: {
     .maybeSingle()
   if (restaurantError || !restaurant) return json({ error: 'Restaurant not found.' }, 404)
   const stripeAccountId = asString(restaurant.stripe_account_id)
-  if (!stripeAccountId) return json({ error: 'Online payments are not enabled for this restaurant yet.' }, 400)
+  if (!stripeAccountId) {
+    return json({
+      error: 'The restaurant does not appear to be linked with Stripe. Please contact a staff member for assistance.',
+      code: 'restaurant_not_linked',
+      title: 'Checkout unavailable',
+    }, 400)
+  }
 
   const successUrl = `${redirectBaseUrl}?status=success&session_id={CHECKOUT_SESSION_ID}&return_url_base=${encodeURIComponent(returnUrlBase)}`
   const cancelUrl = `${redirectBaseUrl}?status=cancel&return_url_base=${encodeURIComponent(returnUrlBase)}`
@@ -581,6 +626,6 @@ async function handleSoloOrLegacyParty(args: {
     return json({ url: session.url, session_id: session.id })
   } catch (error: unknown) {
     console.error('create-checkout error:', error instanceof Error ? error.message : error)
-    return json({ error: mapStripeError(error) }, 400)
+    return json(mapStripeError(error), 400)
   }
 }

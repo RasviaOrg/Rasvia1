@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { View, Text, Pressable, Platform, ActivityIndicator, Image, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -23,6 +23,11 @@ export default function CartScreen() {
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [items, setItems] = useState<UserCartListItem[]>([]);
+  // Per-row request-id map so we only roll back if *our* in-flight write is
+  // still the latest — rapid taps previously clobbered newer state with a
+  // stale snapshot on the first failure.
+  const latestReqIdByKey = useRef<Map<string, number>>(new Map());
+  const reqCounter = useRef(0);
 
   const reloadCart = useCallback(async () => {
     const userId = session?.user?.id;
@@ -82,11 +87,16 @@ export default function CartScreen() {
       if (!userId) return;
       const key = `${row.restaurantId}:${row.menuItemId}`;
 
-      // Capture snapshot for rollback on failure.
-      const previousItems = items;
+      // Tag this write so we can ignore its failure if a newer tap supersedes it.
+      reqCounter.current += 1;
+      const reqId = reqCounter.current;
+      latestReqIdByKey.current.set(key, reqId);
 
-      // Optimistically update UI first so taps feel instant; reconcile with
-      // Supabase in the background and roll back on error.
+      // Remember the pre-tap quantity for targeted rollback (NOT a snapshot of
+      // the whole list — that caused a race where a failure would overwrite
+      // unrelated rows the user had already updated).
+      const previousQty = row.quantity;
+
       setItems((prev) =>
         nextQty <= 0
           ? prev.filter((p) => !(p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId))
@@ -111,16 +121,48 @@ export default function CartScreen() {
           quantity: nextQty,
         });
       } catch (err) {
-        setItems(previousItems);
-        Alert.alert(
-          "Couldn't update cart",
-          err instanceof Error ? err.message : "Please try again."
-        );
+        // Only revert if we're still the most recent write for this key; a
+        // newer tap may have already corrected the row, in which case
+        // clobbering it would show the wrong quantity.
+        if (latestReqIdByKey.current.get(key) === reqId) {
+          setItems((prev) => {
+            const exists = prev.some(
+              (p) => p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId,
+            );
+            if (!exists) {
+              // Row was optimistically removed (nextQty <= 0). Put it back.
+              return [
+                ...prev,
+                {
+                  ...row,
+                  quantity: previousQty,
+                  subtotal: Number((row.unitPrice * previousQty).toFixed(2)),
+                },
+              ];
+            }
+            return prev.map((p) =>
+              p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId
+                ? {
+                    ...p,
+                    quantity: previousQty,
+                    subtotal: Number((p.unitPrice * previousQty).toFixed(2)),
+                  }
+                : p,
+            );
+          });
+          Alert.alert(
+            "Couldn't update cart",
+            err instanceof Error ? err.message : "Please try again.",
+          );
+        }
       } finally {
-        setSavingKey(null);
+        // Only clear the spinner if we're still the latest request.
+        if (latestReqIdByKey.current.get(key) === reqId) {
+          setSavingKey(null);
+        }
       }
     },
-    [items, session?.user?.id]
+    [session?.user?.id]
   );
 
   const openRestaurant = useCallback(

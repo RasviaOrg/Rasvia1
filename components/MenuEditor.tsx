@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import * as SecureStore from "expo-secure-store";
 import {
   View,
   Text,
@@ -21,10 +22,10 @@ import {
   Image as ImageIcon,
   Flame,
   Leaf,
+  Moon,
   ChevronUp,
   ChevronDown,
   Pencil,
-  Check,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
@@ -41,6 +42,7 @@ import {
   slugifyTag,
   type MenuTagConfig,
 } from "@/lib/menu-tags";
+import { MenuTagDialog } from "./MenuTagDialog";
 
 function formatMealTimesForDb(values: string[]): string[] {
   return Array.from(new Set(values.map((v) => slugifyTag(v)).filter(Boolean)));
@@ -209,6 +211,7 @@ function EditableMenuItem({
   const [description, setDescription] = useState(item.description);
   const [category, setCategory] = useState(item.category);
   const [isVegetarian, setIsVegetarian] = useState(item.isVegetarian);
+  const [isHalal, setIsHalal] = useState(item.isHalal);
   const [spiceLevel, setSpiceLevel] = useState(item.spiceLevel);
   const [mealTimes, setMealTimes] = useState<string[]>(ensureKnownTags(item.mealTimes, menuTags));
 
@@ -219,6 +222,7 @@ function EditableMenuItem({
     setDescription(item.description);
     setCategory(item.category);
     setIsVegetarian(item.isVegetarian);
+    setIsHalal(item.isHalal);
     setSpiceLevel(item.spiceLevel);
     setMealTimes(ensureKnownTags(item.mealTimes, menuTags));
     setShowSettings(true);
@@ -266,7 +270,9 @@ function EditableMenuItem({
         category_id: null,
         meal_times: formatMealTimesForDb(mealTimes),
         is_vegetarian: isVegetarian,
+        is_halal: isHalal,
         is_spicy: spiceLevel > 0,
+        spice_level: Math.max(0, Math.min(3, spiceLevel)),
       };
       const { error } = await supabase.from("menu_items").update(updateData).eq("id", Number(item.id));
       if (error) throw error;
@@ -279,6 +285,7 @@ function EditableMenuItem({
         category: category.trim() || "Menu Item",
         mealTimes: formatMealTimesForDb(mealTimes),
         isVegetarian,
+        isHalal,
         spiceLevel,
       });
       setShowSettings(false);
@@ -311,7 +318,7 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} />
+      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} />
 
       {canEdit && (
         <Pressable
@@ -431,23 +438,50 @@ function EditableMenuItem({
                 <Text style={labelStyle}>Spice Level</Text>
                 <SpiceSelector level={spiceLevel} onChange={setSpiceLevel} />
 
-                <Text style={labelStyle}>Vegetarian</Text>
-                <Pressable
-                  onPress={() => setIsVegetarian((v) => !v)}
-                  style={{
-                    ...inputStyle,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderColor: isVegetarian ? "rgba(34,197,94,0.45)" : "#333",
-                    backgroundColor: isVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
-                  }}
-                >
-                  <Leaf size={14} color={isVegetarian ? "#22C55E" : "#777"} />
-                  <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isVegetarian ? "#22C55E" : "#777" }}>
-                    {isVegetarian ? "Vegetarian ON" : "Vegetarian OFF"}
-                  </Text>
-                </Pressable>
+                <Text style={labelStyle}>Dietary</Text>
+                {/* Split row: Vegetarian (left) + Halal (right). Both are
+                    independently toggleable so an item can be marked as one,
+                    both, or neither. Mirrors the web ItemFormDialog. */}
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                  <Pressable
+                    onPress={() => setIsVegetarian((v) => !v)}
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      paddingVertical: 12,
+                      borderColor: isVegetarian ? "rgba(34,197,94,0.45)" : "#333",
+                      backgroundColor: isVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
+                    }}
+                  >
+                    <Leaf size={14} color={isVegetarian ? "#22C55E" : "#777"} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isVegetarian ? "#22C55E" : "#777" }}>
+                      Vegetarian
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setIsHalal((v) => !v)}
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      paddingVertical: 12,
+                      borderColor: isHalal ? "rgba(56,189,248,0.45)" : "#333",
+                      backgroundColor: isHalal ? "rgba(56,189,248,0.12)" : "#0f0f0f",
+                    }}
+                  >
+                    <Moon size={14} color={isHalal ? "#38BDF8" : "#777"} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isHalal ? "#38BDF8" : "#777" }}>
+                      Halal
+                    </Text>
+                  </Pressable>
+                </View>
 
               </ScrollView>
               </View>
@@ -510,13 +544,60 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemCategory, setNewItemCategory] = useState("");
   const [menuTags, setMenuTags] = useState<MenuTagConfig[]>(DEFAULT_MENU_TAGS);
-  const [tagDraftLabel, setTagDraftLabel] = useState("");
   const [savingTags, setSavingTags] = useState(false);
-  const [editingTagKey, setEditingTagKey] = useState<string | null>(null);
-  const [editingTagLabel, setEditingTagLabel] = useState("");
-  const [editingTagColorIdx, setEditingTagColorIdx] = useState(0);
+  /**
+   * Owners manage a lot of vertical UI in this editor (add item + tag grid +
+   * item list). The tag card can get tall once a restaurant has many tags, so
+   * we let owners collapse it. Persisted per-restaurant via SecureStore so the
+   * preference sticks across app launches.
+   */
+  const [tagsCollapsed, setTagsCollapsed] = useState(false);
+
+  const tagsCollapsedKey = restaurantId ? `rasvia.menu_tags_collapsed.${restaurantId}` : null;
+
+  useEffect(() => {
+    if (!tagsCollapsedKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await SecureStore.getItemAsync(tagsCollapsedKey);
+        if (cancelled) return;
+        if (raw === "1") setTagsCollapsed(true);
+        else if (raw === "0") setTagsCollapsed(false);
+      } catch {
+        // SecureStore misses shouldn't block the editor.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tagsCollapsedKey]);
+
+  const toggleTagsCollapsed = () => {
+    setTagsCollapsed((prev) => {
+      const next = !prev;
+      if (Platform.OS !== "web") Haptics.selectionAsync();
+      if (tagsCollapsedKey) {
+        SecureStore.setItemAsync(tagsCollapsedKey, next ? "1" : "0").catch(() => {
+          // Non-fatal; state still updates in-memory.
+        });
+      }
+      return next;
+    });
+  };
+  /**
+   * Popup state for the add/edit tag sheet. `null` means the dialog is
+   * closed; otherwise we carry the mode + the tag being edited so the
+   * child component can seed its fields.
+   */
+  const [tagDialog, setTagDialog] = useState<
+    | { mode: "create" }
+    | { mode: "edit"; tag: MenuTagConfig }
+    | null
+  >(null);
   const [newMealTimes, setNewMealTimes] = useState<string[]>([]);
   const [newIsVegetarian, setNewIsVegetarian] = useState(false);
+  const [newIsHalal, setNewIsHalal] = useState(false);
   const [newSpiceLevel, setNewSpiceLevel] = useState(0);
   const [newImageAsset, setNewImageAsset] = useState<PickedImage | null>(null);
   const [addingItem, setAddingItem] = useState(false);
@@ -558,8 +639,12 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     };
   }, [restaurantId, onMenuTagsChange]);
 
-  const persistTags = async (nextTags: MenuTagConfig[]) => {
-    if (!restaurantId) return;
+  /**
+   * Writes the full tag list via the server RPC. Returns `true` on success —
+   * used by the popup dialog to decide whether to close itself.
+   */
+  const persistTags = async (nextTags: MenuTagConfig[]): Promise<boolean> => {
+    if (!restaurantId) return false;
     const serialized = serializeMenuTags(nextTags);
     setMenuTags(serialized);
     onMenuTagsChange?.(serialized);
@@ -571,68 +656,13 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
           p_tags: serialized as any,
         });
       if (error) throw error;
+      return true;
     } catch (err: any) {
       Alert.alert("Error", err?.message || "Could not save menu tags.");
+      return false;
     } finally {
       setSavingTags(false);
     }
-  };
-
-  const addMenuTag = async () => {
-    const label = tagDraftLabel.trim();
-    if (!label) return;
-    const key = slugifyTag(label);
-    if (!key) return;
-    if (menuTags.some((tag) => tag.key === key)) {
-      Alert.alert("Duplicate", "A tag with that name already exists.");
-      return;
-    }
-    const fallback = DEFAULT_MENU_TAGS[menuTags.length % DEFAULT_MENU_TAGS.length];
-    await persistTags([
-      ...menuTags,
-      {
-        key,
-        label,
-        color: fallback.color,
-        bg: fallback.bg,
-        border: fallback.border,
-        enabled: true,
-        position: menuTags.length,
-      },
-    ]);
-    setTagDraftLabel("");
-  };
-
-  const TAG_COLOR_PRESETS = DEFAULT_MENU_TAGS.map((tag) => ({
-    color: tag.color,
-    bg: tag.bg,
-    border: tag.border,
-  }));
-
-  const beginTagEdit = (tag: MenuTagConfig) => {
-    const matched = TAG_COLOR_PRESETS.findIndex(
-      (preset) => preset.color === tag.color && preset.bg === tag.bg && preset.border === tag.border
-    );
-    setEditingTagKey((prev) => (prev === tag.key ? null : tag.key));
-    setEditingTagLabel(tag.label);
-    setEditingTagColorIdx(matched >= 0 ? matched : 0);
-  };
-
-  const saveTagEdit = async (tagKey: string) => {
-    const label = editingTagLabel.trim();
-    if (!label) {
-      Alert.alert("Validation", "Tag name cannot be empty.");
-      return;
-    }
-    const selected = TAG_COLOR_PRESETS[editingTagColorIdx] ?? TAG_COLOR_PRESETS[0];
-    const next = menuTags.map((tag) =>
-      tag.key === tagKey
-        ? { ...tag, label, color: selected.color, bg: selected.bg, border: selected.border }
-        : tag
-    );
-    await persistTags(next);
-    setEditingTagKey(null);
-    setEditingTagLabel("");
   };
 
   const handleItemUpdated = (updatedItem: UIMenuItem) => {
@@ -650,6 +680,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     setNewItemCategory("");
     setNewMealTimes([]);
     setNewIsVegetarian(false);
+    setNewIsHalal(false);
     setNewSpiceLevel(0);
     setNewImageAsset(null);
   };
@@ -691,7 +722,9 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
         category_id: null,
         is_available: true,
         is_vegetarian: newIsVegetarian,
+        is_halal: newIsHalal,
         is_spicy: newSpiceLevel > 0,
+        spice_level: Math.max(0, Math.min(3, newSpiceLevel)),
         meal_times: formatMealTimesForDb(newMealTimes),
       };
 
@@ -756,18 +789,78 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
             </Pressable>
           </View>
           <View style={{ backgroundColor: "#121212", borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a", padding: 10 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 13 }}>Menu Tags</Text>
-              {savingTags && <ActivityIndicator color="#FF9933" size="small" />}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: tagsCollapsed ? 0 : 8 }}>
+              <Pressable
+                onPress={toggleTagsCollapsed}
+                hitSlop={6}
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}
+              >
+                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 13 }}>Menu Tags</Text>
+                <Text style={{ color: "#555", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                  {tagsCollapsed ? `(${menuTags.length})` : ""}
+                </Text>
+              </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                {savingTags && <ActivityIndicator color="#FF9933" size="small" />}
+                {/* Mirrors the web dashboard: tag CRUD lives in a focused
+                    popup instead of an inline editor, so the card stays
+                    compact and the form fields don't compete with the
+                    item grid for space. */}
+                <Pressable
+                  onPress={() => setTagDialog({ mode: "create" })}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    backgroundColor: "rgba(255,153,51,0.12)",
+                    borderWidth: 1,
+                    borderColor: "rgba(255,153,51,0.4)",
+                    borderRadius: 8,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                  }}
+                >
+                  <Plus size={12} color="#FF9933" />
+                  <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 11 }}>Add Tag</Text>
+                </Pressable>
+                {/* Collapse chevron: lets owners shrink the tag list so the
+                    item grid below gets more viewport. State is persisted
+                    per-restaurant via SecureStore. */}
+                <Pressable
+                  onPress={toggleTagsCollapsed}
+                  hitSlop={6}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: "#2f2f2f",
+                    backgroundColor: "#141414",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {tagsCollapsed ? (
+                    <ChevronDown size={14} color="#aaa" />
+                  ) : (
+                    <ChevronUp size={14} color="#aaa" />
+                  )}
+                </Pressable>
+              </View>
             </View>
-            <Text style={{ color: "#777", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 10 }}>
-              Ordered top to bottom for display priority.
-            </Text>
-            <View style={{ gap: 8, marginBottom: 10 }}>
+            {!tagsCollapsed && (
+              <Text style={{ color: "#777", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 10 }}>
+                Ordered top to bottom for display priority.
+              </Text>
+            )}
+            {!tagsCollapsed && (
+            <View style={{ gap: 8 }}>
               {menuTags.map((tag, idx) => (
                 <View
                   key={tag.key}
                   style={{
+                    flexDirection: "row",
+                    alignItems: "center",
                     borderRadius: 12,
                     borderWidth: 1,
                     borderColor: tag.border,
@@ -776,19 +869,18 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                     paddingVertical: 10,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <View style={{ width: 22, height: 22, borderRadius: 999, borderWidth: 1, borderColor: "#303030", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
-                      <Text style={{ color: "#aaa", fontFamily: "Manrope_700Bold", fontSize: 11 }}>{idx + 1}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: tag.color, fontFamily: "Manrope_700Bold", fontSize: 15 }}>{tag.label}</Text>
-                    </View>
-                    <View style={{ flexDirection: "row", gap: 6 }}>
+                  <View style={{ width: 22, height: 22, borderRadius: 999, borderWidth: 1, borderColor: "#303030", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
+                    <Text style={{ color: "#aaa", fontFamily: "Manrope_700Bold", fontSize: 11 }}>{idx + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: tag.color, fontFamily: "Manrope_700Bold", fontSize: 15 }}>{tag.label}</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
                     <Pressable
-                      onPress={() => beginTagEdit(tag)}
+                      onPress={() => setTagDialog({ mode: "edit", tag })}
                       style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,153,51,0.45)", backgroundColor: "rgba(255,153,51,0.12)", alignItems: "center", justifyContent: "center" }}
                     >
-                      {editingTagKey === tag.key ? <Check size={14} color="#FF9933" /> : <Pencil size={14} color="#FF9933" />}
+                      <Pencil size={14} color="#FF9933" />
                     </Pressable>
                     <Pressable
                       onPress={() => {
@@ -837,81 +929,21 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                     </Pressable>
                   </View>
                 </View>
-                {editingTagKey === tag.key && (
-                  <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: "#252525", paddingTop: 10 }}>
-                    <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 6 }}>Tag Name</Text>
-                    <TextInput
-                      style={{
-                        backgroundColor: "#0a0a0a",
-                        borderWidth: 1,
-                        borderColor: "#2a2a2a",
-                        borderRadius: 10,
-                        color: "#f5f5f5",
-                        paddingHorizontal: 10,
-                        paddingVertical: 10,
-                        fontFamily: "Manrope_600SemiBold",
-                        fontSize: 13,
-                        marginBottom: 10,
-                      }}
-                      value={editingTagLabel}
-                      onChangeText={setEditingTagLabel}
-                      placeholder="Tag name"
-                      placeholderTextColor="#666"
-                    />
-                    <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 6 }}>Tag Color</Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                      {TAG_COLOR_PRESETS.map((preset, colorIdx) => (
-                        <Pressable
-                          key={`${preset.color}-${colorIdx}`}
-                          onPress={() => setEditingTagColorIdx(colorIdx)}
-                          style={{
-                            width: 30,
-                            height: 30,
-                            borderRadius: 999,
-                            backgroundColor: preset.color,
-                            borderWidth: 2,
-                            borderColor: editingTagColorIdx === colorIdx ? "#f5f5f5" : "#222",
-                          }}
-                        />
-                      ))}
-                    </View>
-                    <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-                      <Pressable
-                        onPress={() => {
-                          setEditingTagKey(null);
-                          setEditingTagLabel("");
-                        }}
-                        style={{ borderWidth: 1, borderColor: "#2f2f2f", backgroundColor: "#141414", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}
-                      >
-                        <Text style={{ color: "#aaa", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Cancel</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => saveTagEdit(tag.key)}
-                        style={{ borderWidth: 1, borderColor: "rgba(255,153,51,0.45)", backgroundColor: "rgba(255,153,51,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}
-                      >
-                        <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Save</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                )}
-                </View>
               ))}
             </View>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <TextInput
-                style={{ flex: 1, backgroundColor: "#0f0f0f", borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 10, color: "#f5f5f5", paddingHorizontal: 10, paddingVertical: 8, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}
-                value={tagDraftLabel}
-                onChangeText={setTagDraftLabel}
-                placeholder="Add custom tag"
-                placeholderTextColor="#666"
-              />
-              <Pressable onPress={addMenuTag} style={{ backgroundColor: "rgba(255,153,51,0.12)", borderWidth: 1, borderColor: "rgba(255,153,51,0.35)", borderRadius: 10, paddingHorizontal: 12, justifyContent: "center" }}>
-                <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 12 }}>Add</Text>
-              </Pressable>
-            </View>
+            )}
           </View>
         </View>
       )}
+
+      <MenuTagDialog
+        visible={!!tagDialog}
+        mode={tagDialog?.mode ?? "create"}
+        tags={menuTags}
+        editingTag={tagDialog?.mode === "edit" ? tagDialog.tag : null}
+        onClose={() => setTagDialog(null)}
+        onSubmit={persistTags}
+      />
 
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <View style={{ flex: 1, marginRight: 5 }}>
@@ -1027,23 +1059,50 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                 <Text style={labelStyle}>Spice Level</Text>
                 <SpiceSelector level={newSpiceLevel} onChange={setNewSpiceLevel} />
 
-                <Text style={labelStyle}>Vegetarian</Text>
-                <Pressable
-                  onPress={() => setNewIsVegetarian((v) => !v)}
-                  style={{
-                    ...inputStyle,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderColor: newIsVegetarian ? "rgba(34,197,94,0.45)" : "#333",
-                    backgroundColor: newIsVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
-                  }}
-                >
-                  <Leaf size={14} color={newIsVegetarian ? "#22C55E" : "#777"} />
-                  <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsVegetarian ? "#22C55E" : "#777" }}>
-                    {newIsVegetarian ? "Vegetarian ON" : "Vegetarian OFF"}
-                  </Text>
-                </Pressable>
+                <Text style={labelStyle}>Dietary</Text>
+                {/* Split row: Vegetarian (left) + Halal (right). Matches
+                    the item settings modal + web ItemFormDialog so both
+                    flags are set at creation time. */}
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                  <Pressable
+                    onPress={() => setNewIsVegetarian((v) => !v)}
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      paddingVertical: 12,
+                      borderColor: newIsVegetarian ? "rgba(34,197,94,0.45)" : "#333",
+                      backgroundColor: newIsVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
+                    }}
+                  >
+                    <Leaf size={14} color={newIsVegetarian ? "#22C55E" : "#777"} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsVegetarian ? "#22C55E" : "#777" }}>
+                      Vegetarian
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setNewIsHalal((v) => !v)}
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      paddingVertical: 12,
+                      borderColor: newIsHalal ? "rgba(56,189,248,0.45)" : "#333",
+                      backgroundColor: newIsHalal ? "rgba(56,189,248,0.12)" : "#0f0f0f",
+                    }}
+                  >
+                    <Moon size={14} color={newIsHalal ? "#38BDF8" : "#777"} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsHalal ? "#38BDF8" : "#777" }}>
+                      Halal
+                    </Text>
+                  </Pressable>
+                </View>
 
               </ScrollView>
               </View>

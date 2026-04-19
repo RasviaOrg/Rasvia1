@@ -111,17 +111,36 @@ async function handleCheckoutCompleted(
   }
   if (!order) return
 
-  // Idempotency: only advance from pending_payment.
+  const paymentIntentId =
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null
+
+  // Idempotency: only advance from pending_payment. Also persist Stripe
+  // payment ids so we can issue refunds later from the dashboard.
   if (order.status === 'pending_payment') {
     const newStatus = order.order_type === 'takeout' ? 'preparing' : 'pending'
+    const updatePayload: Record<string, unknown> = {
+      status: newStatus,
+      payment_method: 'card',
+    }
+    if (paymentIntentId) updatePayload.stripe_payment_intent_id = paymentIntentId
     const { error: updateErr } = await supabase
       .from('orders')
-      .update({ status: newStatus, payment_method: 'card' })
+      .update(updatePayload)
       .eq('id', order.id)
       .eq('status', 'pending_payment')
     if (updateErr) {
       throw new Error(`Failed to update order status: ${updateErr.message}`)
     }
+  } else if (paymentIntentId) {
+    // Order already advanced (replay) — still make sure the payment intent is
+    // stored so refunds work.
+    await supabase
+      .from('orders')
+      .update({ stripe_payment_intent_id: paymentIntentId })
+      .eq('id', order.id)
+      .is('stripe_payment_intent_id', null)
   }
 
   // Legacy party v1 fallback: mark session submitted only if the session is still on v1.
@@ -186,14 +205,40 @@ async function handleChargeRefunded(
 ) {
   const intentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null
   if (!intentId) return
+
+  // 1) Try party payments first (existing behavior).
   const { data: row } = await supabase
     .from('party_payments')
     .select('id, status')
     .eq('stripe_payment_intent', intentId)
     .maybeSingle()
-  if (!row) return
-  if (row.status === 'paid' || row.status === 'covered') {
-    const { error } = await supabase.rpc('party_mark_refunded', { p_payment_id: row.id })
-    if (error) console.error('party_mark_refunded failed:', error.message)
+  if (row) {
+    if (row.status === 'paid' || row.status === 'covered') {
+      const { error } = await supabase.rpc('party_mark_refunded', { p_payment_id: row.id })
+      if (error) console.error('party_mark_refunded failed:', error.message)
+    }
+    return
   }
+
+  // 2) Fall back to solo orders.
+  const { data: order } = await supabase
+    .from('orders')
+    .select('id, refunded_amount_cents')
+    .eq('stripe_payment_intent_id', intentId)
+    .maybeSingle()
+  if (!order) return
+
+  const refundedAmount = typeof charge.amount_refunded === 'number' ? charge.amount_refunded : 0
+  if (refundedAmount <= 0) return
+  const alreadyRecorded = Number(order.refunded_amount_cents ?? 0)
+  const delta = refundedAmount - alreadyRecorded
+  if (delta <= 0) return
+
+  const chargeId = typeof charge.id === 'string' ? charge.id : null
+  const { error } = await supabase.rpc('mark_order_refunded', {
+    p_order_id: order.id,
+    p_amount_cents: delta,
+    p_charge_id: chargeId,
+  })
+  if (error) console.error('mark_order_refunded failed:', error.message)
 }

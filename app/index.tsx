@@ -64,6 +64,8 @@ Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.wi
 interface ActiveGroupOrder {
   sessionId: string;
   restaurantName: string;
+  /** Cover image for the restaurant shown as the banner's leading thumbnail. */
+  restaurantImage?: string | null;
   isHost: boolean;
   joinedAt: string;
   itemCount?: number;
@@ -137,21 +139,25 @@ export default function DiscoveryFeed() {
   const addressSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const Location = require("expo-location");
 
-  // Nominatim address autocomplete
+  // Nominatim address autocomplete — guard against stale responses (fast
+  // typing would otherwise let an older request overwrite newer results).
   useEffect(() => {
     if (addressSearchTimeout.current) clearTimeout(addressSearchTimeout.current);
     if (addressInput.length < 3) {
       setAddressSuggestions([]);
       return;
     }
+    const controller = new AbortController();
+    let isActive = true;
     setIsSearchingAddress(true);
     addressSearchTimeout.current = setTimeout(async () => {
       try {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=4&q=${encodeURIComponent(addressInput)}`,
-          { headers: { "User-Agent": "RasviaApp/1.0" } }
+          { headers: { "User-Agent": "RasviaApp/1.0" }, signal: controller.signal }
         );
         const results = await res.json();
+        if (!isActive) return;
         setAddressSuggestions(
           results.map((r: any) => ({
             display_name: r.display_name,
@@ -159,12 +165,21 @@ export default function DiscoveryFeed() {
             lon: parseFloat(r.lon),
           }))
         );
-      } catch {
-        setAddressSuggestions([]);
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        if (isActive) setAddressSuggestions([]);
       } finally {
-        setIsSearchingAddress(false);
+        if (isActive) setIsSearchingAddress(false);
       }
     }, 500);
+    return () => {
+      isActive = false;
+      controller.abort();
+      if (addressSearchTimeout.current) {
+        clearTimeout(addressSearchTimeout.current);
+        addressSearchTimeout.current = null;
+      }
+    };
   }, [addressInput]);
 
   const handleDetectLocation = useCallback(async () => {
@@ -179,19 +194,27 @@ export default function DiscoveryFeed() {
       const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
       setUserCoordsOverride(coords);
 
-      // Reverse geocode for display
+      // Reverse geocode for display — compute locally so we can both update
+      // state AND persist the same value in the same turn (setState is async,
+      // so reading `addressInput` on the next line would still be stale).
+      let displayAddr: string | null = null;
       const results = await Location.reverseGeocodeAsync(coords);
       if (results?.length > 0) {
         const r = results[0];
-        const display = [r.name, r.street, r.city, r.region].filter(Boolean).join(", ");
-        setAddressInput(display);
+        const display = [r.name, r.street, r.city, r.region].filter(Boolean).join(", ").trim();
+        if (display) {
+          displayAddr = display;
+          setAddressInput(display);
+        }
+      }
+      if (!displayAddr && addressInput?.trim()) {
+        displayAddr = addressInput.trim();
       }
 
-      // Save to profile — persist the reverse-geocoded display string when we
-      // have one, otherwise null so we don't freeze a literal "GPS Location"
-      // fallback onto the profile (which would surface on the home chip).
+      // Persist the freshly-computed display string. Fall back to null (not a
+      // literal "GPS Location" placeholder) if reverse-geocoding produced
+      // nothing, so the home chip doesn't freeze a fake address.
       if (session?.user?.id) {
-        const displayAddr = addressInput?.trim() ? addressInput.trim() : null;
         await supabase.from("profiles").update({
           home_lat: coords.latitude,
           home_long: coords.longitude,
@@ -628,7 +651,7 @@ export default function DiscoveryFeed() {
         const parsed = JSON.parse(stored) as ActiveGroupOrder;
         const { data: sess, error } = await supabase
           .from('party_sessions')
-          .select('id, status, restaurants(name)')
+          .select('id, status, restaurants(name, image_url)')
           .eq('id', parsed.sessionId)
           .single();
 
@@ -636,6 +659,7 @@ export default function DiscoveryFeed() {
           setActiveGroupOrder({
             ...parsed,
             restaurantName: (sess.restaurants as any)?.name ?? parsed.restaurantName,
+            restaurantImage: (sess.restaurants as any)?.image_url ?? parsed.restaurantImage ?? null,
           });
           return;
         }
@@ -646,7 +670,7 @@ export default function DiscoveryFeed() {
       // Fallback: check if the user hosts any open sessions
       const { data: hostSessions } = await supabase
         .from('party_sessions')
-        .select('id, restaurants(name)')
+        .select('id, restaurants(name, image_url)')
         .eq('host_user_id', currentUserId)
         .in('status', ['open', 'locked', 'paying'])
         .order('created_at', { ascending: false })
@@ -657,6 +681,7 @@ export default function DiscoveryFeed() {
         const order: ActiveGroupOrder = {
           sessionId: sess.id,
           restaurantName: (sess.restaurants as any)?.name ?? 'Restaurant',
+          restaurantImage: (sess.restaurants as any)?.image_url ?? null,
           isHost: true,
           joinedAt: new Date().toISOString(),
         };
@@ -1416,13 +1441,30 @@ export default function DiscoveryFeed() {
                   }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 14, flex: 1 }}
                 >
-                  <View style={{
-                    width: 48, height: 48, borderRadius: 24,
-                    backgroundColor: "rgba(255,153,51,0.2)",
-                    borderWidth: 2, borderColor: "#FF9933",
-                    alignItems: "center", justifyContent: "center",
-                  }}>
-                    <UtensilsCrossed size={22} color="#FF9933" />
+                  {/* Rounded-rectangle restaurant thumbnail. Falls back to a
+                      neutral icon tile when the restaurant has no cover image. */}
+                  <View
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 12,
+                      backgroundColor: "rgba(255,153,51,0.15)",
+                      borderWidth: 1,
+                      borderColor: "rgba(255,153,51,0.4)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {activeGroupOrder.restaurantImage ? (
+                      <Image
+                        source={{ uri: activeGroupOrder.restaurantImage }}
+                        style={{ width: "100%", height: "100%" }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <UtensilsCrossed size={22} color="#FF9933" />
+                    )}
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -1432,7 +1474,17 @@ export default function DiscoveryFeed() {
                       </Text>
                       {activeGroupOrder.isHost && <Crown size={11} color="#FF9933" />}
                     </View>
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 16, letterSpacing: -0.2 }} numberOfLines={1}>
+                    {/* Allow wrapping so long restaurant names don't get
+                        truncated — the banner expands vertically instead. */}
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_700Bold",
+                        color: "#f5f5f5",
+                        fontSize: 16,
+                        letterSpacing: -0.2,
+                        lineHeight: 20,
+                      }}
+                    >
                       Group Order at {activeGroupOrder.restaurantName}
                     </Text>
                   </View>

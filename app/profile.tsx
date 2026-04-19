@@ -50,9 +50,9 @@ import {
   Plus,
   Mail,
 } from "lucide-react-native";
-import { RolesModal } from "@/components/RolesModal";
 import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
-import { isolatedSupabase } from "@/lib/isolated-supabase";
+import { AccountsManagementSection } from "@/components/AccountsManagementSection";
+import { getSwitchedInFrom, clearSwitchedInFrom } from "@/lib/accounts-store";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -94,14 +94,6 @@ function formatDebugDisplay(iso: string | null): string {
   } catch { return 'Invalid time'; }
 }
 
-export type SavedAccount = {
-  email: string;
-  passwordPlain: string;
-  fullName: string;
-  role: string | null;
-  id: string;
-};
-
 export default function ProfileSettingsScreen() {
   const router = useRouter();
   const { session } = useAuth();
@@ -122,20 +114,22 @@ export default function ProfileSettingsScreen() {
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [showRoles, setShowRoles] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
 
-  // Admin tab state (only used when isAdmin)
+  // Tab state. Admins keep the old 4-tab strip (including "debug"); owners and
+  // switched-in users get a slimmer strip without "debug".
   const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug' | 'accounts'>('preferences');
 
-  // Accounts state
-  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
-  const [showAddAccountModal, setShowAddAccountModal] = useState(false);
-  const [addAccountEmail, setAddAccountEmail] = useState('');
-  const [addAccountPassword, setAddAccountPassword] = useState('');
-  const [validatingAccount, setValidatingAccount] = useState(false);
+  // Tracks whether the current user was switched into this session by an
+  // admin/owner. Drives the "My Accounts" settings row visibility so a user
+  // who was switched in can get back to their originating account.
+  const [switchedInFromUserId, setSwitchedInFromUserId] = useState<string | null>(null);
+  const isSwitchedIn = !!switchedInFromUserId;
+  // Anyone who should see the account switcher (admin inline tab OR the
+  // standalone /my-accounts page).
+  const canUseAccounts = isAdmin || isRestaurantOwner || isSwitchedIn;
 
   // Debug time override state
   const [debugDay, setDebugDay] = useState(0);     // 0=Sun..6=Sat
@@ -167,122 +161,24 @@ export default function ProfileSettingsScreen() {
     }
   }, [session]);
 
-  // Load saved accounts
+  // Hydrate just the `switched_in_from` marker here so the settings list
+  // can show a "My Accounts" row for the switched-in persona. The rest of
+  // the account-switching state lives inside `AccountsManagementSection`.
   useEffect(() => {
-    async function loadSavedAccounts() {
-      try {
-        const data = await SecureStore.getItemAsync('rasvia.saved_accounts');
-        if (data) {
-          setSavedAccounts(JSON.parse(data));
-        }
-      } catch (err) {
-        console.error("Error loading saved accounts", err);
-      }
-    }
-    loadSavedAccounts();
-  }, []);
-
-  const saveAccountToStore = async (newAccount: SavedAccount) => {
-    const updated = savedAccounts.filter(a => a.id !== newAccount.id);
-    updated.push(newAccount);
-    setSavedAccounts(updated);
-    await SecureStore.setItemAsync('rasvia.saved_accounts', JSON.stringify(updated));
-  };
-
-  const removeAccountFromStore = async (id: string) => {
-    Alert.alert(
-      "Remove Account",
-      "Are you sure you want to remove this saved account?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Remove", 
-          style: "destructive",
-          onPress: async () => {
-            const updated = savedAccounts.filter(a => a.id !== id);
-            setSavedAccounts(updated);
-            await SecureStore.setItemAsync('rasvia.saved_accounts', JSON.stringify(updated));
-          }
-        }
-      ]
-    );
-  };
-
-  const switchAccount = async (account: SavedAccount) => {
-    Alert.alert(
-      "Switch Account",
-      `You will be signed out of your admin account.\n\nSwitch to ${account.fullName || account.email}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Switch", 
-          style: "destructive",
-          onPress: async () => {
-            setLoggingOut(true);
-            try {
-              await supabase.auth.signOut();
-              await supabase.auth.signInWithPassword({
-                email: account.email,
-                password: account.passwordPlain,
-              });
-              // Session state listener will automatically redirect to home
-            } catch (err) {
-              console.error("Switch account error", err);
-              Alert.alert("Error", "Failed to switch accounts.");
-            } finally {
-              setLoggingOut(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleAddAccount = async () => {
-    if (!addAccountEmail || !addAccountPassword) {
-      Alert.alert("Validation", "Please enter email and password.");
+    const userId = session?.user?.id;
+    if (!userId) {
+      setSwitchedInFromUserId(null);
       return;
     }
-    if (session?.user?.email && addAccountEmail.trim().toLowerCase() === session.user.email.toLowerCase()) {
-      Alert.alert("Validation", "You cannot save your current account.");
-      return;
-    }
-    setValidatingAccount(true);
-    try {
-      const { data, error } = await isolatedSupabase.auth.signInWithPassword({
-        email: addAccountEmail.trim(),
-        password: addAccountPassword,
-      });
-
-      if (error || !data.user) {
-        Alert.alert("Invalid Credentials", "Could not sign in with these credentials.");
-        return;
-      }
-
-      // Fetch profile data
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, role')
-        .eq('id', data.user.id)
-        .maybeSingle();
-
-      await saveAccountToStore({
-        email: addAccountEmail.trim(),
-        passwordPlain: addAccountPassword, // stored plainly inside secure keystore
-        fullName: profile?.full_name || 'Unknown',
-        role: profile?.role || 'user',
-        id: data.user.id
-      });
-
-      setShowAddAccountModal(false);
-      setAddAccountEmail('');
-      setAddAccountPassword('');
-    } catch (e) {
-      Alert.alert("Error", "An unexpected error occurred.");
-    } finally {
-      setValidatingAccount(false);
-    }
-  };
+    let cancelled = false;
+    (async () => {
+      const marker = await getSwitchedInFrom(userId);
+      if (!cancelled) setSwitchedInFromUserId(marker);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
 
   // Load preferences from profiles table
   useEffect(() => {
@@ -375,36 +271,45 @@ export default function ProfileSettingsScreen() {
     loadingPrefs,
   ]);
 
-  // Autocomplete fetch
+  // Autocomplete fetch — guarded against stale responses via AbortController
+  // so that fast typing doesn't overwrite current suggestions with results
+  // from an earlier, slower request.
   useEffect(() => {
+    const controller = new AbortController();
+    let isActive = true;
+
     const timer = setTimeout(async () => {
       if (savedAddress && savedAddress.trim().length > 4 && savedAddress !== origSavedAddress) {
         setIsSearchingAddress(true);
         try {
-          // Ensure the search is loosely bounded to Texas to give better hits before filtering
           const query = savedAddress.toLowerCase().includes("tx") || savedAddress.toLowerCase().includes("texas")
             ? savedAddress
             : `${savedAddress}, Texas`;
 
           const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=10`, {
-            headers: { "User-Agent": "RasviaApp/1.0" }
+            headers: { "User-Agent": "RasviaApp/1.0" },
+            signal: controller.signal,
           });
           const data = await res.json();
+          if (!isActive) return;
 
-          // Filter results to only include Texas
-          const filtered = (data || []).filter((item: any) => {
-            return item.address?.state === "Texas";
-          });
-
-          // Take top 5
+          const filtered = (data || []).filter((item: any) => item.address?.state === "Texas");
           setAddressSuggestions(filtered.slice(0, 5));
-        } catch (e) { }
-        setIsSearchingAddress(false);
-      } else {
+        } catch (e: any) {
+          if (e?.name === "AbortError") return;
+        } finally {
+          if (isActive) setIsSearchingAddress(false);
+        }
+      } else if (isActive) {
         setAddressSuggestions([]);
       }
     }, 600);
-    return () => clearTimeout(timer);
+
+    return () => {
+      isActive = false;
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [savedAddress, origSavedAddress]);
 
 
@@ -541,6 +446,14 @@ export default function ProfileSettingsScreen() {
         onPress: async () => {
           setLoggingOut(true);
           try {
+            // Clear the switched-in marker for this user (if any) so that
+            // signing back in directly later doesn't falsely show the
+            // Accounts tab strip for a non-privileged account.
+            const currentId = session?.user?.id;
+            if (currentId) {
+              await clearSwitchedInFrom(currentId);
+            }
+
             // Safety timeout: supabase.auth.signOut() can occasionally hang forever on mobile
             // if the network is spotty or the token is in an edge state.
             let settled = false;
@@ -823,7 +736,10 @@ export default function ProfileSettingsScreen() {
           </Pressable>
         </Animated.View>
 
-        {/* ── Admin tab pills (in-profile sections) ── */}
+        {/* ── Tab pills (admin only) ──
+             Only admins see the inline tab strip. Owners and switched-in
+             users get a dedicated "My Accounts" page via the Settings list
+             so their profile view stays uncluttered. */}
         {isAdmin && (
           <View style={{
             flexDirection: 'row',
@@ -1154,7 +1070,24 @@ export default function ProfileSettingsScreen() {
                     hasChevron
                     onPress={() => {
                       if (Platform.OS !== "web") Haptics.selectionAsync();
-                      setShowRoles(true);
+                      router.push("/roles" as any);
+                    }}
+                  />
+                  <Divider />
+                </>
+              )}
+              {/* Dedicated accounts screen for non-admin personas
+                  (owners + users who were switched into this session). Admin
+                  accesses the same panel via the inline tab strip. */}
+              {!isAdmin && canUseAccounts && (
+                <>
+                  <SettingsRow
+                    icon={<Users size={20} color="#60A5FA" />}
+                    label="My Accounts"
+                    hasChevron
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      router.push("/my-accounts" as any);
                     }}
                   />
                   <Divider />
@@ -1777,8 +1710,14 @@ export default function ProfileSettingsScreen() {
           {/* ==========================================
                       DANGER ZONE — Delete Account
                       + Legal Links (bottom of page)
+              Hidden for admins and restaurant owners (owners shouldn't
+              be able to self-delete a business-owning account). For
+              tabbed personas (switched-in users) it only shows on the
+              Preferences tab so it doesn't follow you to Location /
+              Accounts. Regular users have no tab strip and always see
+              it at the bottom.
               ========================================== */}
-          {(!isAdmin) && (
+          {!isAdmin && !isRestaurantOwner && (
             <Animated.View
               entering={FadeInDown.delay(300).duration(500)}
               className="mx-5 mb-8"
@@ -1851,83 +1790,15 @@ export default function ProfileSettingsScreen() {
           )}
 
           {/* ==========================================
-                        ACCOUNTS TAB (Admin only)
+                ACCOUNTS TAB — Admin only
+                (owners + switched-in users use the standalone
+                `/my-accounts` page reached from the Settings list)
           ========================================== */}
           {isAdmin && activeTab === 'accounts' && (
-            <Animated.View entering={FadeIn.duration(200)}>
-              <View style={{ marginHorizontal: 20, marginBottom: 24, padding: 20, backgroundColor: "#141414", borderRadius: 20, borderWidth: 1, borderColor: "#2a2a2a" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                  <Users size={20} color="#60A5FA" />
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>Saved Accounts</Text>
-                </View>
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
-                  Save credentials for quick switching between testing accounts. Validated securely.
-                </Text>
-
-                {savedAccounts.length === 0 ? (
-                  <View style={{ alignItems: "center", paddingVertical: 20, backgroundColor: "#1a1a1a", borderRadius: 12, marginBottom: 16 }}>
-                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#555", fontSize: 13 }}>No accounts saved yet.</Text>
-                  </View>
-                ) : (
-                  savedAccounts.map((acc) => (
-                    <View key={acc.id} style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#1a1a1a", borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: "#2a2a2a" }}>
-                      <View style={{ flex: 1, paddingRight: 12 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontFamily: "BricolageGrotesque_600SemiBold", color: "#f5f5f5", fontSize: 15 }}>
-                            {acc.fullName}
-                          </Text>
-                          <View style={{ backgroundColor: acc.role === 'admin' ? "rgba(255,153,51,0.15)" : acc.role === 'restaurant_owner' ? "rgba(167,139,250,0.15)" : "rgba(96,165,250,0.15)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2 }}>
-                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 9, color: acc.role === 'admin' ? "#FF9933" : acc.role === 'restaurant_owner' ? "#A78BFA" : "#60A5FA" }}>
-                              {acc.role === 'admin' ? 'Admin' : acc.role === 'restaurant_owner' ? 'Owner' : 'User'}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 4 }}>
-                          {acc.email}
-                        </Text>
-                      </View>
-                      
-                      <View style={{ flexDirection: "row", gap: 8 }}>
-                        <Pressable
-                          onPress={() => removeAccountFromStore(acc.id)}
-                          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(239,68,68,0.1)", alignItems: "center", justifyContent: "center" }}
-                        >
-                          <X size={16} color="#EF4444" />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => switchAccount(acc)}
-                          style={{ height: 36, paddingHorizontal: 16, borderRadius: 18, backgroundColor: "#60A5FA", alignItems: "center", justifyContent: "center" }}
-                        >
-                          <Text style={{ fontFamily: "Manrope_700Bold", color: "#000", fontSize: 13 }}>Switch</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))
-                )}
-
-                <Pressable
-                  onPress={() => setShowAddAccountModal(true)}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    height: 48,
-                    backgroundColor: "rgba(96,165,250,0.1)",
-                    borderWidth: 1,
-                    borderColor: "rgba(96,165,250,0.3)",
-                    borderRadius: 14,
-                    marginTop: 8,
-                  }}
-                >
-                  <Plus size={18} color="#60A5FA" />
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#60A5FA", fontSize: 15 }}>Add Account</Text>
-                </Pressable>
-              </View>
-            </Animated.View>
+            <AccountsManagementSection onLoggingOutChange={setLoggingOut} />
           )}
 
-          {/* Legal Links — visible only on preferences tab (not location/debug) */}
+          {/* Legal Links — visible only on preferences tab (not location/debug/accounts) */}
           {(!isAdmin || activeTab === 'preferences') && (
             <Animated.View
               entering={FadeInDown.delay(350).duration(500)}
@@ -2158,96 +2029,7 @@ export default function ProfileSettingsScreen() {
           </KeyboardAvoidingView>
         </Modal>
 
-        {/* ==========================================
-                      ADD ACCOUNT MODAL
-        ========================================== */}
-        <Modal
-          visible={showAddAccountModal}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => setShowAddAccountModal(false)}
-        >
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 20 }}
-          >
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-              <View style={{ backgroundColor: "#141414", borderRadius: 20, padding: 24, borderWidth: 1, borderColor: "#2a2a2a" }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>Add Saved Account</Text>
-                  <Pressable onPress={() => setShowAddAccountModal(false)} hitSlop={10}>
-                    <X size={20} color="#888" />
-                  </Pressable>
-                </View>
-
-                <View style={{ marginBottom: 16 }}>
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 13, marginBottom: 8 }}>Email Address</Text>
-                  <TextInput
-                    style={{
-                      height: 48,
-                      backgroundColor: "#1a1a1a",
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: "#333",
-                      paddingHorizontal: 16,
-                      color: "#f5f5f5",
-                      fontFamily: "Manrope_500Medium"
-                    }}
-                    value={addAccountEmail}
-                    onChangeText={setAddAccountEmail}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    placeholder="name@example.com"
-                    placeholderTextColor="#555"
-                  />
-                </View>
-
-                <View style={{ marginBottom: 24 }}>
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 13, marginBottom: 8 }}>Password</Text>
-                  <TextInput
-                    style={{
-                      height: 48,
-                      backgroundColor: "#1a1a1a",
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: "#333",
-                      paddingHorizontal: 16,
-                      color: "#f5f5f5",
-                      fontFamily: "Manrope_500Medium"
-                    }}
-                    value={addAccountPassword}
-                    onChangeText={setAddAccountPassword}
-                    secureTextEntry
-                    placeholder="••••••••"
-                    placeholderTextColor="#555"
-                  />
-                </View>
-
-                <Pressable
-                  onPress={handleAddAccount}
-                  disabled={validatingAccount || !addAccountEmail || !addAccountPassword}
-                  style={{
-                    height: 48,
-                    backgroundColor: "#60A5FA",
-                    borderRadius: 14,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexDirection: "row",
-                    opacity: validatingAccount || !addAccountEmail || !addAccountPassword ? 0.6 : 1
-                  }}
-                >
-                  {validatingAccount ? (
-                    <ActivityIndicator color="#000" />
-                  ) : (
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#000", fontSize: 16 }}>Validate & Save</Text>
-                  )}
-                </Pressable>
-              </View>
-            </TouchableWithoutFeedback>
-          </KeyboardAvoidingView>
-        </Modal>
       </SafeAreaView>
-      {showRoles && <RolesModal onClose={() => setShowRoles(false)} />}
 
       {/* Phone Verification Modal */}
       <PhoneVerifyModal
@@ -2312,7 +2094,15 @@ function SettingsRow({
       >
         {label}
       </Text>
-      {hasChevron && <ChevronRight size={18} color="#666666" />}
+      {hasChevron && (
+        // Nudge the submenu chevron 8px down so it visually reads lower than
+        // the row's vertical centre (matches the other small indicators).
+        <ChevronRight
+          size={18}
+          color="#666666"
+          style={{ transform: [{ translateY: 8 }] }}
+        />
+      )}
     </Pressable>
   );
 }

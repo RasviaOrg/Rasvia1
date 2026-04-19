@@ -24,6 +24,12 @@ interface MenuGridItemProps {
   onQuickAdd: () => void;
   showQuickAdd?: boolean;
   onContributeImage?: (item: UIMenuItem) => void;
+  /**
+   * When true, the parent editor draws a settings cog at top-right of
+   * the card. We nudge the "No Image" corner badge down so it does not
+   * collide with the cog. Only used on the owner's own restaurant.
+   */
+  ownerBadgeOffset?: boolean;
 }
 
 export function MenuGridItem({
@@ -33,6 +39,7 @@ export function MenuGridItem({
   onQuickAdd,
   showQuickAdd = true,
   onContributeImage,
+  ownerBadgeOffset = false,
 }: MenuGridItemProps) {
   const pressScale = useSharedValue(1);
   const isEven = index % 2 === 0;
@@ -151,7 +158,9 @@ export function MenuGridItem({
               <View
                 style={{
                   position: "absolute",
-                  top: 8,
+                  // Lower the badge when the owner cog is drawn at top-right
+                  // so the two don't overlap on the empty-image placeholder.
+                  top: ownerBadgeOffset ? 42 : 8,
                   right: 8,
                   backgroundColor: "rgba(15,15,15,0.72)",
                   borderRadius: 8,

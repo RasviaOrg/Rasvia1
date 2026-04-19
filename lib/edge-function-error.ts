@@ -4,6 +4,10 @@ export type EdgeFunctionErrorDetails = {
   statusText?: string;
   body?: string;
   originalMessage?: string;
+  /** Optional structured code returned by the edge function (e.g. `restaurant_not_linked`). */
+  code?: string;
+  /** Optional title the edge function wants surfaced on the client dialog. */
+  title?: string;
 };
 
 export function isInvalidJwtEdgeFunctionError(details: EdgeFunctionErrorDetails): boolean {
@@ -11,16 +15,24 @@ export function isInvalidJwtEdgeFunctionError(details: EdgeFunctionErrorDetails)
   return details.status === 401 && combined.includes('invalid jwt');
 }
 
-function parseMessageFromBody(rawBody: string): string {
+function parseMessageFromBody(rawBody: string): { message: string; code?: string; title?: string } {
   try {
     const parsed = JSON.parse(rawBody);
-    if (typeof parsed?.error === 'string' && parsed.error.trim()) return parsed.error.trim();
-    if (typeof parsed?.message === 'string' && parsed.message.trim()) return parsed.message.trim();
+    const message = (typeof parsed?.error === 'string' && parsed.error.trim())
+      || (typeof parsed?.message === 'string' && parsed.message.trim())
+      || '';
+    if (message) {
+      return {
+        message,
+        code: typeof parsed?.code === 'string' ? parsed.code : undefined,
+        title: typeof parsed?.title === 'string' ? parsed.title : undefined,
+      };
+    }
   } catch {
     // Keep raw text fallback.
   }
 
-  return rawBody.trim();
+  return { message: rawBody.trim() };
 }
 
 export async function parseEdgeFunctionError(
@@ -31,6 +43,10 @@ export async function parseEdgeFunctionError(
   const details: EdgeFunctionErrorDetails = {
     message: fallbackMessage,
     originalMessage: typeof err?.message === 'string' ? err.message : undefined,
+    // Inline errors (e.g. `new Error(msg)` thrown after reading `fnData.error`)
+    // may carry structured hints that didn't come through the Response object.
+    code: typeof err?.code === 'string' ? err.code : undefined,
+    title: typeof err?.title === 'string' ? err.title : undefined,
   };
 
   const context = err?.context;
@@ -44,10 +60,10 @@ export async function parseEdgeFunctionError(
         const rawBody = await readable.text();
         if (rawBody?.trim()) {
           details.body = rawBody;
-          const parsedBodyMessage = parseMessageFromBody(rawBody);
-          if (parsedBodyMessage) {
-            details.message = parsedBodyMessage;
-          }
+          const parsed = parseMessageFromBody(rawBody);
+          if (parsed.message) details.message = parsed.message;
+          if (parsed.code) details.code = parsed.code;
+          if (parsed.title) details.title = parsed.title;
         }
       }
     } catch {

@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { X, Plus, Leaf, Flame, Settings, Camera } from "lucide-react-native";
+import { X, Plus, Leaf, Moon, Flame, Settings, Camera } from "lucide-react-native";
 import type { UIMenuItem } from "@/lib/restaurant-types";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
@@ -176,6 +176,24 @@ export function FoodDetailModal({
                     }}
                   >
                     Vegetarian
+                  </Text>
+                </View>
+              )}
+              {item.isHalal && (
+                <View
+                  className="flex-row items-center mr-2 px-2.5 py-1 rounded-full"
+                  style={{ backgroundColor: "rgba(56, 189, 248, 0.2)" }}
+                >
+                  <Moon size={12} color="#38BDF8" />
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_600SemiBold",
+                      color: "#38BDF8",
+                      fontSize: 11,
+                      marginLeft: 4,
+                    }}
+                  >
+                    Halal
                   </Text>
                 </View>
               )}

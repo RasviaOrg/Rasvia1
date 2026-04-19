@@ -1,6 +1,19 @@
 -- ============================================================================
--- UNIFIED RASVIA SCHEMA — from scratch
--- Paste this into the Supabase SQL Editor to recreate all public tables.
+-- UNIFIED RASVIA SCHEMA — from scratch (REFERENCE ONLY)
+--
+-- This file USED to live at supabase/migrations/20260305_unified_schema.sql
+-- but it is NOT an incremental migration — it is a full from-scratch DDL
+-- dump meant to be pasted directly into the Supabase SQL Editor on a brand
+-- new project (the `CREATE TABLE` statements are not `IF NOT EXISTS`, so
+-- applying it alongside the incremental chain would double-create objects
+-- and fail).
+--
+-- It has been moved to supabase/docs/ so `supabase db push` /
+-- `supabase db reset` ignore it. DO NOT move it back under migrations/.
+--
+-- The incremental migration `20260305_unify_schema.sql` (note: *unify*,
+-- not *unified*) remains the canonical entry in the migration chain.
+--
 -- Does NOT touch auth.* or storage.* (Supabase manages those).
 -- ============================================================================
 

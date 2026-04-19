@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 type MenuItemOption = { id: number; name: string; image_url: string | null };
 type SlideDraft = { localId: string; imageUrl: string; menuItemId: number | null };
@@ -260,7 +261,7 @@ export default function OwnerMediaCarouselScreen() {
           </Text>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 32 }}>
           <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", marginBottom: 12 }}>
             Top item is the starting image. Add URLs, optional linked menu items, and reorder.
           </Text>

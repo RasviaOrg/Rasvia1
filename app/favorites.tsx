@@ -18,6 +18,7 @@ import { useAuth } from "@/lib/auth-context";
 import { parseFavorites } from "@/lib/restaurant-types";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { BrandedLoader } from "@/components/BrandedLoader";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 export default function FavoritesScreen() {
   const router = useRouter();
@@ -140,7 +141,7 @@ export default function FavoritesScreen() {
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20 }}
+            contentContainerStyle={{ paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 32, paddingHorizontal: 20 }}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}

@@ -269,8 +269,13 @@ export interface SupabaseMenuItem {
     image_url: string | null;
     in_stock: boolean;
     is_vegetarian: boolean;
+    /** Populated by the `is_halal` column (migration 20260418040000). */
+    is_halal?: boolean | null;
     is_spicy: boolean;
-    meal_times?: string[] | null;    // e.g. ["breakfast", "lunch", "dinner", "special"]
+    /** Numeric 0–3 spice level (migration 20260418050000). Mirrors `is_spicy`
+     *  but preserves levels 1 and 3 which the boolean can't represent. */
+    spice_level?: number | null;
+    meal_times?: string[] | null;    // restaurant-defined menu tag keys (see `restaurant_menu_tags`)
 }
 
 /**
@@ -285,9 +290,11 @@ export interface UIMenuItem {
     category: string;
     isPopular: boolean;
     isVegetarian: boolean;
+    /** True when the item is halal. Independent of `isVegetarian`. */
+    isHalal: boolean;
     isAvailable: boolean;
     spiceLevel: number;
-    mealTimes: string[];            // e.g. ["breakfast", "lunch"]
+    mealTimes: string[];            // restaurant-defined menu tag keys
     /** True when image_url was set in the DB (not a generated placeholder) */
     hasOfficialImage: boolean;
     /** "Name" of the community contributor whose photo was selected, or null */
@@ -314,8 +321,17 @@ export function mapMenuItemToUI(item: SupabaseMenuItem): UIMenuItem {
         category: item.category || 'Menu Item',
         isPopular: false,
         isVegetarian: item.is_vegetarian,
+        isHalal: item.is_halal === true,
         isAvailable: item.in_stock !== false, // Defaults to true if missing/null
-        spiceLevel: item.is_spicy ? 2 : 0,
+        // Prefer the numeric column; fall back to the legacy boolean so
+        // rows that haven't been re-saved since the migration still render
+        // as "spicy" (level 2) instead of collapsing to 0.
+        spiceLevel:
+            typeof item.spice_level === "number"
+                ? Math.max(0, Math.min(3, item.spice_level))
+                : item.is_spicy
+                    ? 2
+                    : 0,
         mealTimes: item.meal_times || [],
         hasOfficialImage: !!item.image_url,
         communityImageCredit: null, // Populated by fetchMenu after community_menu_images join

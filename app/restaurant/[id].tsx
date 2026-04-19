@@ -2308,6 +2308,7 @@ export default function RestaurantDetail() {
       <MenuItemDetailSettingsModal
         visible={showSelectedItemSettings}
         item={selectedItem}
+        menuTags={menuTags}
         onClose={() => setShowSelectedItemSettings(false)}
         onSaved={(updated) => {
           setMenu((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));

@@ -321,7 +321,12 @@ export function CheckoutModal({
                 }
 
                 if (fnError) throw fnError;
-                if (fnData?.error) throw new Error(fnData.error);
+                if (fnData?.error) {
+                    const inlineErr = new Error(String(fnData.error)) as Error & { code?: string; title?: string };
+                    if (fnData.code) inlineErr.code = String(fnData.code);
+                    if (fnData.title) inlineErr.title = String(fnData.title);
+                    throw inlineErr;
+                }
 
                 const checkoutUrl = getCheckoutUrlOrThrow(fnData);
 
@@ -484,7 +489,9 @@ export function CheckoutModal({
                 "Could not place your order. Please try again."
             );
             console.error("Order placement error:", parsedError.message);
-            Alert.alert("Error", parsedError.message);
+            const alertTitle = parsedError.title
+                || (parsedError.code === "restaurant_not_linked" ? "Checkout unavailable" : "Error");
+            Alert.alert(alertTitle, parsedError.message);
         } finally {
             setPlacing(false);
         }

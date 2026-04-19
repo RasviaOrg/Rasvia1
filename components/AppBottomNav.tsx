@@ -10,7 +10,7 @@ export type TabKey = "home" | "map" | "cart" | "notifications" | "profile";
 export const APP_BOTTOM_NAV_HEIGHT = 52;
 export const APP_BOTTOM_NAV_OFFSET = 10;
 
-export function AppBottomNav({ activeTab }: { activeTab: TabKey }) {
+export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey; hidden?: boolean }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { notificationBadgeCount } = useNotifications();
@@ -30,6 +30,10 @@ export function AppBottomNav({ activeTab }: { activeTab: TabKey }) {
 
   return (
     <View
+      // When hidden, keep the view mounted but fully removed from layout &
+      // input. `display: 'none'` avoids a mount/unmount on route change (so
+      // returning to a tab page shows the bar instantly).
+      pointerEvents={hidden ? "none" : "auto"}
       style={{
         position: "absolute",
         left: 0,
@@ -42,6 +46,7 @@ export function AppBottomNav({ activeTab }: { activeTab: TabKey }) {
         paddingBottom: Math.max(insets.bottom, 8),
         zIndex: 9999,
         elevation: 999,
+        display: hidden ? "none" : "flex",
       }}
     >
       <View

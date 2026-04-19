@@ -5,7 +5,7 @@ import {
 import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, ActivityIndicator, Platform, Alert, LogBox, Image, Text } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { authGateFlags } from "@/lib/auth-gate-flags";
@@ -109,6 +109,10 @@ function AuthGate() {
   const pathname = usePathname();
   const router = useRouter();
   const [showSlowLoadHint, setShowSlowLoadHint] = useState(false);
+  // Declared at the top of the component so the hook order stays stable even
+  // when we early-return the loading screen below. (React requires every hook
+  // to be called on every render in the same order.)
+  const lastTabRef = useRef<TabKey>("home");
 
   useEffect(() => {
     if (!loading) {
@@ -218,7 +222,29 @@ function AuthGate() {
   }
 
   const path = pathname ?? "";
-  const activeTab: TabKey | null =
+
+  // Pages where the bottom nav should be hidden entirely (auth flow,
+  // fullscreen detail views, admin tools, and any modal-style screen that
+  // has its own sticky footer which would clash with the tab bar).
+  const navHiddenRoutes = [
+    "/auth",
+    "/onboarding",
+    "/email-verify",
+    "/reset-password",
+    "/terms",
+    "/privacy",
+    "/restaurant/",
+    "/cuisine/",
+    "/discover/",
+    "/waitlist/",
+    "/join/",
+    "/admin-",
+    "/order-confirmation",
+    "/host_party",
+  ];
+  const navHidden = navHiddenRoutes.some((r) => path === r.replace(/\/$/, "") || path.startsWith(r));
+
+  const resolvedTab: TabKey | null =
     path === "/" || path === "/index"
       ? "home"
       : path.startsWith("/map")
@@ -227,9 +253,22 @@ function AuthGate() {
       ? "cart"
       : path.startsWith("/notifications")
       ? "notifications"
-      : path.startsWith("/profile")
+      : // Treat profile *and* its submenus as the profile tab so the nav bar
+        // stays anchored on Favorites / My Orders / Dining Preferences, etc.
+        path.startsWith("/profile") ||
+        path.startsWith("/favorites") ||
+        path.startsWith("/my-orders") ||
+        path.startsWith("/my-accounts") ||
+        path.startsWith("/dining-preferences") ||
+        path.startsWith("/roles") ||
+        path.startsWith("/owner-media-carousel")
       ? "profile"
       : null;
+
+  // Persist the last known tab across transitions so the bar never flickers to
+  // a blank/wrong tab when the router briefly settles on an intermediate path.
+  if (resolvedTab) lastTabRef.current = resolvedTab;
+  const activeTab: TabKey = lastTabRef.current;
 
   return (
     <View style={{ flex: 1 }}>
@@ -317,6 +356,14 @@ function AuthGate() {
           options={{ headerShown: false, animation: "slide_from_right" }}
         />
         <Stack.Screen
+          name="roles"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="my-accounts"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+        <Stack.Screen
           name="order-confirmation"
           options={{ headerShown: false, animation: "slide_from_bottom" }}
         />
@@ -333,7 +380,11 @@ function AuthGate() {
           options={{ headerShown: false, animation: "slide_from_right" }}
         />
       </Stack>
-      {activeTab ? <AppBottomNav activeTab={activeTab} /> : null}
+      {/* Bottom nav is always mounted so there is no mount/unmount flicker
+          when transitioning between tabs or back out of a detail page.
+          It hides via `display: none` when the current route should not
+          show it (auth flow, restaurant/[id], admin screens, etc.). */}
+      <AppBottomNav activeTab={activeTab} hidden={navHidden} />
     </View>
   );
 }

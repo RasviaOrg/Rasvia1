@@ -384,6 +384,7 @@ export default function HostPartyScreen() {
           JSON.stringify({
             sessionId: data.id,
             restaurantName: selectedRestaurant.name,
+            restaurantImage: selectedRestaurant.image_url ?? null,
             isHost: true,
             joinedAt: new Date().toISOString(),
           }),

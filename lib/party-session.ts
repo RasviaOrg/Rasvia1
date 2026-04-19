@@ -324,6 +324,66 @@ export async function cancelSession(
 // Checkout
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type CheckoutErrorShape = { message: string; code?: string; title?: string };
+
+/**
+ * A typed Error thrown by {@link startCheckout}. Exposes the server-provided
+ * `code` (e.g. `restaurant_not_linked`) and a suggested `title` so UIs can
+ * show an actionable popup instead of a generic "Checkout failed" toast.
+ */
+export class CheckoutError extends Error {
+  code?: string;
+  title?: string;
+  constructor(shape: CheckoutErrorShape) {
+    super(shape.message);
+    this.name = 'CheckoutError';
+    this.code = shape.code;
+    this.title = shape.title;
+  }
+}
+
+export function isCheckoutUnavailable(err: unknown): err is CheckoutError {
+  return err instanceof CheckoutError && err.code === 'restaurant_not_linked';
+}
+
+/**
+ * Pulls a structured error payload out of a `FunctionsHttpError` thrown by
+ * `supabase.functions.invoke('create-checkout', …)`. The supabase-js client
+ * stashes the edge function's JSON body on `error.context` (a Response), so
+ * we need to read + parse that to recover the `{ error, code, title }`
+ * payload our edge function returns on 4xx/5xx. Without this, all the caller
+ * sees is "Edge Function returned a non-2xx status code".
+ */
+async function extractCheckoutError(error: unknown): Promise<CheckoutErrorShape> {
+  const fallback: CheckoutErrorShape = { message: 'Failed to create checkout.' };
+  if (!error) return fallback;
+  const anyErr = error as { message?: string; context?: unknown };
+  const ctx = anyErr.context as Response | undefined;
+  if (ctx && typeof (ctx as Response).text === 'function') {
+    try {
+      const raw = await (ctx as Response).clone().text();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          const message = parsed?.error || parsed?.message;
+          if (message) {
+            return {
+              message: String(message),
+              code: parsed?.code ? String(parsed.code) : undefined,
+              title: parsed?.title ? String(parsed.title) : undefined,
+            };
+          }
+        } catch {
+          return { message: raw.slice(0, 500) };
+        }
+      }
+    } catch {
+      // ignore — fall through to the generic message below
+    }
+  }
+  return { message: anyErr?.message || fallback.message };
+}
+
 export async function startCheckout(
   supabase: SupabaseClient,
   creds: PartyCreds,
@@ -343,10 +403,17 @@ export async function startCheckout(
       order_type: opts.orderType ?? 'dine_in',
     },
   });
-  if (error) throw new Error(error.message || 'Failed to create checkout.');
-  const result = data as { url?: string; session_id?: string; payment_id?: string; amount_cents?: number; error?: string };
+  if (error) throw new CheckoutError(await extractCheckoutError(error));
+  const result = data as {
+    url?: string; session_id?: string; payment_id?: string; amount_cents?: number;
+    error?: string; code?: string; title?: string;
+  };
   if (!result?.url || !result.payment_id) {
-    throw new Error(result?.error || 'Checkout session did not return a URL.');
+    throw new CheckoutError({
+      message: result?.error || 'Checkout session did not return a URL.',
+      code: result?.code,
+      title: result?.title,
+    });
   }
   return {
     url: result.url,

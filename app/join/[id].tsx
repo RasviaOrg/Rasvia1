@@ -36,7 +36,7 @@ import {
   joinSession, addItem, updateItemQuantity, removeItem,
   setPaymentMode, setItemSplit, assignItemPayer,
   lockSession, unlockSession, startCheckout, cancelSession, leaveSession,
-  fetchSnapshot,
+  fetchSnapshot, CheckoutError,
   formatCents, memberById, paymentForMember, isFullyPaid, totalCartCents,
   type PartyCreds, type PartySnapshot, type PaymentMode, type PartyMember, type PartyItem,
 } from '../../lib/party-session';
@@ -389,7 +389,8 @@ export default function JoinPartyScreen() {
       });
       await openStripeCheckout(url);
     } catch (err) {
-      Alert.alert('Checkout failed', err instanceof Error ? err.message : 'Try again.');
+      const title = err instanceof CheckoutError && err.title ? err.title : 'Checkout failed';
+      Alert.alert(title, err instanceof Error ? err.message : 'Try again.');
     } finally {
       setBusy(false);
     }
@@ -416,7 +417,8 @@ export default function JoinPartyScreen() {
               });
               await openStripeCheckout(url);
             } catch (err) {
-              Alert.alert('Checkout failed', err instanceof Error ? err.message : 'Try again.');
+              const title = err instanceof CheckoutError && err.title ? err.title : 'Checkout failed';
+              Alert.alert(title, err instanceof Error ? err.message : 'Try again.');
             } finally {
               setBusy(false);
             }

@@ -50,16 +50,17 @@ CREATE OR REPLACE FUNCTION public.party_join_session(
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, extensions
-AS $$
+AS $party_join_session$
 DECLARE
-  v_session   public.party_sessions;
-  v_uid       uuid := auth.uid();
-  v_member_id uuid;
-  v_token     text;
-  v_hash      text;
-  v_role      text := 'member';
-  v_name      text;
-  v_avatar    text;
+  v_status       text;
+  v_host_user_id uuid;
+  v_uid          uuid := auth.uid();
+  v_member_id    uuid;
+  v_token        text;
+  v_hash         text;
+  v_role         text := 'member';
+  v_name         text;
+  v_avatar       text;
 BEGIN
   v_name := trim(coalesce(p_display_name, ''));
   IF v_name = '' THEN
@@ -67,16 +68,20 @@ BEGIN
   END IF;
   IF length(v_name) > 80 THEN v_name := substring(v_name, 1, 80); END IF;
 
-  SELECT * INTO v_session FROM public.party_sessions WHERE id = p_session_id FOR UPDATE;
+  PERFORM 1 FROM public.party_sessions WHERE id = p_session_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'session_not_found' USING ERRCODE = 'P0002'; END IF;
-  IF v_session.status = 'cancelled' THEN
+
+  v_status       := (SELECT status       FROM public.party_sessions WHERE id = p_session_id);
+  v_host_user_id := (SELECT host_user_id FROM public.party_sessions WHERE id = p_session_id);
+
+  IF v_status = 'cancelled' THEN
     RAISE EXCEPTION 'session_cancelled' USING ERRCODE = '22023';
   END IF;
-  IF v_session.status IN ('completed') THEN
+  IF v_status = 'completed' THEN
     RAISE EXCEPTION 'session_closed' USING ERRCODE = '22023';
   END IF;
 
-  IF v_uid IS NOT NULL AND v_uid = v_session.host_user_id THEN
+  IF v_uid IS NOT NULL AND v_uid = v_host_user_id THEN
     v_role := 'host';
   END IF;
 
@@ -98,14 +103,18 @@ BEGIN
   v_hash := public._party_hash_token(v_token);
 
   IF v_uid IS NOT NULL THEN
-    SELECT avatar_url INTO v_avatar FROM public.profiles WHERE id = v_uid;
+    v_avatar := (SELECT avatar_url FROM public.profiles WHERE id = v_uid);
   END IF;
 
   IF v_uid IS NOT NULL THEN
-    SELECT id INTO v_member_id
-    FROM public.party_members
-    WHERE session_id = p_session_id AND user_id = v_uid AND left_at IS NULL
-    LIMIT 1;
+    v_member_id := (
+      SELECT id
+      FROM public.party_members
+      WHERE session_id = p_session_id
+        AND user_id = v_uid
+        AND left_at IS NULL
+      LIMIT 1
+    );
   END IF;
 
   IF v_member_id IS NOT NULL THEN
@@ -130,6 +139,6 @@ BEGIN
     'display_name', v_name
   );
 END;
-$$;
+$party_join_session$;
 
 GRANT EXECUTE ON FUNCTION public.party_join_session(uuid, text) TO anon, authenticated;
