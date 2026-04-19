@@ -748,6 +748,7 @@ export default function MapScreen() {
             waitTime: adminPanelRestaurant.waitTime,
             waitStatus: adminPanelRestaurant.waitStatus,
             isEnabled: adminPanelRestaurant.isEnabled,
+            isComingSoon: adminPanelRestaurant.isComingSoon,
           }}
           isWaitlistOpen={adminPanelRestaurant.waitTime < 999}
           onClose={() => setAdminPanelRestaurant(null)}
@@ -1027,11 +1028,18 @@ export default function MapScreen() {
             <DotMarker status="purple" size={24} />
           </View>
 
-          <SafeAreaView
-            edges={["bottom"]}
-            style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: getBottomNavTopInset(insets.bottom),
+              zIndex: 10000,
+              elevation: 1000,
+            }}
           >
-            <View style={{ padding: 20, gap: 10, alignItems: "center" }}>
+            <View style={{ padding: 20, paddingBottom: 12, gap: 10, alignItems: "center" }}>
               <Pressable
                 onPress={() => {
                   if (Platform.OS !== "web") {
@@ -1137,7 +1145,7 @@ export default function MapScreen() {
                 </Text>
               </Pressable>
             </View>
-          </SafeAreaView>
+          </View>
         </>
       )}
 

@@ -11,6 +11,19 @@ interface LocationContextType {
     hasSavedAddress: boolean;
     reloadLocationPrefs: () => Promise<void>;
     setUserCoordsOverride: (coords: {latitude: number; longitude: number} | null) => void;
+    /**
+     * Pin the user's effective location to a typed-in address regardless of
+     * the live-location toggle, without persisting anything to the profile.
+     * Pass `null` to clear the override and revert to the previously
+     * configured behaviour (live GPS or saved address).
+     */
+    setSearchOverride: (
+        override:
+            | { coords: { latitude: number; longitude: number }; label: string | null }
+            | null,
+    ) => void;
+    /** True while a transient front-page address override is in effect. */
+    hasSearchOverride: boolean;
     /** Request location permission from the user. Returns true if granted. Call this only on user interaction (e.g. map open, detect-location button). */
     requestLocationPermission: () => Promise<boolean>;
 }
@@ -22,6 +35,8 @@ const LocationContext = createContext<LocationContextType>({
     hasSavedAddress: false,
     reloadLocationPrefs: async () => {},
     setUserCoordsOverride: () => {},
+    setSearchOverride: () => {},
+    hasSearchOverride: false,
     requestLocationPermission: async () => false,
 });
 
@@ -89,6 +104,35 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const liveRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     /** Tracks whether location permission has been granted (without triggering prompts). */
     const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
+    /**
+     * Transient front-page address override. While truthy, all background
+     * location refreshes (live GPS, periodic city refresh, profile reloads)
+     * are suppressed so the typed address stays pinned. Cleared explicitly
+     * via `setSearchOverride(null)`.
+     */
+    const [searchOverride, setSearchOverrideState] = useState<{
+        coords: { latitude: number; longitude: number };
+        label: string | null;
+    } | null>(null);
+    const searchOverrideRef = useRef(searchOverride);
+    useEffect(() => {
+        searchOverrideRef.current = searchOverride;
+    }, [searchOverride]);
+
+    const setSearchOverride = useCallback(
+        (
+            override:
+                | { coords: { latitude: number; longitude: number }; label: string | null }
+                | null,
+        ) => {
+            setSearchOverrideState(override);
+            if (override) {
+                setUserCoords(override.coords);
+                if (override.label) setLocationLabel(override.label);
+            }
+        },
+        [],
+    );
 
     /**
      * On-demand location permission request. Call this when the user explicitly
@@ -117,6 +161,11 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                 setIsLiveLocationEnabled(true);
             }
 
+            // While a transient front-page override is active we still want to
+            // refresh `hasSavedAddress` / `savedAddress` from the profile, but
+            // we must NOT overwrite the user's pinned coords or label.
+            const overrideActive = searchOverrideRef.current != null;
+
             if (session?.user?.id) {
                 const { data, error } = await supabase
                     .from("profiles")
@@ -136,7 +185,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                         };
                         setHasSavedAddress(true);
 
-                        if (!liveEnabled) {
+                        if (!liveEnabled && !overrideActive) {
                             setUserCoords(coords);
                             const label = addr ? extractCity(addr) : await reverseGeocodeLabel(coords);
                             setLocationLabel(label);
@@ -153,14 +202,14 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                         const locationCity = profileData?.location_city as string | undefined;
                         if (locationCity) {
                             const cityLabel = locationCity.split(",")[0].trim();
-                            if (!liveEnabled) {
+                            if (!liveEnabled && !overrideActive) {
                                 setLocationLabel(cityLabel);
                                 const cityCenter = CITY_CENTERS[locationCity];
                                 if (cityCenter) {
                                     setUserCoords(cityCenter);
                                 }
                             }
-                        } else if (addr && !liveEnabled) {
+                        } else if (addr && !liveEnabled && !overrideActive) {
                             setLocationLabel(extractCity(addr));
                         }
                     }
@@ -195,6 +244,9 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
         const updateCoordsAndLabel = async (coords: { latitude: number; longitude: number }) => {
             if (!isActive) return;
+            // Front-page typed-address override always wins over live GPS until
+            // the user explicitly clears it.
+            if (searchOverrideRef.current) return;
             setUserCoords(coords);
             const label = await reverseGeocodeLabel(coords);
             if (isActive && label) setLocationLabel(label);
@@ -291,6 +343,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             hasSavedAddress,
             reloadLocationPrefs,
             setUserCoordsOverride: setUserCoords,
+            setSearchOverride,
+            hasSearchOverride: searchOverride != null,
             requestLocationPermission,
         }}>
             {children}

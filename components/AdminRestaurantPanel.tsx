@@ -15,7 +15,14 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 
 interface AdminRestaurantPanelProps {
-  restaurant: { id: string; name: string; waitTime: number; waitStatus: string; isEnabled: boolean };
+  restaurant: {
+    id: string;
+    name: string;
+    waitTime: number;
+    waitStatus: string;
+    isEnabled: boolean;
+    isComingSoon?: boolean;
+  };
   isWaitlistOpen: boolean;
   onClose: () => void;
   onUpdated: () => void;
@@ -31,6 +38,8 @@ export function AdminRestaurantPanel({
 }: AdminRestaurantPanelProps) {
   const [enabledLoading, setEnabledLoading] = useState(false);
   const [isEnabled, setIsEnabled] = useState(restaurant.isEnabled);
+  const [comingSoonLoading, setComingSoonLoading] = useState(false);
+  const [isComingSoon, setIsComingSoon] = useState<boolean>(Boolean(restaurant.isComingSoon));
   const [waitTimeLoading, setWaitTimeLoading] = useState<string | null>(null);
   const [emergencyLoading, setEmergencyLoading] = useState(false);
   const [customWaitTime, setCustomWaitTime] = useState("");
@@ -59,6 +68,26 @@ export function AdminRestaurantPanel({
       Alert.alert("Error", err.message || "Failed to update visibility.");
     } finally {
       setEnabledLoading(false);
+    }
+  };
+
+  const handleComingSoonToggle = async () => {
+    haptic();
+    setComingSoonLoading(true);
+    try {
+      const next = !isComingSoon;
+      const { error } = await supabase
+        .from("restaurants")
+        .update({ is_coming_soon: next })
+        .eq("id", restaurantId);
+
+      if (error) throw error;
+      setIsComingSoon(next);
+      onUpdated();
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "Failed to update coming soon status.");
+    } finally {
+      setComingSoonLoading(false);
     }
   };
 
@@ -245,6 +274,83 @@ export function AdminRestaurantPanel({
                         borderRadius: 12,
                         backgroundColor: "#f5f5f5",
                         alignSelf: isEnabled ? "flex-end" : "flex-start",
+                      }}
+                    />
+                  </View>
+                )}
+              </Pressable>
+            </View>
+
+            {/* Coming soon */}
+            <View style={{ marginBottom: 20 }}>
+              <Text
+                style={{
+                  fontFamily: "Manrope_600SemiBold",
+                  color: "#999999",
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  marginBottom: 10,
+                }}
+              >
+                Launch Status
+              </Text>
+              <Pressable
+                onPress={handleComingSoonToggle}
+                disabled={comingSoonLoading}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  backgroundColor: "#0f0f0f",
+                  borderRadius: 12,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: isComingSoon ? "rgba(255,153,51,0.45)" : "#2a2a2a",
+                  opacity: comingSoonLoading ? 0.7 : 1,
+                }}
+              >
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#f5f5f5",
+                      fontSize: 15,
+                    }}
+                  >
+                    Coming Soon
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_400Regular",
+                      color: "#7a7a7a",
+                      fontSize: 12,
+                      marginTop: 4,
+                    }}
+                  >
+                    Show the restaurant with a "Coming soon" badge and disable ordering & waitlist actions.
+                  </Text>
+                </View>
+                {comingSoonLoading ? (
+                  <ActivityIndicator size="small" color="#FF9933" />
+                ) : (
+                  <View
+                    style={{
+                      width: 48,
+                      height: 28,
+                      borderRadius: 14,
+                      backgroundColor: isComingSoon ? "#FF9933" : "#333333",
+                      padding: 2,
+                      justifyContent: "center",
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 12,
+                        backgroundColor: "#f5f5f5",
+                        alignSelf: isComingSoon ? "flex-end" : "flex-start",
                       }}
                     />
                   </View>

@@ -129,7 +129,7 @@ export default function DiscoveryFeed() {
     effectiveOwnerRestaurantId,
     loading: roleLoading,
   } = useAdminMode();
-  const { userCoords, locationLabel, requestLocationPermission, setUserCoordsOverride, reloadLocationPrefs } = useLocation();
+  const { userCoords, locationLabel, requestLocationPermission, setUserCoordsOverride, setSearchOverride, reloadLocationPrefs } = useLocation();
   const [addressBarExpanded, setAddressBarExpanded] = useState(false);
   const [addressInput, setAddressInput] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: number; lon: number }>>([]);
@@ -192,6 +192,9 @@ export default function DiscoveryFeed() {
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+      // User explicitly asked for live location, so drop any active typed-
+      // address override before applying the detected coords.
+      setSearchOverride(null);
       setUserCoordsOverride(coords);
 
       // Reverse geocode for display — compute locally so we can both update
@@ -230,33 +233,35 @@ export default function DiscoveryFeed() {
     } finally {
       setIsDetectingLocation(false);
     }
-  }, [requestLocationPermission, session, addressInput, reloadLocationPrefs]);
+  }, [requestLocationPermission, session, addressInput, reloadLocationPrefs, setSearchOverride, setUserCoordsOverride]);
 
   const handleSaveAddress = useCallback(async (addr: { display_name: string; lat: number; lon: number }) => {
+    // Front-page address search: pin the typed address as the active location
+    // for this session. We deliberately do NOT write to `profiles` here — the
+    // override is transient and overrides live location regardless of the
+    // "Use live location" toggle. Persistent saving still lives in the
+    // profile editor where the toggle gates the override.
     setIsSavingAddress(true);
     try {
       const coords = { latitude: addr.lat, longitude: addr.lon };
-      setUserCoordsOverride(coords);
-
-      if (session?.user?.id) {
-        await supabase.from("profiles").update({
-          home_lat: addr.lat,
-          home_long: addr.lon,
-          saved_address: addr.display_name,
-        }).eq("id", session.user.id);
-        await reloadLocationPrefs();
-      }
+      const cityLabel = (() => {
+        const parts = addr.display_name.split(",").map((p) => p.trim());
+        const countyIdx = parts.findIndex((p) => /county|parish/i.test(p));
+        if (countyIdx > 0) return parts[countyIdx - 1];
+        return parts[1] ?? parts[0] ?? null;
+      })();
+      setSearchOverride({ coords, label: cityLabel });
 
       setAddressInput("");
       setAddressSuggestions([]);
       setAddressBarExpanded(false);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      Alert.alert("Error", e.message || "Could not save address.");
+      Alert.alert("Error", e.message || "Could not use that address.");
     } finally {
       setIsSavingAddress(false);
     }
-  }, [session, reloadLocationPrefs]);
+  }, [setSearchOverride]);
   const { notificationBadgeCount } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
