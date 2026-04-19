@@ -63,7 +63,9 @@
           "cameraPermission": "Rasvia needs camera access to take a profile photo."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-image",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

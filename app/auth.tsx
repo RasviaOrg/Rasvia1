@@ -302,7 +302,7 @@ export default function AuthScreen() {
                 lower.includes("not confirmed")
             ) {
                 friendlyMessage =
-                    "Please verify your email before signing in.\nCheck your inbox for the link from Rasvia.";
+                    "Please verify your email before signing in. Check your inbox for the link from Rasvia.";
             }
             setNotification({
                 visible: true,

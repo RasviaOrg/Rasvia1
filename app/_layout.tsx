@@ -12,8 +12,18 @@ import { authGateFlags } from "@/lib/auth-gate-flags";
 
 // Remote push token registration is unavailable in Expo Go SDK 53+.
 // Rasvia only uses local (scheduled) notifications so this is harmless.
+//
+// We also ignore the supabase-js refresh-failure banner: when a stored
+// refresh token is invalid/expired, supabase-js fires `console.error` from
+// its background auto-refresh path even though our AuthProvider already
+// catches the same error from `getSession()` and clears the broken session
+// via `supabase.auth.signOut({ scope: 'local' })`. The app behaviour is
+// correct; we just don't want the dev-mode red banner for a handled case.
 LogBox.ignoreLogs([
   "expo-notifications: Android Push notifications (remote notifications)",
+  /Invalid Refresh Token/i,
+  /refresh_token_not_found/i,
+  /AuthApiError/i,
 ]);
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";

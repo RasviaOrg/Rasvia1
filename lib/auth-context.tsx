@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { supabase } from './supabase';
+import { supabase, purgeStoredSupabaseSession } from './supabase';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { upsertProfileFromAuthUser } from './profile-sync';
 import { withTimeout } from './with-timeout';
@@ -33,6 +33,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
             // no-op: best-effort local cleanup
         }
+        // Belt-and-suspenders: if signOut couldn't run (e.g. the internal
+        // refresh promise already rejected), remove the persisted key so the
+        // next launch doesn't repeat the failing refresh attempt.
+        await purgeStoredSupabaseSession();
     }, []);
 
     const checkOnboarding = useCallback(async (userId: string): Promise<boolean> => {
@@ -124,6 +128,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             // Signed out: immediately clear everything
             if (event === 'SIGNED_OUT') {
+                setSession(null);
+                setNeedsOnboarding(false);
+                setLoading(false);
+                return;
+            }
+
+            // supabase-js fires TOKEN_REFRESHED with a null session when the
+            // stored refresh token is invalid. Treat that identically to a
+            // local sign-out and purge the stored key so the next boot is
+            // clean.
+            if (event === 'TOKEN_REFRESHED' && !newSession) {
+                await clearBrokenLocalSession();
                 setSession(null);
                 setNeedsOnboarding(false);
                 setLoading(false);
