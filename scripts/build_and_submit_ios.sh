@@ -1,6 +1,15 @@
 #!/bin/bash
 set -e
 
+# Always operate from the repo root, regardless of where the user invoked us
+# from. expo-updates / eas resolve the project root from process.cwd(), and
+# if that's `scripts/` they end up looking for `scripts/package.json` and
+# crashing with "The expected package.json path: .../scripts/package.json
+# does not exist".
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
 # Clear old IPA files to ensure we don't accidentally submit an old build
 echo "Cleaning up old IPA artifacts..."
 rm -f build-*.ipa
