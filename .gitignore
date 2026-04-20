@@ -33,9 +33,8 @@ ios/* 2.*
 ios/* 3
 ios/* 3.*
 ios/Rasvia */
-ios/rasvia
-ios/rasvia.xcodeproj
-ios/rasvia.xcworkspace
+# Do not add ios/rasvia.xcodeproj here: on case-insensitive APFS, gitignore treats
+# that as matching ios/Rasvia.xcodeproj, and some packagers skip the real project.
 
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/

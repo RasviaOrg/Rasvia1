@@ -16,7 +16,7 @@ rm -f build-*.ipa
 
 echo "Compiling the iOS build locally..."
 # --non-interactive is required to prevent EAS from hanging on Apple ID prompts
-eas build --platform ios --profile production --local --non-interactive
+EAS_SKIP_AUTO_FINGERPRINT=1 eas build --platform ios --profile production --local --non-interactive
 
 # Automatically find the newly generated .ipa file
 IPA_FILE=$(find . -maxdepth 1 -name "build-*.ipa" -type f | head -n 1)
