@@ -9,6 +9,19 @@ interface AuthContextType {
     loading: boolean;
     needsOnboarding: boolean;
     setNeedsOnboarding: (val: boolean) => void;
+    profile: {
+        full_name: string | null;
+        phone_number: string | null;
+        phone_verified: boolean | null;
+        avatar_url: string | null;
+        created_at: string | null;
+        saved_address: string | null;
+        home_lat: number | null;
+        home_long: number | null;
+        location_city: string | null;
+    } | null;
+    profileLoading: boolean;
+    refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -16,16 +29,43 @@ const AuthContext = createContext<AuthContextType>({
     loading: true,
     needsOnboarding: false,
     setNeedsOnboarding: () => { },
+    profile: null,
+    profileLoading: false,
+    refreshProfile: async () => {},
 });
 
-const AUTH_TIMEOUT_MS = 8000;
+const AUTH_TIMEOUT_MS = 15000;
 const ONBOARDING_LOOKUP_TIMEOUT_MS = 3500;
+const PROFILE_LOOKUP_TIMEOUT_MS = 4500;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
     const [loading, setLoading] = useState(true);
     const [needsOnboarding, setNeedsOnboarding] = useState(false);
+    const [profile, setProfile] = useState<AuthContextType["profile"]>(null);
+    const [profileLoading, setProfileLoading] = useState(false);
     const bootstrapDone = useRef(false);
+
+    const loadProfile = useCallback(async (userId: string) => {
+        try {
+            const profileResp: any = await withTimeout(
+                (supabase
+                    .from('profiles')
+                    .select('full_name, phone_number, phone_verified, avatar_url, created_at, saved_address, home_lat, home_long, location_city')
+                    .eq('id', userId)
+                    .maybeSingle()) as any,
+                PROFILE_LOOKUP_TIMEOUT_MS,
+                'Profile lookup timed out'
+            );
+            const { data, error } = profileResp ?? {};
+            if (error) throw error;
+            setProfile((data as any) ?? null);
+        } catch {
+            // keep last-known profile when this lookup is slow/unavailable
+        } finally {
+            setProfileLoading(false);
+        }
+    }, []);
 
     const clearBrokenLocalSession = useCallback(async () => {
         try {
@@ -62,6 +102,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return true;
         }
     }, []);
+
+    const refreshProfile = useCallback(async () => {
+        const userId = session?.user?.id;
+        if (!userId) {
+            setProfile(null);
+            setProfileLoading(false);
+            return;
+        }
+        setProfileLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('full_name, phone_number, phone_verified, avatar_url, created_at, saved_address, home_lat, home_long, location_city')
+                .eq('id', userId)
+                .maybeSingle();
+            if (error) throw error;
+            setProfile((data as any) ?? null);
+        } catch {
+            // keep last-known profile if refresh fails
+        } finally {
+            setProfileLoading(false);
+        }
+    }, [session?.user?.id]);
 
     useEffect(() => {
         let cancelled = false;
@@ -104,8 +167,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         if (!cancelled) setNeedsOnboarding(needs);
                         // Non-blocking profile sync
                         upsertProfileFromAuthUser(s.user).catch(() => {});
+                        if (!cancelled) {
+                            setProfileLoading(true);
+                            await loadProfile(s.user.id);
+                        }
                     } else {
                         setNeedsOnboarding(false);
+                        setProfile(null);
+                        setProfileLoading(false);
                     }
                 }
             } catch (err) {
@@ -135,6 +204,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (event === 'SIGNED_OUT') {
                 setSession(null);
                 setNeedsOnboarding(false);
+                setProfile(null);
+                setProfileLoading(false);
                 setLoading(false);
                 return;
             }
@@ -147,6 +218,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 await clearBrokenLocalSession();
                 setSession(null);
                 setNeedsOnboarding(false);
+                setProfile(null);
+                setProfileLoading(false);
                 setLoading(false);
                 return;
             }
@@ -163,8 +236,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
                 // Non-blocking profile sync
                 upsertProfileFromAuthUser(newSession.user).catch(() => {});
+                if (!cancelled) {
+                    setProfileLoading(true);
+                    await loadProfile(newSession.user.id);
+                }
             } else {
                 setNeedsOnboarding(false);
+                setProfile(null);
+                setProfileLoading(false);
             }
 
             if (!cancelled) setLoading(false);
@@ -175,10 +254,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             clearTimeout(timeout);
             subscription.unsubscribe();
         };
-    }, [checkOnboarding, clearBrokenLocalSession]);
+    }, [checkOnboarding, clearBrokenLocalSession, loadProfile]);
 
     return (
-        <AuthContext.Provider value={{ session, loading, needsOnboarding, setNeedsOnboarding }}>
+        <AuthContext.Provider value={{ session, loading, needsOnboarding, setNeedsOnboarding, profile, profileLoading, refreshProfile }}>
             {children}
         </AuthContext.Provider>
     );

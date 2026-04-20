@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, House, Map as MapIcon, ShoppingCart, User } from "lucide-react-native";
+import { Bell, MapPin, Map as MapIcon, ShoppingCart, User } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useNotifications } from "@/lib/notifications-context";
 
@@ -32,7 +32,7 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
     icon: React.ComponentType<{ size: number; color: string }>;
     route: string;
   }> = [
-    { key: "home", label: "Home", icon: House, route: "/" },
+    { key: "home", label: "Home", icon: MapPin, route: "/" },
     { key: "map", label: "Map", icon: MapIcon, route: "/map" },
     { key: "cart", label: "Cart", icon: ShoppingCart, route: "/cart" },
     { key: "notifications", label: "Alerts", icon: Bell, route: "/notifications" },

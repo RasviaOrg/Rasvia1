@@ -83,6 +83,7 @@ import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBo
 
 // ── CST day names used by debug picker ──
 const DEBUG_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const SAVED_ADDRESS_OVERRIDE_KEY = "saved_address_overrides_gps";
 
 /** Format a fake debug date (already in CST) to readable string */
 function formatDebugDisplay(iso: string | null): string {
@@ -99,10 +100,18 @@ function formatDebugDisplay(iso: string | null): string {
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, profile: bootProfile, refreshProfile } = useAuth();
   const { isAdmin, isRestaurantOwner, effectiveOwnerRestaurantId } = useAdminMode();
-  const { reloadLocationPrefs, setUserCoordsOverride, isUsingDiningPreferenceFallback, diningPreferenceAreaLabel } = useLocation();
-  const [userEmail, setUserEmail] = useState("");
+  const {
+    reloadLocationPrefs,
+    setUserCoordsOverride,
+    isUsingDiningPreferenceFallback,
+    diningPreferenceAreaLabel,
+    savedAddressOverridesGps,
+    setSavedAddressOverridePersisted,
+    setLiveLocationEnabledPersisted,
+  } = useLocation();
+  const userEmail = session?.user?.email ?? "";
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [createdAt, setCreatedAt] = useState<string | null>(null);
@@ -148,6 +157,8 @@ export default function ProfileSettingsScreen() {
   const [origSavedAddress, setOrigSavedAddress] = useState("");
   const [liveLocationEnabled, setLiveLocationEnabled] = useState(true);
   const [origLiveLocationEnabled, setOrigLiveLocationEnabled] = useState(true);
+  const [savedAddressOverrideEnabled, setSavedAddressOverrideEnabled] = useState(true);
+  const [origSavedAddressOverrideEnabled, setOrigSavedAddressOverrideEnabled] = useState(true);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [locationPrefsChanged, setLocationPrefsChanged] = useState(false);
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
@@ -159,10 +170,36 @@ export default function ProfileSettingsScreen() {
 
 
   useEffect(() => {
-    if (session?.user?.email) {
-      setUserEmail(session.user.email);
+    if (loadingPrefs) return;
+    setSavedAddressOverrideEnabled(savedAddressOverridesGps);
+    setOrigSavedAddressOverrideEnabled(savedAddressOverridesGps);
+  }, [savedAddressOverridesGps, loadingPrefs]);
+
+  const hasSavedAddressInput = savedAddress.trim().length > 0;
+  const canUseSavedAddressOverride = hasSavedAddressInput && liveLocationEnabled;
+  const effectiveSavedAddressOverrideEnabled =
+    canUseSavedAddressOverride && savedAddressOverrideEnabled;
+
+  // Hydrate profile card immediately from app-start prefetch to prevent
+  // showing fallback/email-only values before profile fetch resolves.
+  useEffect(() => {
+    if (!bootProfile) return;
+    setFullName(bootProfile.full_name || "");
+    setPhoneNumber(formatPhoneNumber(bootProfile.phone_number || ""));
+    setCreatedAt(bootProfile.created_at || null);
+    setPhoneVerified(!!bootProfile.phone_verified);
+    if (bootProfile.avatar_url) setAvatarUrl(bootProfile.avatar_url);
+    if (bootProfile.saved_address != null) {
+      const sAddr = bootProfile.saved_address || "";
+      setSavedAddress(sAddr);
+      setOrigSavedAddress(sAddr);
     }
-  }, [session]);
+    if (bootProfile.home_lat && bootProfile.home_long) {
+      const coords = { lat: bootProfile.home_lat, lon: bootProfile.home_long };
+      setSelectedCoords(coords);
+      setOrigSelectedCoords(coords);
+    }
+  }, [bootProfile]);
 
   // Hydrate just the `switched_in_from` marker here so the settings list
   // can show a "My Accounts" row for the switched-in persona. The rest of
@@ -205,6 +242,10 @@ export default function ProfileSettingsScreen() {
           setLiveLocationEnabled(isLive);
           setOrigLiveLocationEnabled(isLive);
         }
+        const overrideToggle = await SecureStore.getItemAsync(SAVED_ADDRESS_OVERRIDE_KEY);
+        const overrideEnabled = overrideToggle !== null ? JSON.parse(overrideToggle) : true;
+        setSavedAddressOverrideEnabled(overrideEnabled);
+        setOrigSavedAddressOverrideEnabled(overrideEnabled);
 
         // Check actual push notification status
         const pushStatus = await isPushEnabled();
@@ -264,13 +305,16 @@ export default function ProfileSettingsScreen() {
     if (loadingPrefs) return;
     const changed =
       savedAddress !== origSavedAddress ||
-      liveLocationEnabled !== origLiveLocationEnabled;
+      liveLocationEnabled !== origLiveLocationEnabled ||
+      effectiveSavedAddressOverrideEnabled !== origSavedAddressOverrideEnabled;
     setLocationPrefsChanged(changed);
   }, [
     savedAddress,
     liveLocationEnabled,
+    effectiveSavedAddressOverrideEnabled,
     origSavedAddress,
     origLiveLocationEnabled,
+    origSavedAddressOverrideEnabled,
     loadingPrefs,
   ]);
 
@@ -581,11 +625,9 @@ export default function ProfileSettingsScreen() {
         }
       }
 
-      // Save the toggle to local storage
-      await SecureStore.setItemAsync(
-        "live_location_enabled",
-        JSON.stringify(liveLocationEnabled),
-      );
+      // Save toggles to local storage/context
+      await setLiveLocationEnabledPersisted(liveLocationEnabled);
+      await setSavedAddressOverridePersisted(effectiveSavedAddressOverrideEnabled);
 
       // Save the address and coords to supabase
       const { error } = await supabase
@@ -608,9 +650,11 @@ export default function ProfileSettingsScreen() {
       setOrigSavedAddress(addressToSave);
       setOrigSelectedCoords({ lat: lat ?? null, lon: lng ?? null });
       setOrigLiveLocationEnabled(liveLocationEnabled);
+      setOrigSavedAddressOverrideEnabled(effectiveSavedAddressOverrideEnabled);
       setAddressSuggestions([]);
 
       await reloadLocationPrefs();
+      await refreshProfile();
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -620,7 +664,7 @@ export default function ProfileSettingsScreen() {
       Alert.alert("Error", err.message || "Could not save location settings.");
     }
     setIsSavingLocation(false);
-  }, [session, savedAddress, liveLocationEnabled, isSavingLocation, selectedCoords, setUserCoordsOverride, reloadLocationPrefs]);
+  }, [session, savedAddress, liveLocationEnabled, effectiveSavedAddressOverrideEnabled, isSavingLocation, selectedCoords, setUserCoordsOverride, reloadLocationPrefs, setLiveLocationEnabledPersisted, setSavedAddressOverridePersisted, refreshProfile]);
 
   const saveLocScale = useSharedValue(1);
   const saveLocStyle = useAnimatedStyle(() => ({
@@ -893,7 +937,7 @@ export default function ProfileSettingsScreen() {
               }}
               numberOfLines={1}
             >
-              {fullName || userEmail || "User"}
+              {fullName || (loadingPrefs ? " " : userEmail) || "User"}
             </Text>
             <Text
               style={{
@@ -903,7 +947,7 @@ export default function ProfileSettingsScreen() {
                 marginBottom: 2,
               }}
             >
-              {userEmail || ""}
+              {loadingPrefs ? "" : (userEmail || "")}
             </Text>
 
             {/* Phone row — read-only display, tap edit button above to change */}
@@ -1367,8 +1411,7 @@ export default function ProfileSettingsScreen() {
                           lineHeight: 16,
                         }}
                       >
-                        No saved location found — currently using your dining preference area
-                        {diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.
+                        {`No saved location found — currently using your dining preference area${diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.`}
                       </Text>
                     </View>
                   )}
@@ -1382,7 +1425,9 @@ export default function ProfileSettingsScreen() {
                       marginBottom: 8,
                     }}
                   >
-                    Saved Address (Overrides GPS)
+                    {effectiveSavedAddressOverrideEnabled
+                      ? "Saved Address (Overrides GPS)"
+                      : "Saved Address"}
                   </Text>
                   <TextInput
                     value={savedAddress}
@@ -1405,6 +1450,42 @@ export default function ProfileSettingsScreen() {
                     placeholderTextColor="#666"
                     autoCorrect={false}
                   />
+
+                  <View
+                    style={{
+                      marginTop: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      backgroundColor: "#222222",
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: "#333333",
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 13 }}>
+                        Saved Address Overrides GPS
+                      </Text>
+                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 9, marginTop: 2 }}>
+                        {effectiveSavedAddressOverrideEnabled
+                          ? "Using saved address instead of live location"
+                          : "Saved Address will not override Live Location"}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={effectiveSavedAddressOverrideEnabled}
+                      disabled={!canUseSavedAddressOverride}
+                      onValueChange={(val) => {
+                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                        setSavedAddressOverrideEnabled(val);
+                      }}
+                      trackColor={{ false: "#333333", true: "rgba(255,153,51,0.4)" }}
+                      thumbColor={effectiveSavedAddressOverrideEnabled ? "#FF9933" : "#666666"}
+                    />
+                  </View>
 
                   {/* Autocomplete Suggestions */}
                   {addressSuggestions.length > 0 && (

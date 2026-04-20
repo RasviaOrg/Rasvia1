@@ -30,7 +30,6 @@ import {
   MapPin,
   Search,
   X,
-  Home,
   ArrowUpDown,
   Plus,
   Store,
@@ -236,7 +235,13 @@ export default function MapScreen() {
     setShowNearbyList(false);
   };
 
-  const { userCoords: userLocation, isLiveLocationEnabled, hasSavedAddress, requestLocationPermission } = useLocation();
+  const {
+    userCoords: userLocation,
+    isLiveLocationEnabled,
+    hasSavedAddress,
+    savedAddressOverridesGps,
+    requestLocationPermission,
+  } = useLocation();
   const userLocationRef = useRef(userLocation);
   userLocationRef.current = userLocation;
 
@@ -266,6 +271,12 @@ export default function MapScreen() {
 
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [isZoomedIn, setIsZoomedIn] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [trackMarkerViews, setTrackMarkerViews] = useState(Platform.OS === "ios");
+  const [markersSettled, setMarkersSettled] = useState(Platform.OS !== "ios");
+  const [lockedMarkerCoords, setLockedMarkerCoords] = useState<
+    Record<string, { latitude: number; longitude: number }>
+  >({});
   const [selectedRestaurant, setSelectedRestaurant] =
     useState<UIRestaurant | null>(null);
   const [showNearbyList, setShowNearbyList] = useState(false);
@@ -275,6 +286,7 @@ export default function MapScreen() {
   const [showMapSearch, setShowMapSearch] = useState(false);
   // Live closed status from hours — automatically re-evaluates every 60 s
   const closedRestaurantIds = useClosedRestaurantIds();
+  const usingSavedLocation = hasSavedAddress && (!isLiveLocationEnabled || savedAddressOverridesGps);
 
   // Track which geographic cluster to show next (persists across renders)
   const nearbyClusterIndexRef = useRef(0);
@@ -450,6 +462,45 @@ export default function MapScreen() {
     () => visibleRestaurants.filter((r) => r.lat != null && r.long != null),
     [visibleRestaurants]
   );
+
+  // Keep a locked coordinate snapshot for rendered markers so zoom gestures
+  // never "recompute" marker positions from transient render state.
+  useEffect(() => {
+    if (mappableRestaurants.length === 0) return;
+    setLockedMarkerCoords((prev) => {
+      const next: Record<string, { latitude: number; longitude: number }> = {};
+      mappableRestaurants.forEach((r) => {
+        const existing = prev[r.id];
+        const lat = r.lat!;
+        const lng = r.long!;
+        if (
+          existing &&
+          Math.abs(existing.latitude - lat) < 0.0000001 &&
+          Math.abs(existing.longitude - lng) < 0.0000001
+        ) {
+          next[r.id] = existing;
+        } else {
+          next[r.id] = { latitude: lat, longitude: lng };
+        }
+      });
+      return next;
+    });
+  }, [mappableRestaurants]);
+
+  // On iOS, custom marker subviews can appear to "float" during initial load
+  // if snapshots are captured too early. Keep tracking briefly whenever marker
+  // data/zoom mode changes, then freeze for smooth panning/zooming.
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    if (!isMapReady || mappableRestaurants.length === 0) return;
+    setTrackMarkerViews(true);
+    setMarkersSettled(false);
+    const timer = setTimeout(() => {
+      setTrackMarkerViews(false);
+      setMarkersSettled(true);
+    }, 1100);
+    return () => clearTimeout(timer);
+  }, [isMapReady, mappableRestaurants.length, isZoomedIn]);
 
   // ==============================
   // Handlers
@@ -657,6 +708,7 @@ export default function MapScreen() {
         ref={mapRef}
         style={{ flex: 1 }}
         initialRegion={region}
+        onMapReady={() => setIsMapReady(true)}
         onRegionChangeComplete={handleRegionChangeComplete}
         onPanDrag={handleMapInteraction}
         onLongPress={isAdmin ? (e: any) => {
@@ -665,16 +717,24 @@ export default function MapScreen() {
           setNewRestCoords({ lat: latitude, lng: longitude });
           setShowAddModal(true);
         } : undefined}
-        showsUserLocation={isLiveLocationEnabled}
+        // Show native live-GPS blue dot only when live GPS is truly the
+        // active source. If saved-address override is active, we render the
+        // saved/home marker instead to avoid conflicting location signals.
+        showsUserLocation={isLiveLocationEnabled && !usingSavedLocation}
         showsMyLocationButton={false}
         userInterfaceStyle="dark"
         customMapStyle={Platform.OS === "android" ? GOOGLE_MAPS_DARK_STYLE : undefined}
         mapType="standard"
         toolbarEnabled={false}
       >
-        {/* User Home Location Pin (if live disabled) */}
-        {!isLiveLocationEnabled && userLocation && (
-          <Marker coordinate={userLocation} zIndex={100} tracksViewChanges={Platform.OS === "android"}>
+        {/* Saved/Home marker whenever saved location is the effective source */}
+        {usingSavedLocation && userLocation && (
+          <Marker
+            coordinate={userLocation}
+            zIndex={100}
+            tracksViewChanges={Platform.OS === "ios" ? trackMarkerViews : false}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
             {Platform.OS === "android" ? (
               <View style={{
                 backgroundColor: "#FF9933",
@@ -686,7 +746,7 @@ export default function MapScreen() {
                 alignItems: "center",
                 justifyContent: "center",
               }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#0f0f0f" }} />
+                <MapPin size={14} color="#0f0f0f" strokeWidth={2.5} />
               </View>
             ) : (
               <View style={{
@@ -701,34 +761,40 @@ export default function MapScreen() {
                 shadowRadius: 4,
                 elevation: 5,
               }}>
-                {hasSavedAddress && !isLiveLocationEnabled ? (
-                  <Home size={16} color="#0f0f0f" strokeWidth={2.5} />
-                ) : (
-                  <MapPin size={16} color="#0f0f0f" strokeWidth={2.5} />
-                )}
+                <MapPin size={16} color="#0f0f0f" strokeWidth={2.5} />
               </View>
             )}
           </Marker>
         )}
 
-        {mappableRestaurants.map((restaurant) => {
+        {(isMapReady ? mappableRestaurants : []).map((restaurant) => {
           const isComingSoon = restaurant.isComingSoon;
           const isClosed = closedRestaurantIds.has(restaurant.id) || isComingSoon;
           const isOwnedVenue =
             (isRestaurantOwner || isAdmin) &&
             effectiveOwnerRestaurantId != null &&
             restaurant.id === effectiveOwnerRestaurantId;
-          /** iOS: past ZOOM_THRESHOLD, everyone (including owners) sees the zoomed mini-card; zoomed out, owners see the Store pin */
-          const showZoomedInCard = Platform.OS !== "android" && isZoomedIn;
+          /** Keep marker visuals stable while zooming: no zoom-mode morphing. */
+          const showZoomedInCard = false;
+          // iOS zoom-card markers need continuous tracking; freezing snapshots
+          // can desync a subset of cards during initial camera settle and look
+          // like "floating" pins.
+          const markerTracksViewChanges =
+            Platform.OS === "ios" ? (showZoomedInCard ? true : trackMarkerViews) : false;
+          const lockedCoord = lockedMarkerCoords[restaurant.id];
           return (
             <Marker
               key={`${restaurant.id}-${isClosed}`}
-              coordinate={{
-                latitude: restaurant.lat!,
-                longitude: restaurant.long!,
-              }}
+              coordinate={
+                lockedCoord ?? {
+                  latitude: restaurant.lat!,
+                  longitude: restaurant.long!,
+                }
+              }
               zIndex={isOwnedVenue ? 250 : 1}
-              tracksViewChanges={Platform.OS === "android"}
+              // Keep marker visuals fixed to the geo coordinate while zooming.
+              tracksViewChanges={markerTracksViewChanges}
+              anchor={showZoomedInCard ? { x: 0.5, y: 1 } : { x: 0.5, y: 0.5 }}
               onPress={() => {
                 if (isOwnedVenue) {
                   handleDotPress(restaurant);

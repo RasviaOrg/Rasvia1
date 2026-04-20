@@ -9,6 +9,7 @@ interface LocationContextType {
     isLiveLocationEnabled: boolean;
     locationLabel: string | null;
     hasSavedAddress: boolean;
+    savedAddressOverridesGps: boolean;
     /** Onboarding / profile `location_city` (e.g. "Dallas, TX"), when set. */
     diningPreferenceAreaLabel: string | null;
     /**
@@ -33,6 +34,8 @@ interface LocationContextType {
     hasSearchOverride: boolean;
     /** Request location permission from the user. Returns true if granted. Call this only on user interaction (e.g. map open, detect-location button). */
     requestLocationPermission: () => Promise<boolean>;
+    setLiveLocationEnabledPersisted: (enabled: boolean) => Promise<void>;
+    setSavedAddressOverridePersisted: (enabled: boolean) => Promise<void>;
 }
 
 const LocationContext = createContext<LocationContextType>({
@@ -40,6 +43,7 @@ const LocationContext = createContext<LocationContextType>({
     isLiveLocationEnabled: true,
     locationLabel: null,
     hasSavedAddress: false,
+    savedAddressOverridesGps: true,
     diningPreferenceAreaLabel: null,
     isUsingDiningPreferenceFallback: false,
     reloadLocationPrefs: async () => {},
@@ -47,7 +51,12 @@ const LocationContext = createContext<LocationContextType>({
     setSearchOverride: () => {},
     hasSearchOverride: false,
     requestLocationPermission: async () => false,
+    setLiveLocationEnabledPersisted: async () => {},
+    setSavedAddressOverridePersisted: async () => {},
 });
+
+const LIVE_LOCATION_ENABLED_KEY = "live_location_enabled";
+const SAVED_ADDRESS_OVERRIDE_KEY = "saved_address_overrides_gps";
 
 async function reverseGeocodeLabel(coords: { latitude: number; longitude: number }): Promise<string | null> {
     try {
@@ -108,8 +117,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const [isLiveLocationEnabled, setIsLiveLocationEnabled] = useState(false);
     const [isLoaded, setIsLoaded] = useState(false);
     const [locationLabel, setLocationLabel] = useState<string | null>(null);
-    const [savedAddress, setSavedAddress] = useState<string | null>(null);
     const [hasSavedAddress, setHasSavedAddress] = useState(false);
+    const [savedAddressOverridesGps, setSavedAddressOverridesGps] = useState(true);
     const [diningPreferenceAreaLabel, setDiningPreferenceAreaLabel] = useState<string | null>(null);
     const liveRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     /** Tracks whether location permission has been granted (without triggering prompts). */
@@ -160,9 +169,19 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
+    const setLiveLocationEnabledPersisted = useCallback(async (enabled: boolean) => {
+        setIsLiveLocationEnabled(enabled);
+        await SecureStore.setItemAsync(LIVE_LOCATION_ENABLED_KEY, JSON.stringify(enabled));
+    }, []);
+
+    const setSavedAddressOverridePersisted = useCallback(async (enabled: boolean) => {
+        setSavedAddressOverridesGps(enabled);
+        await SecureStore.setItemAsync(SAVED_ADDRESS_OVERRIDE_KEY, JSON.stringify(enabled));
+    }, []);
+
     const reloadLocationPrefs = useCallback(async () => {
         try {
-            const localToggle = await SecureStore.getItemAsync("live_location_enabled");
+            const localToggle = await SecureStore.getItemAsync(LIVE_LOCATION_ENABLED_KEY);
             let liveEnabled = true;
             if (localToggle !== null) {
                 liveEnabled = JSON.parse(localToggle);
@@ -170,6 +189,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             } else {
                 setIsLiveLocationEnabled(true);
             }
+            const overrideToggle = await SecureStore.getItemAsync(SAVED_ADDRESS_OVERRIDE_KEY);
+            let savedOverride = true;
+            if (overrideToggle !== null) {
+                savedOverride = JSON.parse(overrideToggle);
+            }
+            setSavedAddressOverridesGps(savedOverride);
 
             // While a transient front-page override is active we still want to
             // refresh `hasSavedAddress` / `savedAddress` from the profile, but
@@ -189,38 +214,51 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
                 if (!error && data) {
                     const addr = data.saved_address || null;
-                    setSavedAddress(addr);
+                    const hasCoords = Boolean(data.home_lat && data.home_long);
+                    const hasSavedAddr = Boolean(addr && addr.trim().length > 0);
+                    setHasSavedAddress(hasCoords || hasSavedAddr);
 
                     const locationCityRaw = (data.location_city as string | undefined)?.trim() || null;
                     setDiningPreferenceAreaLabel(locationCityRaw);
 
-                    // Prefer stored GPS coords (saved address)
-                    if (data.home_lat && data.home_long) {
+                    // Prefer stored GPS coords when present.
+                    if (hasCoords) {
                         const coords = {
                             latitude: data.home_lat,
                             longitude: data.home_long,
                         };
-                        setHasSavedAddress(true);
 
-                        if (!liveEnabled && !overrideActive) {
+                        // Saved address coordinates should always drive app/map
+                        // when live GPS is disabled. When live GPS is enabled,
+                        // the override toggle decides whether saved coords or
+                        // live coords are used.
+                        if (!overrideActive && (!liveEnabled || savedOverride)) {
                             setUserCoords(coords);
                             const label = addr ? extractCity(addr) : await reverseGeocodeLabel(coords);
                             setLocationLabel(label);
                         }
                     } else {
-                        // No GPS stored — fall back to onboarding city
-                        setHasSavedAddress(false);
+                        // No GPS coords stored.
+                        if (!overrideActive && hasSavedAddr && (!liveEnabled || savedOverride)) {
+                            // Address-only saved location (no coords yet) still
+                            // provides a location label. (Map coordinates are
+                            // unavailable until geocoded/saved with coords.)
+                            setLocationLabel(extractCity(addr!));
+                        }
+
+                        // Fall back to onboarding city only when we are not
+                        // meant to use a saved location.
                         const locationCity = locationCityRaw;
                         if (locationCity) {
                             const cityLabel = locationCity.split(",")[0].trim();
-                            if (!liveEnabled && !overrideActive) {
+                            if (!liveEnabled && !overrideActive && !hasSavedAddr) {
                                 setLocationLabel(cityLabel);
                                 const cityCenter = CITY_CENTERS[locationCity];
                                 if (cityCenter) {
                                     setUserCoords(cityCenter);
                                 }
                             }
-                        } else if (addr && !liveEnabled && !overrideActive) {
+                        } else if (addr && !liveEnabled && !overrideActive && !hasSavedAddr) {
                             setLocationLabel(extractCity(addr));
                         }
                     }
@@ -249,7 +287,9 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             liveRefreshIntervalRef.current = null;
         }
 
-        if (!isLiveLocationEnabled) {
+        // Live GPS runs only when the live toggle is on AND saved-address
+        // override is not active.
+        if (!isLiveLocationEnabled || (savedAddressOverridesGps && hasSavedAddress)) {
             return;
         }
 
@@ -344,7 +384,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                 liveRefreshIntervalRef.current = null;
             }
         };
-    }, [isLiveLocationEnabled, isLoaded, locationPermissionGranted]);
+    }, [isLiveLocationEnabled, isLoaded, locationPermissionGranted, savedAddressOverridesGps, hasSavedAddress]);
 
     const isUsingDiningPreferenceFallback = useMemo(
         () =>
@@ -361,6 +401,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             isLiveLocationEnabled,
             locationLabel,
             hasSavedAddress,
+            savedAddressOverridesGps,
             diningPreferenceAreaLabel,
             isUsingDiningPreferenceFallback,
             reloadLocationPrefs,
@@ -368,6 +409,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             setSearchOverride,
             hasSearchOverride: searchOverride != null,
             requestLocationPermission,
+            setLiveLocationEnabledPersisted,
+            setSavedAddressOverridePersisted,
         }}>
             {children}
         </LocationContext.Provider>

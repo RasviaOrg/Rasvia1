@@ -665,9 +665,10 @@ function NotificationRow({
           disabled={!onPress}
           android_ripple={onPress ? { color: "#222" } : undefined}
           style={({ pressed }) => ({
-            paddingHorizontal: 21,
-            paddingTop: 19,
-            paddingBottom: 19,
+            paddingHorizontal: 20,
+            paddingTop: 20,
+            paddingBottom: 18,
+            minHeight: 116,
             borderBottomWidth: isLast ? 0 : 1,
             borderBottomColor: "#2a2a2a",
             backgroundColor: event.read
@@ -680,34 +681,36 @@ function NotificationRow({
           })}
         >
           {/* Top row: icon + title/primary text + unread dot */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            {/* Icon — padded from card edge, vertically centred to this row */}
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+            {/* Icon — padded from card edge, with consistent inset from top/left */}
             <View
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
+                width: 36,
+                height: 36,
+                borderRadius: 18,
                 backgroundColor: `${cfg.color}18`,
                 borderWidth: 1,
                 borderColor: `${cfg.color}30`,
                 alignItems: "center",
                 justifyContent: "center",
                 flexShrink: 0,
+                marginTop: 2,
+                marginLeft: 1,
               }}
             >
-              <Icon size={20} color={cfg.color} />
+              <Icon size={16} color={cfg.color} />
             </View>
 
-            {/* Title + primary message — centred relative to the icon */}
-            <View style={{ flex: 1, justifyContent: "center" }}>
+            {/* Title + primary message */}
+            <View style={{ flex: 1, justifyContent: "flex-start" }}>
               {event.title ? (
                 <Text
                   style={{
                     fontFamily: "Manrope_700Bold",
                     color: "#A1A1AA",
-                    fontSize: 10,
+                    fontSize: 12,
                     textTransform: "uppercase",
-                    letterSpacing: 0.5,
+                    letterSpacing: 0.7,
                     marginBottom: 3,
                   }}
                 >
@@ -718,8 +721,8 @@ function NotificationRow({
                 style={{
                   fontFamily: "Manrope_600SemiBold",
                   color: "#f5f5f5",
-                  fontSize: 14,
-                  lineHeight: 19,
+                  fontSize: 15,
+                  lineHeight: 21,
                 }}
                 numberOfLines={2}
               >
@@ -745,9 +748,9 @@ function NotificationRow({
           {(event.partySize > 0 || true) && (
             <View
               style={{
-                marginTop: 8,
-                marginLeft: 56,  /* 44 icon + 12 gap */
-                gap: 4,
+                marginTop: 6,
+                marginLeft: 49, // icon width + horizontal gap + inset
+                gap: 1,
               }}
             >
               {event.partySize > 0 && (
@@ -758,6 +761,7 @@ function NotificationRow({
                       fontFamily: "Manrope_500Medium",
                       color: "#555555",
                       fontSize: 11,
+                      lineHeight: 12,
                     }}
                   >
                     Party of {event.partySize}
@@ -769,6 +773,7 @@ function NotificationRow({
                   fontFamily: "Manrope_500Medium",
                   color: "#6B7280",
                   fontSize: 12,
+                  lineHeight: 14,
                 }}
               >
                 {timeAgo(event.timestamp)}

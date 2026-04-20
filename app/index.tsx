@@ -136,7 +136,7 @@ const LIVE_ORDER_ACCENT_SOLID = ["#F97316", "#3B82F6", "#14B8A6", "#22C55E"];
 
 export default function DiscoveryFeed() {
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, refreshProfile } = useAuth();
   const {
     isAdmin,
     isRestaurantOwner,
@@ -152,6 +152,8 @@ export default function DiscoveryFeed() {
     reloadLocationPrefs,
     isUsingDiningPreferenceFallback,
     diningPreferenceAreaLabel,
+    isLiveLocationEnabled,
+    setLiveLocationEnabledPersisted,
   } = useLocation();
   const [addressBarExpanded, setAddressBarExpanded] = useState(false);
   const [addressInput, setAddressInput] = useState("");
@@ -208,6 +210,17 @@ export default function DiscoveryFeed() {
   const handleDetectLocation = useCallback(async () => {
     setIsDetectingLocation(true);
     try {
+      // Main-menu "current location" button now strictly toggles live GPS
+      // usage and never persists address/coords into profile settings.
+      if (isLiveLocationEnabled) {
+        setSearchOverride(null);
+        await setLiveLocationEnabledPersisted(false);
+        await reloadLocationPrefs();
+        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setAddressBarExpanded(false);
+        return;
+      }
+
       const granted = await requestLocationPermission();
       if (!granted) {
         Alert.alert("Location Access", "Please enable location access in your device settings.");
@@ -215,55 +228,24 @@ export default function DiscoveryFeed() {
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-      // User explicitly asked for live location, so drop any active typed-
-      // address override before applying the detected coords.
       setSearchOverride(null);
       setUserCoordsOverride(coords);
-
-      // Reverse geocode for display — compute locally so we can both update
-      // state AND persist the same value in the same turn (setState is async,
-      // so reading `addressInput` on the next line would still be stale).
-      let displayAddr: string | null = null;
-      const results = await Location.reverseGeocodeAsync(coords);
-      if (results?.length > 0) {
-        const r = results[0];
-        const display = [r.name, r.street, r.city, r.region].filter(Boolean).join(", ").trim();
-        if (display) {
-          displayAddr = display;
-          setAddressInput(display);
-        }
-      }
-      if (!displayAddr && addressInput?.trim()) {
-        displayAddr = addressInput.trim();
-      }
-
-      // Persist the freshly-computed display string. Fall back to null (not a
-      // literal "GPS Location" placeholder) if reverse-geocoding produced
-      // nothing, so the home chip doesn't freeze a fake address.
-      if (session?.user?.id) {
-        await supabase.from("profiles").update({
-          home_lat: coords.latitude,
-          home_long: coords.longitude,
-          saved_address: displayAddr,
-        }).eq("id", session.user.id);
-        await reloadLocationPrefs();
-      }
-
+      await setLiveLocationEnabledPersisted(true);
+      await reloadLocationPrefs();
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAddressInput("");
+      setAddressSuggestions([]);
       setAddressBarExpanded(false);
     } catch (e: any) {
       Alert.alert("Error", e.message || "Could not detect location.");
     } finally {
       setIsDetectingLocation(false);
     }
-  }, [requestLocationPermission, session, addressInput, reloadLocationPrefs, setSearchOverride, setUserCoordsOverride]);
+  }, [isLiveLocationEnabled, requestLocationPermission, reloadLocationPrefs, setLiveLocationEnabledPersisted, setSearchOverride, setUserCoordsOverride]);
 
   const handleSaveAddress = useCallback(async (addr: { display_name: string; lat: number; lon: number }) => {
-    // Front-page address search: pin the typed address as the active location
-    // for this session. We deliberately do NOT write to `profiles` here — the
-    // override is transient and overrides live location regardless of the
-    // "Use live location" toggle. Persistent saving still lives in the
-    // profile editor where the toggle gates the override.
+    // Front-page address search: pin immediately, and now persist to profile
+    // as well so Profile > Location stays in sync with what users select here.
     setIsSavingAddress(true);
     try {
       const coords = { latitude: addr.lat, longitude: addr.lon };
@@ -273,7 +255,21 @@ export default function DiscoveryFeed() {
         if (countyIdx > 0) return parts[countyIdx - 1];
         return parts[1] ?? parts[0] ?? null;
       })();
+      if (session?.user?.id) {
+        const { error } = await supabase
+          .from("profiles")
+          .update({
+            saved_address: addr.display_name,
+            home_lat: addr.lat,
+            home_long: addr.lon,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", session.user.id);
+        if (error) throw error;
+      }
       setSearchOverride({ coords, label: cityLabel });
+      await reloadLocationPrefs();
+      await refreshProfile();
 
       setAddressInput("");
       setAddressSuggestions([]);
@@ -284,7 +280,7 @@ export default function DiscoveryFeed() {
     } finally {
       setIsSavingAddress(false);
     }
-  }, [setSearchOverride]);
+  }, [session?.user?.id, setSearchOverride, reloadLocationPrefs, refreshProfile]);
   const { notificationBadgeCount } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
@@ -714,14 +710,22 @@ export default function DiscoveryFeed() {
 
   async function fetchRestaurants() {
     try {
-      const restaurantsResponse: any = await withTimeout(
-        (supabase
-          .from('restaurants')
-          .select('*')
-          .order('current_wait_time', { ascending: true })) as any,
-        8000,
-        "Timed out while loading restaurants."
-      );
+      const restaurantsQuery = (supabase
+        .from('restaurants')
+        .select('*')
+        .order('current_wait_time', { ascending: true })) as any;
+      let restaurantsResponse: any;
+      try {
+        restaurantsResponse = await withTimeout(
+          restaurantsQuery,
+          15000,
+          "Timed out while loading restaurants."
+        );
+      } catch {
+        // If the guarded request times out, retry once without the timeout
+        // wrapper so slow mobile networks can still eventually resolve.
+        restaurantsResponse = await restaurantsQuery;
+      }
       const { data, error } = restaurantsResponse;
 
       if (error) {
@@ -738,11 +742,17 @@ export default function DiscoveryFeed() {
         setRestaurants(uiRestaurants);
         // Overlay live review stats (count + average) from restaurant_reviews
         const ids = uiRestaurants.map((r: UIRestaurant) => r.id);
-        const statsMap = await withTimeout(
-          fetchBatchReviewStats(ids),
-          6000,
-          "Timed out while loading review stats."
-        );
+        let statsMap = new Map<number, { count: number; average: number }>();
+        try {
+          statsMap = await withTimeout(
+            fetchBatchReviewStats(ids),
+            9000,
+            "Timed out while loading review stats."
+          );
+        } catch {
+          // Soft-fail review stats so restaurant feed still renders.
+          statsMap = new Map<number, { count: number; average: number }>();
+        }
         const withReviews = uiRestaurants.map((r: UIRestaurant) => {
           const s = statsMap.get(r.id);
           if (!s) return r;
@@ -1559,17 +1569,17 @@ export default function DiscoveryFeed() {
                   width: 44,
                   height: 44,
                   borderRadius: 14,
-                  backgroundColor: "rgba(255,153,51,0.12)",
+                  backgroundColor: isLiveLocationEnabled ? "#FF9933" : "rgba(255,153,51,0.12)",
                   borderWidth: 1,
-                  borderColor: "rgba(255,153,51,0.3)",
+                  borderColor: isLiveLocationEnabled ? "#FF9933" : "rgba(255,153,51,0.3)",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
                 {isDetectingLocation ? (
-                  <ActivityIndicator size="small" color="#FF9933" />
+                  <ActivityIndicator size="small" color={isLiveLocationEnabled ? "#121212" : "#FF9933"} />
                 ) : (
-                  <Navigation size={18} color="#FF9933" />
+                  <Navigation size={18} color={isLiveLocationEnabled ? "#121212" : "#FF9933"} />
                 )}
               </Pressable>
             </View>
@@ -1647,8 +1657,7 @@ export default function DiscoveryFeed() {
                     lineHeight: 16,
                   }}
                 >
-                  No saved location yet — using your dining preference area
-                  {diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.
+                  {`No saved location yet — using your dining preference area${diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.`}
                 </Text>
               </View>
             )}
