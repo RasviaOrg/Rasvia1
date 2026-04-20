@@ -16,8 +16,27 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+
+# iOS build artifacts and CocoaPods output.
+# NOTE: ios/Podfile and ios/Podfile.lock ARE tracked (not ignored) — they
+# pin CocoaPods deps for reproducible EAS / local builds.
 ios/build/
+ios/build */
 ios/Pods/
+ios/Pods */
+ios/DerivedData/
+
+# macOS case-insensitive FS creates " 2" / " 3" suffixed duplicates when
+# `expo prebuild --clean` regenerates ios/. These are always stale junk.
+ios/* 2
+ios/* 2.*
+ios/* 3
+ios/* 3.*
+ios/Rasvia */
+ios/rasvia
+ios/rasvia.xcodeproj
+ios/rasvia.xcworkspace
+
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcuserstate
