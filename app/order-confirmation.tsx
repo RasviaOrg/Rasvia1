@@ -80,7 +80,7 @@ export default function OrderConfirmationScreen() {
                 .from("orders")
                 .select("*, order_items(*), restaurants(name, image_url)")
                 .eq("id", Number(orderId))
-                .single();
+                .maybeSingle();
 
             if (orderData) {
                 setOrder(orderData);

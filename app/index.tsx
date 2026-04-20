@@ -462,7 +462,7 @@ export default function DiscoveryFeed() {
         .from("system_config")
         .select("value")
         .eq("key", "announcement_banner")
-        .single();
+        .maybeSingle();
       const next = (data as any)?.value ?? "";
       setAnnouncementBanner(next);
       setHomeCacheAnnouncement(next);
@@ -539,7 +539,7 @@ export default function DiscoveryFeed() {
         .from("profiles")
         .select("favorite_restaurants")
         .eq("id", userId)
-        .single();
+        .maybeSingle();
       const ids = parseFavorites((data as any)?.favorite_restaurants);
       setFavoriteRestaurantIds(ids);
       setHomeCacheFavorites(ids, userId);
@@ -621,7 +621,7 @@ export default function DiscoveryFeed() {
         .from("profiles")
         .select("dietary_type, restricted_days")
         .eq("id", userId)
-        .single();
+        .maybeSingle();
       const dietary = (data as any)?.dietary_type ?? "";
       const restricted = ((data as any)?.restricted_days as string[]) ?? [];
       setUserDietaryType(dietary);
@@ -841,7 +841,7 @@ export default function DiscoveryFeed() {
           .from('party_sessions')
           .select('id, status, restaurants(name, image_url)')
           .eq('id', parsed.sessionId)
-          .single();
+          .maybeSingle();
 
         if (!error && sess && ['open', 'locked', 'paying'].includes(String((sess as any).status))) {
           setActiveGroupOrder({

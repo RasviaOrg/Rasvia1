@@ -35,7 +35,7 @@ export async function fetchRecentlyViewedRestaurantIds(userId: string): Promise<
       .from("profiles")
       .select("recently_viewed_restaurants")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return parseRecentlyViewed((data as any)?.recently_viewed_restaurants);
   } catch {
@@ -50,7 +50,7 @@ export async function recordRecentlyViewedRestaurant(userId: string, restaurantI
       .from("profiles")
       .select("recently_viewed_restaurants")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
 
     const existing = parseRecentlyViewed((data as any)?.recently_viewed_restaurants).filter((id) => id !== restaurantId);

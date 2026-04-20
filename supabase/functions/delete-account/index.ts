@@ -46,12 +46,17 @@ serve(async (req: Request) => {
     // 3. Use service role client to delete user data
     const adminClient = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Delete in order: child tables first, then parent
+    // Delete in order: child tables first, then parent.
+    // (Table is `party_members` — `party_session_members` was an old name that no longer exists.)
     await adminClient.from('party_items').delete().eq('added_by_user_id', userId)
-    await adminClient.from('party_session_members').delete().eq('user_id', userId)
-    await adminClient.from('party_sessions').update({ status: 'cancelled' }).eq('host_user_id', userId).eq('status', 'open')
+    await adminClient.from('party_members').delete().eq('user_id', userId)
+    await adminClient
+      .from('party_sessions')
+      .update({ status: 'cancelled' })
+      .eq('host_user_id', userId)
+      .in('status', ['open', 'locked', 'paying'])
 
-    // Profile data
+    // Profile data (RLS-bypassed cascade-deletes of dependent rows are wired via FKs).
     await adminClient.from('profiles').delete().eq('id', userId)
 
     // 4. Delete the auth user (this is irreversible)

@@ -86,7 +86,7 @@ export default function AdminPulseScreen() {
         .from("system_config")
         .select("value")
         .eq("key", "announcement_banner")
-        .single();
+        .maybeSingle();
       if ((data as any)?.value) setAnnouncementMessage((data as any).value);
     } catch {}
   }, []);

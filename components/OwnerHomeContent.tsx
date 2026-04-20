@@ -1291,7 +1291,7 @@ export function OwnerHomeContent({
                         "id, name, current_wait_time, waitlist_open, is_enabled, is_coming_soon, waitlist_early_open_enabled, waitlist_early_open_minutes",
                     )
                     .eq("id", effectiveOwnerRestaurantId)
-                    .single(),
+                    .maybeSingle(),
                 supabase
                     .from("waitlist_entries")
                     .select("*", { count: "exact", head: true })

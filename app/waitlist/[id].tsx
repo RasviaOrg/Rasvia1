@@ -102,7 +102,7 @@ export default function WaitlistStatus() {
           .from("restaurants")
           .select("*")
           .eq("id", Number(id))
-          .single();
+          .maybeSingle();
 
         if (restError) {
           console.error("❌ Error fetching restaurant:", restError);
@@ -234,7 +234,7 @@ export default function WaitlistStatus() {
         .from("profiles")
         .select("full_name")
         .eq("id", session.user.id)
-        .single();
+        .maybeSingle();
       if (data?.full_name) setPartyOwnerName(data.full_name);
     } catch {
       // silently ignore
@@ -247,7 +247,7 @@ export default function WaitlistStatus() {
         .from("waitlist_entries")
         .select("notified_at, status")
         .eq("id", entryId)
-        .single();
+        .maybeSingle();
       if (data) {
         myEntryStateRef.current = {
           status: data.status ?? "waiting",
@@ -309,7 +309,7 @@ export default function WaitlistStatus() {
         .from("waitlist_entries")
         .select("created_at")
         .eq("id", entryId)
-        .single();
+        .maybeSingle();
 
       if (!myEntry) return;
 
@@ -430,7 +430,7 @@ export default function WaitlistStatus() {
           .eq('host_user_id', userId)
           .eq('restaurant_id', Number(id))
           .eq('status', 'open')
-          .single();
+          .maybeSingle();
 
         if (sameRest) {
           // Reuse existing session for this restaurant

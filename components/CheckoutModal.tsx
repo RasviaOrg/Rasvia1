@@ -195,7 +195,7 @@ export function CheckoutModal({
                     .from('restaurants')
                     .select('stripe_account_id')
                     .eq('id', Number(restaurantId))
-                    .single();
+                    .maybeSingle();
                 if (cancelled) return;
                 if (data?.stripe_account_id) {
                     setHasStripe(true);

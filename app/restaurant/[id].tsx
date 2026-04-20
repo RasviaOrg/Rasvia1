@@ -231,7 +231,7 @@ export default function RestaurantDetail() {
       .from("profiles")
       .select("full_name, dietary_type, restricted_days, avatar_url")
       .eq("id", session.user.id)
-      .single()
+      .maybeSingle()
       .then(({ data }) => {
         if (data?.full_name) setPartyLeaderName(data.full_name);
         if (data?.dietary_type) setUserDietaryType(data.dietary_type);
@@ -273,7 +273,7 @@ export default function RestaurantDetail() {
           .select("id, restaurant_id, status")
           .eq("id", stored.sessionId)
           .eq("status", "open")
-          .single()
+          .maybeSingle()
           .then(({ data }) => {
             setHasActiveGroupSession(!!data && String(data.restaurant_id) === String(id));
           });
@@ -291,7 +291,7 @@ export default function RestaurantDetail() {
         .from("waitlist_entries")
         .select("status")
         .eq("id", globalWaitlistEntry.id)
-        .single()
+        .maybeSingle()
         .then(({ data }) => {
           if (!data || data.status !== "waiting") {
             setGlobalWaitlistEntry(null);
@@ -429,9 +429,10 @@ export default function RestaurantDetail() {
         .from('restaurants')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) throw new Error('Restaurant not found');
       if (data) {
         const uiRestaurant = mapSupabaseToUI(data as SupabaseRestaurant, userCoords);
         setRestaurant(uiRestaurant);
@@ -480,7 +481,7 @@ export default function RestaurantDetail() {
           .from("profiles")
           .select("favorite_restaurants")
           .eq("id", session.user.id)
-          .single();
+          .maybeSingle();
 
         if (profileData && profileData.favorite_restaurants) {
           const arr = parseFavorites(profileData.favorite_restaurants);
@@ -927,7 +928,7 @@ export default function RestaurantDetail() {
         .from("profiles")
         .select("favorite_restaurants")
         .eq("id", session.user.id)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
 

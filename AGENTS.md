@@ -201,5 +201,49 @@ Current repo defaults:
 5. **Types are in `data/mockData.ts`** — despite the name, this file defines the canonical TypeScript types used across the app (CartItem, MenuItem, FilterType, etc.)
 6. **`create-checkout` and `payment-redirect` are mirrored in RasviaWeb** — keep both implementations in sync when changing payment/security behavior
 
+## Database Hygiene & RLS (April 2026)
+
+The `20260419180000_db_hygiene_rls_cleanup.sql` migration normalised RLS across
+the public schema. Things to keep in mind going forward:
+
+- **`system_config`** — RLS on. Authenticated users may `SELECT`; only platform
+  admins (`is_platform_admin()`) may write. Use `.maybeSingle()` when reading
+  the banner / wait-time / max-party-size keys (rows may not exist).
+- **`waitlist_entries`** — RLS on. Owner / staff / platform-admin policies for
+  read/update/delete; existing INSERT policies (auth user joining + anon kiosk
+  walk-in) are preserved.
+- **`group_orders`** — DEPRECATED. Written only as a legacy mirror by
+  `party_settle_payment()`. No client reads it. Do not add code that reads or
+  writes this table directly; remove in a future migration when the schema_v1
+  group-order flow is fully retired.
+- **`party_items`** — All client mutations must go through the SECURITY DEFINER
+  `party_*` RPCs (`party_add_item`, `party_update_item`, …). The table only
+  exposes a `SELECT` policy for the join screen; direct INSERT/UPDATE/DELETE
+  from clients will fail RLS.
+- **`menu_categories`** — Public-readable, owner-writable. The mobile / web
+  clients currently use the text `category` column on `menu_items`; the
+  structured `category_id` FK is unused. Consider dropping the FK in a future
+  migration if the structured categories never get adopted.
+
+### Standardised Supabase call patterns
+
+- Use `.maybeSingle()` when querying by id and the row may not exist. Reserve
+  `.single()` for `INSERT … select().single()` where exactly one row is
+  expected.
+- Use the singleton `supabase` client from `lib/supabase.ts` for everything
+  except credential validation (sign-in / OTP), which uses
+  `lib/isolated-supabase.ts` to avoid clobbering the active session.
+- Edge functions: never trust `restaurant_id`, `stripe_account_id`, `amount`,
+  or `user_id` from the client. Resolve these server-side from the user JWT or
+  the verified party-session token (`create-checkout`, `refund-order`,
+  `payment-redirect`).
+
+## Unused / deprecated tables (do not extend)
+
+| Table              | Status                                    |
+|--------------------|-------------------------------------------|
+| `group_orders`     | Legacy mirror, not read anywhere          |
+| `menu_categories`  | Created but unused (clients use text col) |
+
 ### After finishing
 Once you finish your work after a prompt, modify this file with any relevant information to aid future agents.

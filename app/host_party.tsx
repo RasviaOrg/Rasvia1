@@ -105,7 +105,7 @@ export default function HostPartyScreen() {
         .from("restaurants")
         .select("id, name, cuisine_tags, image_url, current_wait_time, lat, long, stripe_account_id")
         .eq("id", paramRestaurantId)
-        .single();
+        .maybeSingle();
 
       if (error || !data) {
         Alert.alert("Error", "Could not load restaurant info.");
@@ -230,7 +230,7 @@ export default function HostPartyScreen() {
           .from("party_sessions")
           .select("id, status, restaurants(name)")
           .eq("id", parsed.sessionId)
-          .single();
+          .maybeSingle();
 
         if (sess && sess.status === "open") {
           setExistingSession({

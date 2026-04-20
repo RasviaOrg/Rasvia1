@@ -174,7 +174,7 @@ export default function DiscoverSectionPage() {
             .from("profiles")
             .select("favorite_restaurants, dietary_type, restricted_days, recently_viewed_restaurants")
             .eq("id", userId)
-            .single()
+            .maybeSingle()
         : Promise.resolve({ data: null, error: null } as any);
 
       const [{ data: restRows, error: restError }, { data: profileRow }] = await Promise.all([
