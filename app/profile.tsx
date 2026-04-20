@@ -101,7 +101,7 @@ export default function ProfileSettingsScreen() {
   const router = useRouter();
   const { session } = useAuth();
   const { isAdmin, isRestaurantOwner, effectiveOwnerRestaurantId } = useAdminMode();
-  const { reloadLocationPrefs, setUserCoordsOverride } = useLocation();
+  const { reloadLocationPrefs, setUserCoordsOverride, isUsingDiningPreferenceFallback, diningPreferenceAreaLabel } = useLocation();
   const [userEmail, setUserEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -1347,6 +1347,31 @@ export default function ProfileSettingsScreen() {
 
                 {/* === Saved Address Input === */}
                 <View style={{ marginTop: 16 }}>
+                  {isUsingDiningPreferenceFallback && (
+                    <View
+                      style={{
+                        marginBottom: 10,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,153,51,0.24)",
+                        backgroundColor: "rgba(255,153,51,0.08)",
+                        paddingHorizontal: 10,
+                        paddingVertical: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_500Medium",
+                          color: "#FFB566",
+                          fontSize: 12,
+                          lineHeight: 16,
+                        }}
+                      >
+                        No saved location found — currently using your dining preference area
+                        {diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.
+                      </Text>
+                    </View>
+                  )}
                   <Text
                     style={{
                       fontFamily: "Manrope_600SemiBold",

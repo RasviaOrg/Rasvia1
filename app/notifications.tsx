@@ -665,9 +665,9 @@ function NotificationRow({
           disabled={!onPress}
           android_ripple={onPress ? { color: "#222" } : undefined}
           style={({ pressed }) => ({
-            paddingHorizontal: 14,
-            paddingTop: 12,
-            paddingBottom: 12,
+            paddingHorizontal: 21,
+            paddingTop: 19,
+            paddingBottom: 19,
             borderBottomWidth: isLast ? 0 : 1,
             borderBottomColor: "#2a2a2a",
             backgroundColor: event.read
@@ -741,38 +741,40 @@ function NotificationRow({
             )}
           </View>
 
-          {/* Bottom row: secondary details indented to align under the text, not the icon */}
-          <View
-            style={{
-              marginTop: 4,
-              marginLeft: 56, /* 44 icon + 12 gap */
-              gap: 2,
-            }}
-          >
-            {event.partySize > 0 && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Users size={10} color="#555" />
-                <Text
-                  style={{
-                    fontFamily: "Manrope_500Medium",
-                    color: "#555555",
-                    fontSize: 11,
-                  }}
-                >
-                  Party of {event.partySize}
-                </Text>
-              </View>
-            )}
-            <Text
+          {/* Bottom row: secondary details — left-aligned, indented to clear the icon */}
+          {(event.partySize > 0 || true) && (
+            <View
               style={{
-                fontFamily: "Manrope_500Medium",
-                color: "#6B7280",
-                fontSize: 12,
+                marginTop: 8,
+                marginLeft: 56,  /* 44 icon + 12 gap */
+                gap: 4,
               }}
             >
-              {timeAgo(event.timestamp)}
-            </Text>
-          </View>
+              {event.partySize > 0 && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Users size={10} color="#555" />
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#555555",
+                      fontSize: 11,
+                    }}
+                  >
+                    Party of {event.partySize}
+                  </Text>
+                </View>
+              )}
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: "#6B7280",
+                  fontSize: 12,
+                }}
+              >
+                {timeAgo(event.timestamp)}
+              </Text>
+            </View>
+          )}
         </Pressable>
       </Swipeable>
     </Animated.View>
@@ -1083,7 +1085,7 @@ export default function NotificationsScreen() {
                         key={event.id}
                         style={{
                           backgroundColor: "#141414",
-                          borderRadius: 16,
+                          borderRadius: 18,
                           borderWidth: 1,
                           borderColor: "#2a2a2a",
                           overflow: "hidden",

@@ -18,7 +18,7 @@ import {
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map as MapIcon, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, ShoppingCart, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, Navigation, Camera, AlertTriangle } from "lucide-react-native";
+import { Search, Bell, MapPin, TrendingUp, Zap, User, Map as MapIcon, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, ShoppingCart, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, ChevronUp, Navigation, Camera, AlertTriangle } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -143,7 +143,16 @@ export default function DiscoveryFeed() {
     effectiveOwnerRestaurantId,
     loading: roleLoading,
   } = useAdminMode();
-  const { userCoords, locationLabel, requestLocationPermission, setUserCoordsOverride, setSearchOverride, reloadLocationPrefs } = useLocation();
+  const {
+    userCoords,
+    locationLabel,
+    requestLocationPermission,
+    setUserCoordsOverride,
+    setSearchOverride,
+    reloadLocationPrefs,
+    isUsingDiningPreferenceFallback,
+    diningPreferenceAreaLabel,
+  } = useLocation();
   const [addressBarExpanded, setAddressBarExpanded] = useState(false);
   const [addressInput, setAddressInput] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: number; lon: number }>>([]);
@@ -1438,11 +1447,11 @@ export default function DiscoveryFeed() {
             >
               {locationLabel && locationLabel !== "GPS Location" ? locationLabel : "Unknown"}
             </Text>
-            <ChevronDown
-              size={13}
-              color="#999"
-              style={{ transform: [{ rotate: addressBarExpanded ? "180deg" : "0deg" }] }}
-            />
+            {addressBarExpanded ? (
+              <ChevronUp size={13} color="#999" />
+            ) : (
+              <ChevronDown size={13} color="#999" />
+            )}
           </Pressable>
         </Animated.View>
 
@@ -1614,6 +1623,33 @@ export default function DiscoveryFeed() {
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 10, gap: 8 }}>
                 <ActivityIndicator size="small" color="#FF9933" />
                 <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 12 }}>Saving...</Text>
+              </View>
+            )}
+
+            {/* Fallback notice: no saved location, using dining-preference area */}
+            {isUsingDiningPreferenceFallback && (
+              <View
+                style={{
+                  marginTop: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,153,51,0.26)",
+                  backgroundColor: "rgba(255,153,51,0.09)",
+                  paddingHorizontal: 10,
+                  paddingVertical: 8,
+                }}
+              >
+                <Text
+                  style={{
+                    color: "#FFB566",
+                    fontFamily: "Manrope_500Medium",
+                    fontSize: 12,
+                    lineHeight: 16,
+                  }}
+                >
+                  No saved location yet — using your dining preference area
+                  {diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.
+                </Text>
               </View>
             )}
           </Animated.View>

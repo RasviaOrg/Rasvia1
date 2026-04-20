@@ -2971,7 +2971,6 @@ export default function RestaurantDetail() {
               You can walk right in. Want to browse the menu and pre-order
               before you get there, or just head over?
             </Text>
-            {/* Browse menu — same shape as Walk right in but orange text */}
             <Pressable
               onPress={() => {
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -2981,26 +2980,24 @@ export default function RestaurantDetail() {
                 );
               }}
               style={({ pressed }) => ({
+                backgroundColor: pressed ? "#e88829" : "#FF9933",
                 borderRadius: 14,
                 paddingVertical: 14,
                 alignItems: "center",
-                borderWidth: 1,
-                borderColor: pressed ? "#FF993366" : "#FF993344",
-                backgroundColor: pressed ? "#222" : "#1a1a1a",
                 marginTop: 6,
               })}
             >
               <Text
                 style={{
-                  fontFamily: "Manrope_700Bold",
-                  color: "#FF9933",
+                  fontFamily: "Manrope_800ExtraBold",
+                  color: "#0f0f0f",
                   fontSize: 15,
+                  letterSpacing: 0.3,
                 }}
               >
                 Browse menu & pre-order
               </Text>
             </Pressable>
-            {/* Walk right in — solid border, white text */}
             <Pressable
               onPress={() => {
                 if (Platform.OS !== "web") Haptics.selectionAsync();
