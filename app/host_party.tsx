@@ -39,6 +39,7 @@ import { useNotifications } from "../lib/notifications-context";
 import { useLocation } from "../lib/location-context";
 import { haversineDistance } from "../lib/restaurant-types";
 import { useClosedRestaurantIds } from "../hooks/useClosedRestaurantIds";
+import { addActiveParty, removeActiveParty } from "../lib/party-active";
 
 interface Restaurant {
   id: number;
@@ -172,6 +173,10 @@ export default function HostPartyScreen() {
             })
           );
         }
+
+        // Register the session in the device-local active-party index so the
+        // home screen can surface a "rejoin" banner if the host navigates away.
+        await addActiveParty(sess.id);
 
         addEvent({
           type: "group_created",
@@ -349,6 +354,7 @@ export default function HostPartyScreen() {
                 await supabase.from("party_items").delete().eq("session_id", existingSession.id);
                 await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", existingSession.id);
                 if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
+                await removeActiveParty(existingSession.id);
                 setExistingSession(null);
                 if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
               } catch {
@@ -398,6 +404,9 @@ export default function HostPartyScreen() {
           }),
         );
       }
+
+      // Track in the home-screen active-party index.
+      await addActiveParty(data.id);
 
       addEvent({
         type: "group_created",
@@ -562,6 +571,7 @@ export default function HostPartyScreen() {
                             await supabase.from("party_items").delete().eq("session_id", existingSession.id);
                             await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", existingSession.id);
                             if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
+                            await removeActiveParty(existingSession.id);
                             setExistingSession(null);
                             if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                           } catch {

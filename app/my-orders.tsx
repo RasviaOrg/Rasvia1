@@ -644,7 +644,7 @@ function ActiveOrderCard({
               </Text>
             </View>
           </View>
-          <View style={{ alignItems: "flex-end" }}>
+          <View style={{ alignItems: "flex-end", marginTop: isLive && canSelfCancel ? 36 : 0 }}>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
@@ -720,41 +720,8 @@ function ActiveOrderCard({
           {order.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}
         </Text>
 
-        {/* Cancel CTA — only for still-pending orders. Paid-card orders that
-            are already being prepared fall through the helper's `paid_card`
-            path which prompts the user to call the restaurant. */}
-        {isLive && canSelfCancel && (
-          <Pressable
-            onPress={handleCancelPress}
-            disabled={cancelling}
-            style={{
-              marginTop: 14,
-              alignSelf: "flex-start",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "rgba(239,68,68,0.3)",
-              backgroundColor: "rgba(239,68,68,0.08)",
-              opacity: cancelling ? 0.6 : 1,
-            }}
-          >
-            {cancelling ? (
-              <ActivityIndicator size="small" color="#FCA5A5" />
-            ) : (
-              <XCircle size={14} color="#FCA5A5" />
-            )}
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FCA5A5", fontSize: 12, letterSpacing: 0.3 }}>
-              Cancel order
-            </Text>
-          </Pressable>
-        )}
-
         {/* For paid-card live orders that can't be self-cancelled, surface a
-            passive hint so the user knows why the button isn't here. */}
+            passive hint so the user knows why the top-right X isn't present. */}
         {isLive && !canSelfCancel && order.status !== "served" && (
           <Text
             style={{
@@ -769,6 +736,41 @@ function ActiveOrderCard({
           </Text>
         )}
       </View>
+
+      {/* Cancel order — anchored to the top-right of the card. Only for
+          still-pending orders. Paid-card orders fall through the helper's
+          `paid_card` path, which prompts the user to call the restaurant.
+          Rendered as a compact round icon button to avoid colliding with
+          the price column directly beneath it. */}
+      {isLive && canSelfCancel && (
+        <Pressable
+          onPress={handleCancelPress}
+          disabled={cancelling}
+          hitSlop={10}
+          accessibilityLabel="Cancel order"
+          style={{
+            position: "absolute",
+            top: isLive ? 12 : 9,
+            right: 10,
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            alignItems: "center",
+            justifyContent: "center",
+            borderWidth: 1,
+            borderColor: "rgba(239,68,68,0.35)",
+            backgroundColor: "rgba(239,68,68,0.14)",
+            opacity: cancelling ? 0.6 : 1,
+            zIndex: 2,
+          }}
+        >
+          {cancelling ? (
+            <ActivityIndicator size="small" color="#FCA5A5" />
+          ) : (
+            <XCircle size={16} color="#FCA5A5" />
+          )}
+        </Pressable>
+      )}
     </Animated.View>
   );
 }
@@ -1001,8 +1003,12 @@ export default function MyOrdersScreen() {
   useEffect(() => {
     if (!session?.user?.id) return;
 
+    // Per-mount random suffix avoids "cannot add postgres_changes callbacks ...
+    // after subscribe()" when the screen remounts (nav back, fast refresh)
+    // before the previous channel's removeChannel has fully settled.
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const channel = supabase
-      .channel("my-orders-live")
+      .channel(`my-orders-live:${topicSuffix}`)
       .on(
         "postgres_changes",
         {

@@ -1074,13 +1074,16 @@ export default function NotificationsScreen() {
                     }}
                   >
                     {events.map((event, idx) => {
-                      const route = resolveEventRoute(event);
+                      // History rows are intentionally non-interactive — tapping
+                      // an old alert used to route back to stale waitlist/order
+                      // screens which caused confusion. Swipe-to-dismiss still
+                      // works via `onDismiss`.
                       return (
                         <NotificationRow
                           key={event.id}
                           event={event}
                           isLast={idx === events.length - 1}
-                          onPress={route ? () => handleEventPress(event) : undefined}
+                          onPress={undefined}
                           onDismiss={() => {
                             if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             removeEvent(event.id);

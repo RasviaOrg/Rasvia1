@@ -97,7 +97,7 @@ const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 const RESTAURANT_SHARE_WEB_BASE_URL = "https://rasvia.com";
 
 export default function RestaurantDetail() {
-  const { id, reorder, waitlist_entry, mode, cartType, scrollTo } = useLocalSearchParams<{
+  const { id, reorder, waitlist_entry, mode, cartType, scrollTo, autoCheckout } = useLocalSearchParams<{
     id: string;
     reorder?: string;
     waitlist_entry?: string;
@@ -109,6 +109,9 @@ export default function RestaurantDetail() {
      *  Takeout "Browse Menu" CTA so the user lands directly in the food
      *  rather than the hero. */
     scrollTo?: string;
+    /** "1" means the user tapped Checkout from /cart — open the CheckoutModal
+     *  automatically as soon as the cart seed has loaded. */
+    autoCheckout?: string;
   }>();
   const waitlistEntryParam =
     typeof waitlist_entry === "string" && waitlist_entry.length > 0 ? waitlist_entry : undefined;
@@ -368,8 +371,12 @@ export default function RestaurantDetail() {
   // Realtime: waitlist entry no longer active (staff cancel/remove) — clear local state (no system alert)
   useEffect(() => {
     if (!globalWaitlistEntry?.id) return;
+    // Random topic suffix (see note on `realtimeSuffixRef` below). Even though
+    // entry ids are unique, a remount with the same entry would reuse the
+    // cached, already-joined channel and throw on `.on()`.
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const ch = supabase
-      .channel(`restaurant-wl-entry:${globalWaitlistEntry.id}`)
+      .channel(`restaurant-wl-entry:${globalWaitlistEntry.id}:${topicSuffix}`)
       .on(
         "postgres_changes",
         {
@@ -391,6 +398,13 @@ export default function RestaurantDetail() {
     };
   }, [globalWaitlistEntry?.id]);
 
+  // Per-mount random suffix so each mount gets a fresh Supabase realtime
+  // channel. Without this, a fast remount (fast refresh, navigating back from
+  // /waitlist → this page) can pick up the previous channel before its
+  // removeChannel cleanup finished, and calling `.on()` on an already-joined
+  // channel throws "cannot add postgres_changes callbacks ... after subscribe()".
+  const realtimeSuffixRef = useRef(Math.random().toString(36).slice(2, 8));
+
   // ==================================================
   // FETCH RESTAURANT & MENU FROM SUPABASE
   // ==================================================
@@ -402,9 +416,11 @@ export default function RestaurantDetail() {
     fetchQueueCount();
     fetchRestaurantMenuTags();
 
+    const suffix = realtimeSuffixRef.current;
+
     // Real-time: restaurant row changes
     const restSub = supabase
-      .channel(`restaurant:${id}`)
+      .channel(`restaurant:${id}:${suffix}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "restaurants", filter: `id=eq.${id}` },
@@ -424,7 +440,7 @@ export default function RestaurantDetail() {
 
     // Real-time: waitlist_entries changes → refresh queue count
     const queueSub = supabase
-      .channel(`queue-count:${id}`)
+      .channel(`queue-count:${id}:${suffix}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "waitlist_entries", filter: `restaurant_id=eq.${id}` },
@@ -434,7 +450,7 @@ export default function RestaurantDetail() {
 
     // Real-time: menu_items changes → refresh menu
     const menuSub = supabase
-      .channel(`restaurant-menu:${id}`)
+      .channel(`restaurant-menu:${id}:${suffix}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${id}` },
@@ -444,7 +460,7 @@ export default function RestaurantDetail() {
 
     // Real-time: menu tag changes
     const menuTagSub = supabase
-      .channel(`restaurant-menu-tags:${id}`)
+      .channel(`restaurant-menu-tags:${id}:${suffix}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "restaurant_menu_tags", filter: `restaurant_id=eq.${id}` },
@@ -898,6 +914,27 @@ export default function RestaurantDetail() {
       active = false;
     };
   }, [id, menu, localGroupMembers, session?.user?.id]);
+
+  // Auto-open the CheckoutModal when the user arrived from /cart with
+  // `autoCheckout=1`. We wait for `cartItems` to hydrate (at least one item)
+  // so the modal opens with its seed row already populated. Once fired, we
+  // clear the param via `router.setParams` so a normal back-and-forth doesn't
+  // re-trigger on every remount.
+  const autoCheckoutFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoCheckout !== "1") return;
+    if (autoCheckoutFiredRef.current) return;
+    if (!restaurant) return;
+    if (cartItems.length === 0) return;
+    autoCheckoutFiredRef.current = true;
+    setShowCheckout(true);
+    try {
+      router.setParams({ autoCheckout: undefined } as any);
+    } catch {
+      // setParams can throw on older expo-router builds — safe to ignore; the
+      // fired ref already prevents re-entry.
+    }
+  }, [autoCheckout, cartItems.length, restaurant, router]);
 
   const handleJoinWaitlist = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);

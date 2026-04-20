@@ -600,8 +600,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     const userId = session?.user?.id;
     if (!userId) return;
 
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const ch = supabase
-      .channel(`app-notifications:${userId}`)
+      .channel(`app-notifications:${userId}:${topicSuffix}`)
       .on(
         "postgres_changes",
         {
@@ -644,8 +645,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       }
     };
 
+    const ordersTopicSuffix = Math.random().toString(36).slice(2, 8);
     const channel = supabase
-      .channel(`notif-orders:${userId}`)
+      .channel(`notif-orders:${userId}:${ordersTopicSuffix}`)
       .on(
         "postgres_changes",
         {

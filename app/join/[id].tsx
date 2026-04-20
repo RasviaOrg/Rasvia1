@@ -44,6 +44,7 @@ import {
   loadPartyCreds, savePartyCreds, clearPartyCreds,
   loadLastDisplayName, saveLastDisplayName,
 } from '../../lib/party-credentials';
+import { addActiveParty, removeActiveParty } from '../../lib/party-active';
 import { subscribeToParty } from '../../lib/party-realtime';
 import { PartyLedger, colorForMember, memberInitials } from '../../components/party/PartyLedger';
 import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from '../../lib/menu-tags';
@@ -172,7 +173,12 @@ export default function JoinPartyScreen() {
     (async () => {
       const saved = await loadPartyCreds(sessionId);
       if (cancelled) return;
-      if (saved) setCreds(saved);
+      if (saved) {
+        setCreds(saved);
+        // Make sure the active index stays in sync with what's on disk; if
+        // we have cached creds, we're actively in the session.
+        void addActiveParty(sessionId);
+      }
       setCredsLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -300,6 +306,9 @@ export default function JoinPartyScreen() {
       setCreds(next);
       await savePartyCreds(next);
       await saveLastDisplayName(name);
+      // Record in the device-local active-party index so the home screen can
+      // offer a "rejoin" tab if the user navigates away.
+      await addActiveParty(sessionId);
       await loadAll();
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
@@ -454,6 +463,7 @@ export default function JoinPartyScreen() {
       const result = await cancelSession(supabase, creds);
       Alert.alert('Group order cancelled', `${result.refunded} payment${result.refunded === 1 ? '' : 's'} refunded.`);
       await clearPartyCreds(sessionId);
+      await removeActiveParty(sessionId);
       router.back();
     } catch (err) {
       Alert.alert('Cancel failed', err instanceof Error ? err.message : 'Try again.');
@@ -477,6 +487,7 @@ export default function JoinPartyScreen() {
           onPress: async () => {
             try { await leaveSession(supabase, creds); } catch { /* ignore */ }
             await clearPartyCreds(sessionId);
+            await removeActiveParty(sessionId);
             router.back();
           },
         },
@@ -545,7 +556,11 @@ export default function JoinPartyScreen() {
               {' '}Any paid shares have been refunded.
             </Text>
             <Pressable
-              onPress={async () => { await clearPartyCreds(sessionId); router.replace('/'); }}
+              onPress={async () => {
+                await clearPartyCreds(sessionId);
+                await removeActiveParty(sessionId);
+                router.replace('/');
+              }}
               style={[s.primaryBtn, { marginTop: 10, alignSelf: 'stretch' }]}
             >
               <Text style={s.primaryBtnText}>Back to home</Text>
@@ -607,6 +622,7 @@ export default function JoinPartyScreen() {
         creds={creds}
         onDone={async () => {
           await clearPartyCreds(sessionId);
+          await removeActiveParty(sessionId);
           router.replace('/');
         }}
       />
@@ -1462,7 +1478,10 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={s.container}>
-        <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 80 }}>
+        <ScrollView
+          contentContainerStyle={{ padding: 20, paddingTop: 80, paddingBottom: 140 }}
+          showsVerticalScrollIndicator={false}
+        >
           <Animated.View entering={FadeIn} style={{ alignItems: 'center' }}>
             <View style={s.successBadgeWrapper}>
               <PulseRing />

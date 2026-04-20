@@ -60,6 +60,9 @@ import { OwnerHomeContent } from "@/components/OwnerHomeContent";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { withTimeout } from "@/lib/with-timeout";
 import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRecentlyViewedRestaurant, type RestaurantMediaSlide } from "@/lib/restaurant-media";
+import { loadActiveParties, removeActiveParty, subscribeActiveParties } from "@/lib/party-active";
+import { loadPartyCreds } from "@/lib/party-credentials";
+import { fetchSnapshot } from "@/lib/party-session";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 // Store the subscription so it's a tracked singleton (not a leaked anonymous
@@ -296,6 +299,20 @@ export default function DiscoveryFeed() {
     position: number;
     phase: "in_queue" | "table_ready" | "seated";
   } | null>(null);
+  // Active group orders the current device is a member of. Populated from the
+  // SecureStore-backed index in lib/party-active.ts. Renders as a pressable
+  // banner near the top of the home feed so users can hop back into a group
+  // order without needing the original invite link.
+  const [activeGroupOrders, setActiveGroupOrders] = useState<
+    Array<{
+      sessionId: string;
+      restaurantId: number;
+      restaurantName: string;
+      memberCount: number;
+      status: string;
+    }>
+  >([]);
+
   const [dismissedLiveOrderIds, setDismissedLiveOrderIds] = useState<Set<string>>(() => new Set());
   const [dismissedSeatedWaitlistEntryIds, setDismissedSeatedWaitlistEntryIds] = useState<Set<string>>(
     () => new Set()
@@ -519,12 +536,21 @@ export default function DiscoveryFeed() {
     }
   }, []);
 
+  // Per-mount random suffix so Supabase realtime always hands us a *fresh*
+  // channel instance on remount. Without this, a fast remount (fast refresh,
+  // nav back) can find the previous channel still in 'joined' state under the
+  // same topic, which makes `.on()` throw "cannot add postgres_changes
+  // callbacks ... after subscribe()". Removing the channel in cleanup is still
+  // correct; the suffix just avoids racing the teardown.
+  const realtimeSuffixRef = useRef(Math.random().toString(36).slice(2, 8));
+
   useEffect(() => {
     fetchRestaurants();
     fetchAnnouncementBanner();
 
+    const suffix = realtimeSuffixRef.current;
     const subscription = supabase
-      .channel('public:restaurants')
+      .channel(`public:restaurants:${suffix}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'restaurants' },
@@ -540,7 +566,7 @@ export default function DiscoveryFeed() {
       .subscribe();
 
     const bannerSubscription = supabase
-      .channel('system_config:announcement')
+      .channel(`system_config:announcement:${suffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'system_config', filter: 'key=eq.announcement_banner' },
@@ -940,8 +966,9 @@ export default function DiscoveryFeed() {
       return;
     }
     void fetchLiveOrder();
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const ch = supabase
-      .channel(`home-live-order:${currentUserId}`)
+      .channel(`home-live-order:${currentUserId}:${topicSuffix}`)
       .on(
         "postgres_changes",
         {
@@ -966,8 +993,9 @@ export default function DiscoveryFeed() {
       return;
     }
     void fetchLiveWaitlist();
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const ch = supabase
-      .channel(`home-waitlist:${currentUserId}`)
+      .channel(`home-waitlist:${currentUserId}:${topicSuffix}`)
       .on(
         "postgres_changes",
         {
@@ -990,8 +1018,9 @@ export default function DiscoveryFeed() {
   useEffect(() => {
     const eid = liveWaitlistBanner?.entryId;
     if (!eid || !currentUserId) return;
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const ch = supabase
-      .channel(`home-waitlist-entry:${eid}`)
+      .channel(`home-waitlist-entry:${eid}:${topicSuffix}`)
       .on(
         "postgres_changes",
         {
@@ -1009,6 +1038,83 @@ export default function DiscoveryFeed() {
       supabase.removeChannel(ch);
     };
   }, [liveWaitlistBanner?.entryId, currentUserId, fetchLiveWaitlist]);
+
+  // ── Active group orders (from device-local index) ──
+  //
+  // Loads the list of party sessions this device is in, fetches a lightweight
+  // snapshot for each, drops finished/cancelled sessions, and exposes the rest
+  // to the render tree for the LiveGroupOrderBanner. Re-runs whenever the
+  // party-active subscriber fires (i.e. after join/leave) so the banner shows
+  // up or disappears in real time.
+  const refreshActiveGroupOrders = useCallback(async () => {
+    const ids = await loadActiveParties();
+    if (ids.length === 0) {
+      setActiveGroupOrders([]);
+      return;
+    }
+    const rows = await Promise.all(
+      ids.map(async (sid) => {
+        try {
+          const creds = await loadPartyCreds(sid);
+          if (!creds) {
+            // Stale entry — no credentials on disk, so we can't view the
+            // session. Evict from the index and move on.
+            await removeActiveParty(sid);
+            return null;
+          }
+          const snap = await fetchSnapshot(supabase, creds);
+          if (!snap) {
+            await removeActiveParty(sid);
+            return null;
+          }
+          const status = String(snap.session.status ?? "");
+          if (status === "completed" || status === "cancelled") {
+            await removeActiveParty(sid);
+            return null;
+          }
+          // Best-effort restaurant name lookup — the snapshot has a
+          // restaurant_id but not a name, so resolve once here.
+          let restaurantName = "Restaurant";
+          try {
+            const { data } = await supabase
+              .from("restaurants")
+              .select("name")
+              .eq("id", snap.session.restaurant_id)
+              .maybeSingle();
+            if ((data as any)?.name) restaurantName = String((data as any).name);
+          } catch { /* ignore */ }
+          return {
+            sessionId: sid,
+            restaurantId: snap.session.restaurant_id,
+            restaurantName,
+            memberCount: snap.members.length,
+            status,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    setActiveGroupOrders(rows.filter((r): r is NonNullable<typeof r> => r !== null));
+  }, []);
+
+  useEffect(() => {
+    void refreshActiveGroupOrders();
+    const unsub = subscribeActiveParties(() => {
+      void refreshActiveGroupOrders();
+    });
+    return () => {
+      unsub();
+    };
+  }, [refreshActiveGroupOrders]);
+
+  // Refresh on focus too — catches the case where the user cancelled/completed
+  // a party from a different tab or deep link.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshActiveGroupOrders();
+    }, [refreshActiveGroupOrders]),
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -1671,6 +1777,97 @@ export default function DiscoveryFeed() {
                   </Text>
                 </View>
               </View>
+            </Animated.View>
+          )}
+
+          {/* Live group order rejoin tab — shows when the device is in one
+              or more active party sessions. Tap to jump straight back into
+              the group order without needing the original invite link. */}
+          {activeGroupOrders.length > 0 && (
+            <Animated.View
+              entering={FadeInDown.duration(360)}
+              style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 8 }}
+            >
+              {activeGroupOrders.map((party) => (
+                <Pressable
+                  key={party.sessionId}
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push(`/join/${party.sessionId}` as any);
+                  }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    borderRadius: 18,
+                    backgroundColor: pressed ? "rgba(139,92,246,0.16)" : "rgba(139,92,246,0.10)",
+                    borderWidth: 1,
+                    borderColor: "rgba(139,92,246,0.35)",
+                  })}
+                >
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: "rgba(139,92,246,0.18)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Users size={20} color="#C4B5FD" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_700Bold",
+                        color: "#E9E4FF",
+                        fontSize: 14,
+                        letterSpacing: 0.3,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Group order in progress
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_600SemiBold",
+                        color: "#f5f5f5",
+                        fontSize: 15,
+                        marginTop: 2,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {party.restaurantName}
+                      <Text style={{ color: "#9CA3AF", fontFamily: "Manrope_500Medium" }}>
+                        {"  ·  "}
+                        {party.memberCount} {party.memberCount === 1 ? "member" : "members"}
+                      </Text>
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      backgroundColor: "rgba(139,92,246,0.2)",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_700Bold",
+                        color: "#E9E4FF",
+                        fontSize: 12,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      Rejoin
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
             </Animated.View>
           )}
 

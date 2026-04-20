@@ -188,7 +188,6 @@ function EditableMenuItem({
   onDelete,
   canEdit,
   showQuickAdd,
-  orderingAvailable,
   onContributeImage,
   menuTags,
 }: {
@@ -200,7 +199,6 @@ function EditableMenuItem({
   onDelete: (id: string) => void;
   canEdit: boolean;
   showQuickAdd: boolean;
-  orderingAvailable: boolean;
   onContributeImage?: (item: UIMenuItem) => void;
   menuTags: MenuTagConfig[];
 }) {
@@ -320,16 +318,7 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem
-        item={item as any}
-        index={index}
-        onPress={onPress}
-        onQuickAdd={onQuickAdd}
-        showQuickAdd={showQuickAdd}
-        orderingAvailable={orderingAvailable}
-        onContributeImage={onContributeImage}
-        ownerBadgeOffset={canEdit}
-      />
+      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} />
 
       {canEdit && (
         <Pressable
@@ -542,22 +531,12 @@ interface MenuEditorProps {
   restaurantId?: string;
   onContributeImage?: (item: UIMenuItem) => void;
   onMenuTagsChange?: (tags: MenuTagConfig[]) => void;
-  /** When false, + is shown but greyed (e.g. restaurant closed by hours). */
-  orderingAvailable?: boolean;
 }
 
-export function MenuEditor({
-  menu,
-  setMenu,
-  onItemPress,
-  onQuickAdd,
-  restaurantId,
-  onContributeImage,
-  onMenuTagsChange,
-  orderingAvailable = true,
-}: MenuEditorProps) {
+export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId, onContributeImage, onMenuTagsChange }: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
+  const canOrder = !isRestaurantOwner && !isAdmin;
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");
@@ -646,8 +625,9 @@ export function MenuEditor({
       }
     };
     void fetchTags();
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const tagSub = supabase
-      .channel(`owner-editor-menu-tags:${restaurantId}`)
+      .channel(`owner-editor-menu-tags:${restaurantId}:${topicSuffix}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "restaurant_menu_tags", filter: `restaurant_id=eq.${restaurantId}` },
@@ -978,8 +958,7 @@ export function MenuEditor({
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
-              showQuickAdd
-              orderingAvailable={orderingAvailable}
+              showQuickAdd={canOrder}
               onContributeImage={onContributeImage}
               menuTags={menuTags}
             />
@@ -996,8 +975,7 @@ export function MenuEditor({
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
-              showQuickAdd
-              orderingAvailable={orderingAvailable}
+              showQuickAdd={canOrder}
               onContributeImage={onContributeImage}
               menuTags={menuTags}
             />

@@ -320,8 +320,11 @@ export default function MapScreen() {
     }
     fetchRestaurants();
 
+    // Per-mount suffix — see app/index.tsx for the same pattern. Prevents
+    // "cannot add postgres_changes callbacks ... after subscribe()" on remount.
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
     const subscription = supabase
-      .channel("map:restaurants")
+      .channel(`map:restaurants:${topicSuffix}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "restaurants" },
@@ -1395,6 +1398,12 @@ function SelectedRestaurantCard({
   isAdmin?: boolean;
   onAdminPress?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+  // Card must sit above the persistent app bottom nav; the old hard-coded
+  // `bottom: 40` put part of the card (including the action row) behind the
+  // nav on devices where nav height + safe-area inset exceeded that.
+  const cardBottom =
+    APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + Math.max(insets.bottom, 8);
   const translateY = useRef(new RNAnimated.Value(CARD_HEIGHT)).current;
 
   // Slide in on mount
@@ -1448,7 +1457,7 @@ function SelectedRestaurantCard({
       {...panResponder.panHandlers}
       style={{
         position: "absolute",
-        bottom: 40,
+        bottom: cardBottom,
         left: 16,
         right: 16,
         transform: [{ translateY }],

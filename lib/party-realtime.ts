@@ -35,23 +35,30 @@ export function subscribeToParty(
 
   const channels: RealtimeChannel[] = [];
 
+  // Per-subscription random suffix so each `subscribeToParty` call gets a
+  // distinct channel topic. Without this, a quick unsubscribe+resubscribe on
+  // the same sessionId (e.g. navigating away and back to /join/:id) can hand
+  // us back the previous, still-joined channel and make `.on()` throw
+  // "cannot add postgres_changes callbacks ... after subscribe()".
+  const topicSuffix = Math.random().toString(36).slice(2, 8);
+
   channels.push(
     supabase
-      .channel(`party:${sessionId}:session`)
+      .channel(`party:${sessionId}:session:${topicSuffix}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'party_sessions', filter: `id=eq.${sessionId}` }, refresh)
       .subscribe(),
   );
 
   channels.push(
     supabase
-      .channel(`party:${sessionId}:items`)
+      .channel(`party:${sessionId}:items:${topicSuffix}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'party_items', filter: `session_id=eq.${sessionId}` }, refresh)
       .subscribe(),
   );
 
   channels.push(
     supabase
-      .channel(`party:${sessionId}:ledger`)
+      .channel(`party:${sessionId}:ledger:${topicSuffix}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'party_members', filter: `session_id=eq.${sessionId}` }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'party_payments', filter: `session_id=eq.${sessionId}` }, refresh)
       .subscribe(),

@@ -80,7 +80,7 @@ export default function OrderConfirmationScreen() {
                 .from("orders")
                 .select("*, order_items(*), restaurants(name, image_url)")
                 .eq("id", Number(orderId))
-                .maybeSingle();
+                .single();
 
             if (orderData) {
                 setOrder(orderData);
@@ -100,8 +100,9 @@ export default function OrderConfirmationScreen() {
     // Real-time subscription for order status updates
     useEffect(() => {
         if (!orderId) return;
+        const topicSuffix = Math.random().toString(36).slice(2, 8);
         const channel = supabase
-            .channel(`order-confirm-${orderId}`)
+            .channel(`order-confirm-${orderId}:${topicSuffix}`)
             .on(
                 "postgres_changes",
                 {

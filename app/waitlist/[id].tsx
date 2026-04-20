@@ -133,9 +133,14 @@ export default function WaitlistStatus() {
       checkEntryStatus(entry_id);
     }
 
+    // Per-mount suffix prevents "cannot add postgres_changes callbacks ...
+    // after subscribe()" when the waitlist screen remounts while the previous
+    // channel with the same topic is still joined.
+    const topicSuffix = Math.random().toString(36).slice(2, 8);
+
     // Real-time: restaurant row changes (wait time, etc.)
     const restSub = supabase
-      .channel(`waitlist-restaurant:${id}`)
+      .channel(`waitlist-restaurant:${id}:${topicSuffix}`)
       .on(
         "postgres_changes",
         {
@@ -153,7 +158,7 @@ export default function WaitlistStatus() {
 
     // Real-time: waitlist_entries changes → refresh position
     const queueSub = supabase
-      .channel(`waitlist-queue:${id}`)
+      .channel(`waitlist-queue:${id}:${topicSuffix}`)
       .on(
         "postgres_changes",
         {
@@ -171,7 +176,7 @@ export default function WaitlistStatus() {
     // Real-time: watch OUR entry for notified_at or seated status
     const notifySub = entry_id
       ? supabase
-        .channel(`my-entry:${entry_id}`)
+        .channel(`my-entry:${entry_id}:${topicSuffix}`)
         .on(
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "waitlist_entries", filter: `id=eq.${entry_id}` },

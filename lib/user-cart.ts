@@ -25,6 +25,37 @@ export type UserCartListItem = {
   orderType: UserCartOrderType;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Defensive legacy-schema fallback
+//
+// If the connected Supabase project hasn't had migration 20260419200000 applied
+// (or PostgREST hasn't reloaded its schema cache after it), every cart query
+// that touches `order_type` will throw PG 42703. Rather than crashing the whole
+// cart screen, transparently retry with the pre-migration shape (no order_type
+// column, legacy uniqueness key) and default to dine_in client-side. Warns
+// once so the misconfig doesn't stay silent forever.
+// ─────────────────────────────────────────────────────────────────────────────
+
+let legacyWarned = false;
+function warnLegacyOnce() {
+  if (legacyWarned) return;
+  legacyWarned = true;
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[user-cart] `order_type` column not found on user_cart_items in the " +
+      "connected Supabase project — running in legacy compat mode. Apply " +
+      "migration 20260419200000 and run `NOTIFY pgrst, 'reload schema';` to " +
+      "restore full functionality.",
+  );
+}
+
+function isOrderTypeMissing(err: any): boolean {
+  if (!err) return false;
+  const code = err?.code ?? err?.details?.code;
+  const message = typeof err?.message === "string" ? err.message : "";
+  return code === "42703" && /order_type/i.test(message);
+}
+
 export async function upsertUserCartItem(params: {
   userId: string;
   restaurantId: number;
@@ -40,18 +71,28 @@ export async function upsertUserCartItem(params: {
   }
 
   if (quantity <= 0) {
-    const { error } = await supabase
+    // Delete — try the order_type-aware predicate first, fall back to legacy.
+    let { error } = await supabase
       .from("user_cart_items")
       .delete()
       .eq("user_id", userId)
       .eq("restaurant_id", restaurantId)
       .eq("menu_item_id", menuItemId)
       .eq("order_type", orderType);
+    if (error && isOrderTypeMissing(error)) {
+      warnLegacyOnce();
+      ({ error } = await supabase
+        .from("user_cart_items")
+        .delete()
+        .eq("user_id", userId)
+        .eq("restaurant_id", restaurantId)
+        .eq("menu_item_id", menuItemId));
+    }
     if (error) throw error;
     return;
   }
 
-  const { error } = await supabase.from("user_cart_items").upsert(
+  let { error } = await supabase.from("user_cart_items").upsert(
     {
       user_id: userId,
       restaurant_id: restaurantId,
@@ -61,27 +102,50 @@ export async function upsertUserCartItem(params: {
     },
     {
       onConflict: "user_id,restaurant_id,menu_item_id,order_type",
-    }
+    },
   );
+  if (error && isOrderTypeMissing(error)) {
+    warnLegacyOnce();
+    ({ error } = await supabase.from("user_cart_items").upsert(
+      {
+        user_id: userId,
+        restaurant_id: restaurantId,
+        menu_item_id: menuItemId,
+        quantity,
+      },
+      {
+        onConflict: "user_id,restaurant_id,menu_item_id",
+      },
+    ));
+  }
   if (error) throw error;
 }
 
 export async function fetchUserCartList(userId: string): Promise<UserCartListItem[]> {
   if (!userId) return [];
 
-  const { data: cartRows, error: cartError } = await supabase
+  let cartResp = await supabase
     .from("user_cart_items")
     .select("id, restaurant_id, menu_item_id, quantity, order_type")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
-  if (cartError) throw cartError;
+  if (cartResp.error && isOrderTypeMissing(cartResp.error)) {
+    warnLegacyOnce();
+    cartResp = await supabase
+      .from("user_cart_items")
+      .select("id, restaurant_id, menu_item_id, quantity")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false });
+  }
+  if (cartResp.error) throw cartResp.error;
+  const cartRows = cartResp.data;
 
   const rows = (cartRows ?? []) as Array<{
     id: number;
     restaurant_id: number;
     menu_item_id: number;
     quantity: number;
-    order_type: string | null;
+    order_type?: string | null;
   }>;
   if (rows.length === 0) return [];
 
@@ -160,30 +224,47 @@ export async function clearUserCartForRestaurant(
   orderType?: UserCartOrderType,
 ): Promise<void> {
   if (!userId || !Number.isFinite(restaurantId)) return;
-  let q = supabase
-    .from("user_cart_items")
-    .delete()
-    .eq("user_id", userId)
-    .eq("restaurant_id", restaurantId);
-  if (orderType) q = q.eq("order_type", orderType);
-  const { error } = await q;
-  if (error) throw error;
+  const runDelete = async (scopeByOrderType: boolean) => {
+    let q = supabase
+      .from("user_cart_items")
+      .delete()
+      .eq("user_id", userId)
+      .eq("restaurant_id", restaurantId);
+    if (scopeByOrderType && orderType) q = q.eq("order_type", orderType);
+    const { error } = await q;
+    return error;
+  };
+
+  let err = await runDelete(true);
+  if (err && isOrderTypeMissing(err)) {
+    warnLegacyOnce();
+    err = await runDelete(false);
+  }
+  if (err) throw err;
 }
 
 export async function fetchRestaurantCartRows(userId: string, restaurantId: number) {
   if (!userId || !Number.isFinite(restaurantId)) return [];
-  const { data, error } = await supabase
+  let resp = await supabase
     .from("user_cart_items")
     .select("id, restaurant_id, menu_item_id, quantity, order_type")
     .eq("user_id", userId)
     .eq("restaurant_id", restaurantId);
-  if (error) throw error;
-  return (data ?? []) as Array<{
+  if (resp.error && isOrderTypeMissing(resp.error)) {
+    warnLegacyOnce();
+    resp = await supabase
+      .from("user_cart_items")
+      .select("id, restaurant_id, menu_item_id, quantity")
+      .eq("user_id", userId)
+      .eq("restaurant_id", restaurantId);
+  }
+  if (resp.error) throw resp.error;
+  return (resp.data ?? []) as Array<{
     id: number;
     restaurant_id: number;
     menu_item_id: number;
     quantity: number;
-    order_type: string | null;
+    order_type?: string | null;
   }>;
 }
 

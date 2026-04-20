@@ -467,8 +467,9 @@ export default function AdminOrdersScreen() {
             fetchOrders();
 
             // Real-time subscription
+            const topicSuffix = Math.random().toString(36).slice(2, 8);
             const ch = supabase
-                .channel("admin-orders")
+                .channel(`admin-orders:${topicSuffix}`)
                 .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, fetchOrders)
                 .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, fetchOrders)
                 .subscribe();

@@ -184,16 +184,36 @@ export default function CartScreen() {
   );
 
   const openRestaurant = useCallback(
-    (restaurantId: number, orderType?: UserCartOrderType) => {
-      router.push({
-        pathname: "/restaurant/[id]",
-        params: orderType
-          ? { id: String(restaurantId), cartType: orderType }
-          : { id: String(restaurantId) },
-      } as any);
+    (restaurantId: number, orderType?: UserCartOrderType, autoCheckout?: boolean) => {
+      const params: Record<string, string> = { id: String(restaurantId) };
+      if (orderType) params.cartType = orderType;
+      if (autoCheckout) params.autoCheckout = "1";
+      router.push({ pathname: "/restaurant/[id]", params } as any);
     },
     [router]
   );
+
+  /**
+   * Anchored Checkout CTA behaviour:
+   * - 1 restaurant group: deep-link straight into that restaurant page with
+   *   `autoCheckout=1` so the CheckoutModal opens as soon as the cart seed is
+   *   loaded.
+   * - 2+ groups: we can't disambiguate the target, so nudge the user to pick
+   *   a specific restaurant card (which also supports autoCheckout).
+   */
+  const handleCheckoutPress = useCallback(() => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (grouped.length === 0) return;
+    if (grouped.length === 1) {
+      const g = grouped[0];
+      openRestaurant(g.restaurantId, g.orderType, true);
+      return;
+    }
+    Alert.alert(
+      "Pick a restaurant",
+      "You have items from multiple restaurants — tap one to check out.",
+    );
+  }, [grouped, openRestaurant]);
 
   return (
     <View className="flex-1 bg-rasvia-black">
@@ -309,8 +329,7 @@ export default function CartScreen() {
                     overflow: "hidden",
                   }}
                 >
-                  <Pressable
-                    onPress={() => openRestaurant(group.restaurantId, group.orderType)}
+                  <View
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
@@ -371,10 +390,41 @@ export default function CartScreen() {
                         </Text>
                       </View>
                     </View>
-                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#9a9a9a", fontSize: 12 }}>
-                      View
-                    </Text>
-                  </Pressable>
+                    {/* Inline per-group actions — lets the user go straight
+                        to checkout for this specific restaurant+dining-type,
+                        or just open the restaurant page to browse. */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Pressable
+                        onPress={() => openRestaurant(group.restaurantId, group.orderType, true)}
+                        hitSlop={6}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 999,
+                          backgroundColor: "#FF9933",
+                        }}
+                      >
+                        <Text style={{ fontFamily: "Manrope_800ExtraBold", color: "#0f0f0f", fontSize: 11, letterSpacing: 0.3 }}>
+                          Checkout
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => openRestaurant(group.restaurantId, group.orderType)}
+                        hitSlop={6}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: "#2a2a2a",
+                        }}
+                      >
+                        <Text style={{ fontFamily: "Manrope_700Bold", color: "#9a9a9a", fontSize: 11 }}>
+                          View
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
 
                   <View style={{ padding: 10, gap: 8 }}>
                     {group.items.map((row) => {
@@ -526,16 +576,52 @@ export default function CartScreen() {
                 borderTopWidth: 1,
                 borderTopColor: "#2a2a2a",
                 backgroundColor: "#0f0f0f",
-                paddingTop: 20, // shift footer content down by ~10px
+                paddingTop: 16,
                 paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 10,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 14,
               }}
             >
-              <Text style={{ color: "#9a9a9a", fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
-                Grand Total
-              </Text>
-              <Text style={{ color: "#FF9933", fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 26 }}>
-                ${grandTotal.toFixed(2)}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#9a9a9a", fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
+                  Grand Total
+                </Text>
+                <Text style={{ color: "#FF9933", fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 26 }}>
+                  ${grandTotal.toFixed(2)}
+                </Text>
+              </View>
+              <Pressable
+                onPress={handleCheckoutPress}
+                accessibilityLabel="Checkout"
+                style={({ pressed }) => ({
+                  backgroundColor: pressed ? "#e88829" : "#FF9933",
+                  borderRadius: 14,
+                  paddingHorizontal: 22,
+                  paddingVertical: 14,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  shadowColor: "#FF9933",
+                  shadowOpacity: 0.25,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowRadius: 12,
+                  elevation: 4,
+                })}
+              >
+                <ShoppingCart size={16} color="#0f0f0f" />
+                <Text
+                  style={{
+                    color: "#0f0f0f",
+                    fontFamily: "Manrope_800ExtraBold",
+                    fontSize: 15,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  Checkout
+                </Text>
+              </Pressable>
             </View>
           </Animated.View>
         )}
