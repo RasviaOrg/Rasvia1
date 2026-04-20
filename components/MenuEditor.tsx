@@ -536,7 +536,14 @@ interface MenuEditorProps {
 export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId, onContributeImage, onMenuTagsChange }: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
-  const canOrder = !isRestaurantOwner && !isAdmin;
+  // The orange "+" quick-add should be available whenever the viewer isn't
+  // the one *editing* this specific menu. Previously we also hid it for
+  // restaurant-owner accounts browsing *other* restaurants (walk-in
+  // pre-order flow), which is why the buttons mysteriously disappeared
+  // after tapping "Browse menu" from a waitlist or zero-wait prompt on any
+  // staff/owner phone. Tie quick-add to `!canEdit` so owners still get to
+  // order from venues they don't manage.
+  const canOrder = !canEdit;
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");

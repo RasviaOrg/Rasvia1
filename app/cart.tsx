@@ -13,6 +13,7 @@ import {
   type UserCartOrderType,
   upsertUserCartItem,
 } from "@/lib/user-cart";
+import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 
 type RestaurantCartGroup = {
   /** Composite key — restaurantId + orderType. A user can legitimately have
@@ -94,6 +95,19 @@ export default function CartScreen() {
     () => grouped.reduce((sum, group) => sum + group.subtotal, 0),
     [grouped]
   );
+
+  // Pull the "currently closed" set once — used to disable checkout CTAs for
+  // restaurants that aren't taking orders right now. Re-evaluates every 60s.
+  const closedRestaurantIds = useClosedRestaurantIds();
+  const isGroupClosed = useCallback(
+    (restaurantId: number) => closedRestaurantIds.has(String(restaurantId)),
+    [closedRestaurantIds]
+  );
+  const openGroups = useMemo(
+    () => grouped.filter((g) => !isGroupClosed(g.restaurantId)),
+    [grouped, isGroupClosed]
+  );
+  const anyOpen = openGroups.length > 0;
 
   const updateQuantity = useCallback(
     async (row: UserCartListItem, nextQty: number) => {
@@ -204,16 +218,30 @@ export default function CartScreen() {
   const handleCheckoutPress = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (grouped.length === 0) return;
-    if (grouped.length === 1) {
-      const g = grouped[0];
+
+    // If every restaurant in the cart is closed right now, don't pretend we
+    // can route anywhere meaningful. Tell the user why and bail.
+    if (openGroups.length === 0) {
+      Alert.alert(
+        "Restaurants are closed",
+        "Every restaurant in your cart is currently closed. Check back during their open hours to place an order.",
+      );
+      return;
+    }
+
+    // Only one group is actually orderable → deep-link straight to it.
+    if (openGroups.length === 1) {
+      const g = openGroups[0];
       openRestaurant(g.restaurantId, g.orderType, true);
       return;
     }
+
+    // Multiple open restaurants — can't disambiguate without input.
     Alert.alert(
       "Pick a restaurant",
       "You have items from multiple restaurants — tap one to check out.",
     );
-  }, [grouped, openRestaurant]);
+  }, [grouped, openGroups, openRestaurant]);
 
   return (
     <View className="flex-1 bg-rasvia-black">
@@ -318,6 +346,7 @@ export default function CartScreen() {
                 const isTakeout = group.orderType === "takeout";
                 const PillIcon = isTakeout ? Truck : UtensilsCrossed;
                 const pillColor = isTakeout ? "#60A5FA" : "#FF9933";
+                const groupClosed = isGroupClosed(group.restaurantId);
                 return (
                 <View
                   key={group.groupKey}
@@ -392,20 +421,44 @@ export default function CartScreen() {
                     </View>
                     {/* Inline per-group actions — lets the user go straight
                         to checkout for this specific restaurant+dining-type,
-                        or just open the restaurant page to browse. */}
+                        or just open the restaurant page to browse. The
+                        Checkout chip goes grey and non-interactive when the
+                        restaurant is currently closed so the user can't dead-
+                        end on a confirmation modal they can't complete. */}
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <Pressable
-                        onPress={() => openRestaurant(group.restaurantId, group.orderType, true)}
+                        onPress={() => {
+                          if (groupClosed) {
+                            Alert.alert(
+                              "Closed right now",
+                              `${group.restaurantName} isn't taking orders at the moment. Come back during open hours to check out.`,
+                            );
+                            return;
+                          }
+                          openRestaurant(group.restaurantId, group.orderType, true);
+                        }}
                         hitSlop={6}
+                        disabled={groupClosed}
+                        accessibilityState={{ disabled: groupClosed }}
                         style={{
                           paddingHorizontal: 10,
                           paddingVertical: 6,
                           borderRadius: 999,
-                          backgroundColor: "#FF9933",
+                          backgroundColor: groupClosed ? "#2a2a2a" : "#FF9933",
+                          opacity: groupClosed ? 0.7 : 1,
+                          borderWidth: groupClosed ? 1 : 0,
+                          borderColor: groupClosed ? "#3a3a3a" : "transparent",
                         }}
                       >
-                        <Text style={{ fontFamily: "Manrope_800ExtraBold", color: "#0f0f0f", fontSize: 11, letterSpacing: 0.3 }}>
-                          Checkout
+                        <Text
+                          style={{
+                            fontFamily: "Manrope_800ExtraBold",
+                            color: groupClosed ? "#6b6b6b" : "#0f0f0f",
+                            fontSize: 11,
+                            letterSpacing: 0.3,
+                          }}
+                        >
+                          {groupClosed ? "Closed" : "Checkout"}
                         </Text>
                       </Pressable>
                       <Pressable
@@ -595,31 +648,40 @@ export default function CartScreen() {
               <Pressable
                 onPress={handleCheckoutPress}
                 accessibilityLabel="Checkout"
+                disabled={!anyOpen}
+                accessibilityState={{ disabled: !anyOpen }}
                 style={({ pressed }) => ({
-                  backgroundColor: pressed ? "#e88829" : "#FF9933",
+                  backgroundColor: !anyOpen
+                    ? "#2a2a2a"
+                    : pressed
+                    ? "#e88829"
+                    : "#FF9933",
+                  opacity: !anyOpen ? 0.85 : 1,
                   borderRadius: 14,
                   paddingHorizontal: 22,
                   paddingVertical: 14,
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 8,
-                  shadowColor: "#FF9933",
-                  shadowOpacity: 0.25,
+                  shadowColor: !anyOpen ? "transparent" : "#FF9933",
+                  shadowOpacity: !anyOpen ? 0 : 0.25,
                   shadowOffset: { width: 0, height: 4 },
                   shadowRadius: 12,
-                  elevation: 4,
+                  elevation: !anyOpen ? 0 : 4,
+                  borderWidth: !anyOpen ? 1 : 0,
+                  borderColor: !anyOpen ? "#3a3a3a" : "transparent",
                 })}
               >
-                <ShoppingCart size={16} color="#0f0f0f" />
+                <ShoppingCart size={16} color={!anyOpen ? "#6b6b6b" : "#0f0f0f"} />
                 <Text
                   style={{
-                    color: "#0f0f0f",
+                    color: !anyOpen ? "#6b6b6b" : "#0f0f0f",
                     fontFamily: "Manrope_800ExtraBold",
                     fontSize: 15,
                     letterSpacing: 0.3,
                   }}
                 >
-                  Checkout
+                  {!anyOpen ? "Closed" : "Checkout"}
                 </Text>
               </Pressable>
             </View>

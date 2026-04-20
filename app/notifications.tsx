@@ -1040,14 +1040,20 @@ export default function NotificationsScreen() {
                 </View>
               )}
 
-              {/* ====== Notification History ====== */}
+              {/* ====== Notification History ======
+                  Previously wrapped every alert inside a single rounded
+                  container with `overflow: hidden`, which visually "chopped"
+                  rows — icons and content got clipped against the outer
+                  radius and the dividers looked crammed. Each row now gets
+                  its own self-contained card with breathing room, so icons
+                  and text render cleanly on all sides. */}
               {events.length > 0 && (
                 <View>
                   <View
                     style={{
                       paddingHorizontal: 16,
-                      paddingBottom: 12,
-                      paddingTop: activeEntries.length > 0 ? 4 : 4,
+                      paddingBottom: 10,
+                      paddingTop: 4,
                     }}
                   >
                     <Text
@@ -1064,33 +1070,35 @@ export default function NotificationsScreen() {
                   </View>
                   <View
                     style={{
-                      backgroundColor: "#1a1a1a",
-                      marginHorizontal: 16,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: "#2a2a2a",
-                      overflow: "hidden",
-                      paddingVertical: 2,
+                      paddingHorizontal: 16,
+                      gap: 10,
                     }}
                   >
-                    {events.map((event, idx) => {
-                      // History rows are intentionally non-interactive — tapping
-                      // an old alert used to route back to stale waitlist/order
-                      // screens which caused confusion. Swipe-to-dismiss still
-                      // works via `onDismiss`.
-                      return (
+                    {events.map((event) => (
+                      // History rows are intentionally non-interactive —
+                      // tapping an old alert used to route back to stale
+                      // waitlist/order screens. Swipe-to-dismiss still works.
+                      <View
+                        key={event.id}
+                        style={{
+                          backgroundColor: "#141414",
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: "#2a2a2a",
+                          overflow: "hidden",
+                        }}
+                      >
                         <NotificationRow
-                          key={event.id}
                           event={event}
-                          isLast={idx === events.length - 1}
+                          isLast
                           onPress={undefined}
                           onDismiss={() => {
                             if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             removeEvent(event.id);
                           }}
                         />
-                      );
-                    })}
+                      </View>
+                    ))}
                   </View>
                 </View>
               )}

@@ -233,6 +233,10 @@ export default function RestaurantDetail() {
   const [customParty, setCustomParty] = useState("");
   const [joining, setJoining] = useState(false);
   const [partyLeaderName, setPartyLeaderName] = useState("");
+  // Replaces the native Alert.alert() when the user would be first in line and
+  // the restaurant has no wait — an in-app overlay matches the rest of the
+  // app's look and lets us keep the party-picker state machine coherent.
+  const [showZeroWaitSheet, setShowZeroWaitSheet] = useState(false);
   /** User may only have one waiting entry — track it globally so other restaurants can grey out Order. */
   const [globalWaitlistEntry, setGlobalWaitlistEntry] = useState<{
     id: string;
@@ -1006,29 +1010,12 @@ export default function RestaurantDetail() {
       if (wouldBeFirstInLine && currentWaitTime <= 0) {
         setShowPartySizePicker(false);
         setJoining(false);
-        // Short-circuit any further action — the user picks from the sheet.
+        // Swap the native Alert for an in-app overlay. We defer the flag flip
+        // a tick so the party-size sheet has time to close, otherwise the two
+        // modals would animate simultaneously on iOS.
         setTimeout(() => {
-          Alert.alert(
-            "No wait right now — walk right in!",
-            "Would you like to browse the menu and pre-order before you get there, or just head over?",
-            [
-              {
-                text: "Browse menu & pre-order",
-                onPress: () => {
-                  router.replace(
-                    `/restaurant/${restaurant?.id}?mode=walk_in_preorder` as any,
-                  );
-                },
-              },
-              {
-                text: "Walk right in",
-                style: "cancel",
-                // Intentional no-op — the user just dismisses.
-              },
-            ],
-            { cancelable: true },
-          );
-        }, 0);
+          setShowZeroWaitSheet(true);
+        }, 150);
         return;
       }
 
@@ -2893,6 +2880,149 @@ export default function RestaurantDetail() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* In-app "No wait right now" sheet. Replaces the native Alert — fits
+          the app's dark theme, uses the same bottom-sheet visual language as
+          the party-size picker, and lets us tie the "browse menu" tap into
+          walk-in preorder mode without a second native dialog. */}
+      <Modal
+        visible={showZeroWaitSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowZeroWaitSheet(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.65)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => setShowZeroWaitSheet(false)}
+            accessibilityLabel="Dismiss"
+          />
+          <View
+            style={{
+              backgroundColor: "#141414",
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              padding: 24,
+              paddingBottom: Platform.OS === "ios" ? 40 : 24,
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+              gap: 14,
+            }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: "#333",
+                alignSelf: "center",
+                marginBottom: 4,
+              }}
+            />
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 2,
+              }}
+            >
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: "rgba(34,197,94,0.15)",
+                  borderWidth: 1,
+                  borderColor: "rgba(34,197,94,0.45)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ fontSize: 18 }}>🚶</Text>
+              </View>
+              <Text
+                style={{
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  color: "#f5f5f5",
+                  fontSize: 20,
+                  flex: 1,
+                }}
+              >
+                No wait right now
+              </Text>
+            </View>
+            <Text
+              style={{
+                fontFamily: "Manrope_500Medium",
+                color: "#b5b5b5",
+                fontSize: 14,
+                lineHeight: 20,
+              }}
+            >
+              You can walk right in. Want to browse the menu and pre-order
+              before you get there, or just head over?
+            </Text>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setShowZeroWaitSheet(false);
+                router.replace(
+                  `/restaurant/${restaurant?.id}?mode=walk_in_preorder` as any,
+                );
+              }}
+              style={({ pressed }) => ({
+                backgroundColor: pressed ? "#e88829" : "#FF9933",
+                borderRadius: 14,
+                paddingVertical: 14,
+                alignItems: "center",
+                marginTop: 6,
+              })}
+            >
+              <Text
+                style={{
+                  fontFamily: "Manrope_800ExtraBold",
+                  color: "#0f0f0f",
+                  fontSize: 15,
+                  letterSpacing: 0.3,
+                }}
+              >
+                Browse menu & pre-order
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.selectionAsync();
+                setShowZeroWaitSheet(false);
+              }}
+              style={{
+                borderRadius: 14,
+                paddingVertical: 14,
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+                backgroundColor: "#1a1a1a",
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: "Manrope_700Bold",
+                  color: "#e5e5e5",
+                  fontSize: 15,
+                }}
+              >
+                Walk right in
+              </Text>
+            </Pressable>
+          </View>
+        </View>
       </Modal>
 
       {showEditModal && restaurant && (

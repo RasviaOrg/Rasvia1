@@ -37,6 +37,33 @@ const TERMINAL_STATUSES = new Set([
 /** Statuses that a user is still allowed to self-cancel (cash path). */
 const SELF_CANCEL_STATUSES = new Set(["pending", "pending_payment"]);
 
+/**
+ * Detect the specific PostgREST error we get when `orders.cancelled_at` is
+ * missing from the connected Supabase project. The very first deploys of the
+ * orders system didn't ship that column; we added it in
+ * `20260419210000_orders_cancelled_at.sql`. Before that migration has been
+ * applied, the client needs to gracefully retry the UPDATE without it so the
+ * user can still cancel their order.
+ */
+function isCancelledAtMissing(err: any): boolean {
+  if (!err) return false;
+  const code = err?.code ?? err?.details?.code;
+  const message = typeof err?.message === "string" ? err.message : "";
+  return code === "42703" && /cancelled_at/i.test(message);
+}
+
+let legacyCancelledAtWarned = false;
+function warnLegacyCancelledAtOnce() {
+  if (legacyCancelledAtWarned) return;
+  legacyCancelledAtWarned = true;
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[order-cancel] `cancelled_at` column not found on public.orders — " +
+      "falling back to status-only update. Apply migration 20260419210000 " +
+      "and run `NOTIFY pgrst, 'reload schema';` to silence this warning.",
+  );
+}
+
 export async function cancelOrder(orderId: string): Promise<CancelResult> {
   if (!orderId) return { ok: false, reason: "not_found" };
 
@@ -68,12 +95,43 @@ export async function cancelOrder(orderId: string): Promise<CancelResult> {
       return { ok: false, reason: "paid_card" };
     }
 
-    const { error: updErr } = await supabase
+    const nowIso = new Date().toISOString();
+    let { error: updErr, data: updData } = await supabase
       .from("orders")
-      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-      .eq("id", orderId);
+      .update({ status: "cancelled", cancelled_at: nowIso })
+      .eq("id", orderId)
+      .select("id")
+      .maybeSingle();
 
-    if (updErr) return { ok: false, reason: "network", message: updErr.message };
+    // Legacy schema: the `cancelled_at` column hasn't been added yet. Retry
+    // with just the status so the user actually gets their order cancelled.
+    if (updErr && isCancelledAtMissing(updErr)) {
+      warnLegacyCancelledAtOnce();
+      const retry = await supabase
+        .from("orders")
+        .update({ status: "cancelled" })
+        .eq("id", orderId)
+        .select("id")
+        .maybeSingle();
+      updErr = retry.error;
+      updData = retry.data as any;
+    }
+
+    if (updErr) {
+      return { ok: false, reason: "network", message: updErr.message };
+    }
+
+    // Defensive: if RLS silently filtered the update out, `updData` will be
+    // null. Treat that as an authorization failure so the user at least sees a
+    // useful message instead of thinking everything went through.
+    if (!updData) {
+      return {
+        ok: false,
+        reason: "unauthorized",
+        message: "Supabase RLS blocked the cancel update. Check orders policy.",
+      };
+    }
+
     return { ok: true };
   } catch (err: any) {
     return { ok: false, reason: "network", message: err?.message };

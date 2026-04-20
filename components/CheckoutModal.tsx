@@ -72,7 +72,14 @@ const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
  * gets to interact with it. Wait briefly so the wallet sheet has time to
  * render its own UI before we yank the surrounding browser.
  */
-const WALLET_INTERACTION_GRACE_MS = 900;
+// How long to wait after Stripe's auth session closes before we tear down
+// the checkout modal and push the order-confirmation screen. Apple Pay /
+// Google Pay frequently present a *second* "Save this card?" sheet *after*
+// the auth session returns, and at 900ms the user couldn't even read it
+// before our confirmation screen slammed into place. 2600ms is long enough
+// for the save-card sheet to animate in AND give the user a moment to tap
+// Save / Not Now, but short enough that nobody's actively waiting.
+const WALLET_INTERACTION_GRACE_MS = 2600;
 
 const S = {
     card: {
@@ -424,12 +431,16 @@ export function CheckoutModal({
                             onClose();
                             reset();
                             onOrderPlaced(params.order_id, orderType);
+                            // Tiny extra breath after the modal dismiss so
+                            // the order-confirmation push animates over an
+                            // already-settled view instead of racing Apple's
+                            // own fade-outs.
                             setTimeout(() => {
                                 router.push({
                                     pathname: '/order-confirmation' as any,
                                     params,
                                 });
-                            }, 150);
+                            }, 320);
                         }, WALLET_INTERACTION_GRACE_MS);
                         return;
                     } else if (rawUrl.includes('checkout/cancel')) {

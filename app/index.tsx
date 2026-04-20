@@ -342,6 +342,20 @@ export default function DiscoveryFeed() {
     liveOrderTrackRef.current = liveOrderTrack;
   }, [liveOrderTrack]);
 
+  // Stable JS-side callback invoked (via `runOnJS`) when the live-order banner
+  // finishes its 620ms fade-out. Previously this was an *inline* arrow
+  // function declared inside the `withTiming` worklet, which Reanimated can't
+  // safely serialize — on Hermes this frequently crashed the app the moment
+  // the kitchen flipped the order to "served" / "completed" and the banner
+  // tried to disappear. Defining it at render scope and passing the stable
+  // reference into `runOnJS` is the supported pattern.
+  const finishLiveOrderFadeOut = useCallback(() => {
+    setLiveOrderTrack(null);
+    bannerOpacity.value = 1;
+    liveOrderFadeOutRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     dismissedLiveOrderIdsRef.current = dismissedLiveOrderIds;
   }, [dismissedLiveOrderIds]);
@@ -818,6 +832,39 @@ export default function DiscoveryFeed() {
         return;
       }
 
+      // Guest fallback — if the logged-in user is a member of any active
+      // session (joined via an invite link from the app), surface the same
+      // banner so they can jump back in without re-scanning the link. This
+      // was previously host-only, which is why guests had no home-screen
+      // handle on sessions they'd joined from another device/tab.
+      const { data: guestMemberships } = await supabase
+        .from('party_members')
+        .select(
+          'session_id, party_sessions!inner(id, status, restaurant_id, restaurants(name, image_url))',
+        )
+        .eq('user_id', currentUserId)
+        .is('left_at', null)
+        .in('party_sessions.status', ['open', 'locked', 'paying'])
+        .order('joined_at', { ascending: false })
+        .limit(1);
+
+      if (guestMemberships && guestMemberships.length > 0) {
+        const row: any = guestMemberships[0];
+        const sess = row.party_sessions;
+        if (sess?.id) {
+          const order: ActiveGroupOrder = {
+            sessionId: sess.id,
+            restaurantName: sess.restaurants?.name ?? 'Restaurant',
+            restaurantImage: sess.restaurants?.image_url ?? null,
+            isHost: false,
+            joinedAt: new Date().toISOString(),
+          };
+          await SecureStore.setItemAsync(activeOrderKey, JSON.stringify(order));
+          setActiveGroupOrder(order);
+          return;
+        }
+      }
+
       setActiveGroupOrder(null);
     } catch {
       setActiveGroupOrder(null);
@@ -854,12 +901,9 @@ export default function DiscoveryFeed() {
         if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
           liveOrderFadeOutRef.current = true;
           bannerOpacity.value = withTiming(0, { duration: 620 }, (finished) => {
+            "worklet";
             if (finished) {
-              runOnJS(() => {
-                setLiveOrderTrack(null);
-                bannerOpacity.value = 1;
-                liveOrderFadeOutRef.current = false;
-              })();
+              runOnJS(finishLiveOrderFadeOut)();
             }
           });
         } else if (!liveOrderFadeOutRef.current) {
@@ -883,12 +927,9 @@ export default function DiscoveryFeed() {
       if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
         liveOrderFadeOutRef.current = true;
         bannerOpacity.value = withTiming(0, { duration: 620 }, (finished) => {
+          "worklet";
           if (finished) {
-            runOnJS(() => {
-              setLiveOrderTrack(null);
-              bannerOpacity.value = 1;
-              liveOrderFadeOutRef.current = false;
-            })();
+            runOnJS(finishLiveOrderFadeOut)();
           }
         });
       } else if (!liveOrderFadeOutRef.current) {
@@ -897,7 +938,7 @@ export default function DiscoveryFeed() {
         setLiveOrderTrack(null);
       }
     }
-  }, [currentUserId]);
+  }, [currentUserId, finishLiveOrderFadeOut]);
 
   const fetchLiveWaitlist = useCallback(async () => {
     if (!currentUserId) {
@@ -1048,18 +1089,51 @@ export default function DiscoveryFeed() {
   // up or disappears in real time.
   const refreshActiveGroupOrders = useCallback(async () => {
     const ids = await loadActiveParties();
-    if (ids.length === 0) {
+    // Guest sessions joined on another device/tab won't be in this device's
+    // local index. Backfill from party_members so the banner shows up the
+    // moment the user logs in anywhere. We intentionally only *read* creds
+    // from disk below — if the creds aren't on this device we can't render
+    // the snapshot, so those rows are skipped silently.
+    let enriched = ids.slice();
+    if (currentUserId) {
+      try {
+        const { data: guestMemberships } = await supabase
+          .from("party_members")
+          .select(
+            "session_id, party_sessions!inner(id, status)",
+          )
+          .eq("user_id", currentUserId)
+          .is("left_at", null)
+          .in("party_sessions.status", ["open", "locked", "paying"]);
+        if (Array.isArray(guestMemberships)) {
+          const seen = new Set(enriched);
+          for (const row of guestMemberships as any[]) {
+            const sid = String(row?.session_id ?? "");
+            if (sid && !seen.has(sid)) {
+              enriched.push(sid);
+              seen.add(sid);
+            }
+          }
+        }
+      } catch {
+        // Non-fatal — we still have whatever was in the local index.
+      }
+    }
+    if (enriched.length === 0) {
       setActiveGroupOrders([]);
       return;
     }
+    const ids2 = enriched;
     const rows = await Promise.all(
-      ids.map(async (sid) => {
+      ids2.map(async (sid) => {
         try {
           const creds = await loadPartyCreds(sid);
           if (!creds) {
-            // Stale entry — no credentials on disk, so we can't view the
-            // session. Evict from the index and move on.
-            await removeActiveParty(sid);
+            // No credentials on this device — either a stale local-index
+            // entry, or a backfilled membership joined elsewhere. Either
+            // way we can't render the snapshot; just skip (and only evict
+            // from the local index if it actually was there).
+            if (ids.includes(sid)) await removeActiveParty(sid);
             return null;
           }
           const snap = await fetchSnapshot(supabase, creds);
@@ -1096,7 +1170,7 @@ export default function DiscoveryFeed() {
       }),
     );
     setActiveGroupOrders(rows.filter((r): r is NonNullable<typeof r> => r !== null));
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
     void refreshActiveGroupOrders();
@@ -2137,38 +2211,46 @@ export default function DiscoveryFeed() {
                       })}
                     </View>
                   </View>
-                  <View style={{ marginTop: -15, justifyContent: "center", alignItems: "flex-end", gap: 8 }}>
+                  <View style={{ justifyContent: "center", alignItems: "flex-end" }}>
                     <ChevronRight
                       size={20}
                       color={
                         LIVE_ORDER_ACCENT_SOLID[liveStepIndex(liveOrderTrack.status)] ?? LIVE_ORDER_ACCENT_SOLID[0]
                       }
                     />
-                    {/* Cancel chip — only meaningful for not-yet-prepared orders.
-                        For paid-card orders the helper surfaces a "Contact the
-                        restaurant" prompt instead of flipping the row itself. */}
-                    {(liveOrderTrack.status === "pending" || liveOrderTrack.status === "pending_payment") && (
-                      <Pressable
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          void handleCancelLiveOrder(liveOrderTrack.id, liveOrderTrack.restaurantName);
-                        }}
-                        hitSlop={8}
-                        style={{
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 10,
-                          borderWidth: 1,
-                          borderColor: "rgba(239,68,68,0.35)",
-                          backgroundColor: "rgba(239,68,68,0.10)",
-                        }}
-                      >
-                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FCA5A5", fontSize: 10, letterSpacing: 0.4 }}>
-                          CANCEL
-                        </Text>
-                      </Pressable>
-                    )}
                   </View>
+                  {/* Cancel button — top-right icon, only meaningful for
+                      not-yet-prepared orders. Paid-card orders go through the
+                      "Contact the restaurant" prompt instead. */}
+                  {(liveOrderTrack.status === "pending" ||
+                    liveOrderTrack.status === "pending_payment") && (
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void handleCancelLiveOrder(
+                          liveOrderTrack.id,
+                          liveOrderTrack.restaurantName
+                        );
+                      }}
+                      hitSlop={10}
+                      style={{
+                        position: "absolute",
+                        top: 8,
+                        right: 10,
+                        width: 26,
+                        height: 26,
+                        borderRadius: 13,
+                        borderWidth: 1,
+                        borderColor: "rgba(239,68,68,0.45)",
+                        backgroundColor: "rgba(239,68,68,0.15)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      accessibilityLabel="Cancel order"
+                    >
+                      <X size={14} color="#FCA5A5" strokeWidth={2.5} />
+                    </Pressable>
+                  )}
                   </Animated.View>
                   )}
                 </Pressable>
