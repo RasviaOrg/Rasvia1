@@ -77,6 +77,9 @@ export default function WaitlistStatus() {
   } | null>(null);
   /** True while we’re applying self-initiated leave — suppresses “removed” modal on cancelled */
   const userLeftVoluntarilyRef = useRef(false);
+  /** True for the brief window between tapping Leave and the realtime UPDATE
+   *  echo — prevents duplicate "left" haptics/banners from firing. */
+  const leavingRef = useRef(false);
 
   const restaurantIdNum = id ? Number(id) : NaN;
 
@@ -102,7 +105,7 @@ export default function WaitlistStatus() {
           .from("restaurants")
           .select("*")
           .eq("id", Number(id))
-          .maybeSingle();
+          .single();
 
         if (restError) {
           console.error("❌ Error fetching restaurant:", restError);
@@ -234,7 +237,7 @@ export default function WaitlistStatus() {
         .from("profiles")
         .select("full_name")
         .eq("id", session.user.id)
-        .maybeSingle();
+        .single();
       if (data?.full_name) setPartyOwnerName(data.full_name);
     } catch {
       // silently ignore
@@ -247,7 +250,7 @@ export default function WaitlistStatus() {
         .from("waitlist_entries")
         .select("notified_at, status")
         .eq("id", entryId)
-        .maybeSingle();
+        .single();
       if (data) {
         myEntryStateRef.current = {
           status: data.status ?? "waiting",
@@ -309,7 +312,7 @@ export default function WaitlistStatus() {
         .from("waitlist_entries")
         .select("created_at")
         .eq("id", entryId)
-        .maybeSingle();
+        .single();
 
       if (!myEntry) return;
 
@@ -348,10 +351,41 @@ export default function WaitlistStatus() {
   }, [userCoords]);
 
 
-  const handleLeaveQueue = useCallback(() => {
+  const handleLeaveQueue = useCallback(async () => {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
+
+    // Block leaving if there's an active/in-flight order tied to this entry —
+    // otherwise the kitchen keeps making food for a table that no longer
+    // exists. The user has to cancel the order first.
+    if (entry_id) {
+      try {
+        const { data: activeOrders } = await supabase
+          .from("orders")
+          .select("id, status")
+          .eq("waitlist_entry_id", entry_id)
+          .in("status", ["pending", "pending_payment", "preparing", "ready", "served"]);
+        if (activeOrders && activeOrders.length > 0) {
+          Alert.alert(
+            "Cancel your active order first",
+            "You have an active order linked to this waitlist entry. Please cancel it (or let the restaurant know) before leaving the queue.",
+            [
+              { text: "OK", style: "cancel" },
+              {
+                text: "Go to order",
+                onPress: () => router.push("/my-orders" as any),
+              },
+            ],
+          );
+          return;
+        }
+      } catch {
+        // If we can't check (offline / RLS), fall through and let the user
+        // leave — worst case the server-side cleanup still runs.
+      }
+    }
+
     Alert.alert(
       "Leave Queue",
       "Are you sure you want to leave the waitlist?",
@@ -363,6 +397,10 @@ export default function WaitlistStatus() {
           onPress: async () => {
             if (entry_id) {
               userLeftVoluntarilyRef.current = true;
+              // Mark that we're already handling the leave locally so the
+              // realtime UPDATE handler doesn't re-fire "left" haptics /
+              // banners when the DB echoes the cancellation back to us.
+              leavingRef.current = true;
               await supabase
                 .from("waitlist_entries")
                 .update({ status: "cancelled" })
@@ -430,7 +468,7 @@ export default function WaitlistStatus() {
           .eq('host_user_id', userId)
           .eq('restaurant_id', Number(id))
           .eq('status', 'open')
-          .maybeSingle();
+          .single();
 
         if (sameRest) {
           // Reuse existing session for this restaurant

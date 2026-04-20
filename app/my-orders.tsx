@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Animated as RNAnimated,
+  Alert,
+  Linking,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -51,6 +53,7 @@ import {
   type UIOrder,
 } from "@/lib/restaurant-types";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { cancelOrder, cancelErrorMessage } from "@/lib/order-cancel";
 
 const DISMISSED_ORDERS_KEY = "rasvia_my-orders-dismissed_v1";
 
@@ -464,14 +467,83 @@ function getStatusMessage(
 function ActiveOrderCard({
   order,
   index,
+  onCancelled,
 }: {
   order: UIOrder;
   index: number;
+  /** Called after a successful self-cancel so the parent can refresh the
+   *  order list — optional so existing call sites don't have to change. */
+  onCancelled?: () => void;
 }) {
   const router = useRouter();
+  const [cancelling, setCancelling] = useState(false);
   const statusMsg = getStatusMessage(order.status, order.orderType);
   const isLive = order.status !== "completed" && order.status !== "cancelled";
   const statusColor = getStatusColor(order.status);
+
+  // Only allow self-cancel from this screen while the order hasn't been
+  // picked up by the kitchen yet. Paid-card orders are handled by the helper
+  // and surface a "Contact the restaurant" prompt.
+  const canSelfCancel = order.status === "pending" || order.status === "pending_payment";
+
+  const handleCancelPress = useCallback(async () => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Alert.alert(
+        "Cancel order?",
+        `This will cancel your order at ${order.restaurantName}. You can't undo this.`,
+        [
+          { text: "Keep order", style: "cancel", onPress: () => resolve(false) },
+          { text: "Cancel order", style: "destructive", onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      );
+    });
+    if (!confirmed) return;
+    setCancelling(true);
+    try {
+      const result = await cancelOrder(order.id);
+      if (result.ok) {
+        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onCancelled?.();
+        return;
+      }
+      if (result.reason === "paid_card") {
+        // Look up phone for this restaurant so we can offer a tap-to-call.
+        let phone: string | null = null;
+        try {
+          const { data } = await supabase
+            .from("restaurants")
+            .select("phone")
+            .eq("id", Number(order.restaurantId))
+            .maybeSingle();
+          const p = (data as any)?.phone;
+          phone = typeof p === "string" && p.length > 0 ? p : null;
+        } catch {
+          phone = null;
+        }
+        const { title, message } = cancelErrorMessage(result.reason, order.restaurantName);
+        Alert.alert(
+          title,
+          message,
+          phone
+            ? [
+                { text: "Not now", style: "cancel" },
+                {
+                  text: `Call ${order.restaurantName}`,
+                  onPress: () => Linking.openURL(`tel:${phone!.replace(/[^0-9+]/g, "")}`),
+                },
+              ]
+            : [{ text: "OK", style: "cancel" }],
+        );
+        return;
+      }
+      const { title, message } = cancelErrorMessage(result.reason, order.restaurantName);
+      Alert.alert(title, message);
+    } finally {
+      setCancelling(false);
+    }
+  }, [order.id, order.restaurantId, order.restaurantName, onCancelled]);
 
   const TypeIcon =
     order.orderType === "takeout"
@@ -647,6 +719,55 @@ function ActiveOrderCard({
         >
           {order.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}
         </Text>
+
+        {/* Cancel CTA — only for still-pending orders. Paid-card orders that
+            are already being prepared fall through the helper's `paid_card`
+            path which prompts the user to call the restaurant. */}
+        {isLive && canSelfCancel && (
+          <Pressable
+            onPress={handleCancelPress}
+            disabled={cancelling}
+            style={{
+              marginTop: 14,
+              alignSelf: "flex-start",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "rgba(239,68,68,0.3)",
+              backgroundColor: "rgba(239,68,68,0.08)",
+              opacity: cancelling ? 0.6 : 1,
+            }}
+          >
+            {cancelling ? (
+              <ActivityIndicator size="small" color="#FCA5A5" />
+            ) : (
+              <XCircle size={14} color="#FCA5A5" />
+            )}
+            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FCA5A5", fontSize: 12, letterSpacing: 0.3 }}>
+              Cancel order
+            </Text>
+          </Pressable>
+        )}
+
+        {/* For paid-card live orders that can't be self-cancelled, surface a
+            passive hint so the user knows why the button isn't here. */}
+        {isLive && !canSelfCancel && order.status !== "served" && (
+          <Text
+            style={{
+              fontFamily: "Manrope_500Medium",
+              color: "#666",
+              fontSize: 11,
+              marginTop: 10,
+              fontStyle: "italic",
+            }}
+          >
+            Need to cancel? Contact the restaurant directly.
+          </Text>
+        )}
       </View>
     </Animated.View>
   );
@@ -1151,7 +1272,11 @@ export default function MyOrdersScreen() {
                           order={order}
                           onDismiss={() => dismissOrder(order.id)}
                         >
-                          <ActiveOrderCard order={order} index={idx} />
+                          <ActiveOrderCard
+                            order={order}
+                            index={idx}
+                            onCancelled={fetchOrders}
+                          />
                         </SwipeableOrderRow>
                       </OrderRowWithExit>
                     ))}

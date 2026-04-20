@@ -1,11 +1,14 @@
 import { supabase } from "@/lib/supabase";
 
+export type UserCartOrderType = "dine_in" | "takeout";
+
 export type UserCartRow = {
   id: number;
   user_id: string;
   restaurant_id: number;
   menu_item_id: number;
   quantity: number;
+  order_type: UserCartOrderType;
 };
 
 export type UserCartListItem = {
@@ -19,6 +22,7 @@ export type UserCartListItem = {
   unitPrice: number;
   quantity: number;
   subtotal: number;
+  orderType: UserCartOrderType;
 };
 
 export async function upsertUserCartItem(params: {
@@ -26,8 +30,10 @@ export async function upsertUserCartItem(params: {
   restaurantId: number;
   menuItemId: number;
   quantity: number;
+  orderType?: UserCartOrderType;
 }) {
   const { userId, restaurantId, menuItemId, quantity } = params;
+  const orderType: UserCartOrderType = params.orderType ?? "dine_in";
   if (!userId) throw new Error("Missing user id");
   if (!Number.isFinite(restaurantId) || !Number.isFinite(menuItemId)) {
     throw new Error("Invalid cart item reference");
@@ -39,7 +45,8 @@ export async function upsertUserCartItem(params: {
       .delete()
       .eq("user_id", userId)
       .eq("restaurant_id", restaurantId)
-      .eq("menu_item_id", menuItemId);
+      .eq("menu_item_id", menuItemId)
+      .eq("order_type", orderType);
     if (error) throw error;
     return;
   }
@@ -50,9 +57,10 @@ export async function upsertUserCartItem(params: {
       restaurant_id: restaurantId,
       menu_item_id: menuItemId,
       quantity,
+      order_type: orderType,
     },
     {
-      onConflict: "user_id,restaurant_id,menu_item_id",
+      onConflict: "user_id,restaurant_id,menu_item_id,order_type",
     }
   );
   if (error) throw error;
@@ -63,7 +71,7 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
 
   const { data: cartRows, error: cartError } = await supabase
     .from("user_cart_items")
-    .select("id, restaurant_id, menu_item_id, quantity")
+    .select("id, restaurant_id, menu_item_id, quantity, order_type")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
   if (cartError) throw cartError;
@@ -73,6 +81,7 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
     restaurant_id: number;
     menu_item_id: number;
     quantity: number;
+    order_type: string | null;
   }>;
   if (rows.length === 0) return [];
 
@@ -121,6 +130,7 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
 
     const quantity = Math.max(1, Number(row.quantity ?? 1));
     const unitPrice = Number(menuItem.price ?? 0);
+    const orderType: UserCartOrderType = row.order_type === "takeout" ? "takeout" : "dine_in";
     list.push({
       id: Number(row.id),
       restaurantId: Number(restaurant.id),
@@ -132,17 +142,39 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
       unitPrice,
       quantity,
       subtotal: unitPrice * quantity,
+      orderType,
     });
   }
 
   return list;
 }
 
+/**
+ * Clear every cart item a user has for a single restaurant. Called after a
+ * successful checkout so the cart doesn't still show the items that were
+ * just ordered. Safe to call with unknown ids — invalid inputs no-op.
+ */
+export async function clearUserCartForRestaurant(
+  userId: string,
+  restaurantId: number,
+  orderType?: UserCartOrderType,
+): Promise<void> {
+  if (!userId || !Number.isFinite(restaurantId)) return;
+  let q = supabase
+    .from("user_cart_items")
+    .delete()
+    .eq("user_id", userId)
+    .eq("restaurant_id", restaurantId);
+  if (orderType) q = q.eq("order_type", orderType);
+  const { error } = await q;
+  if (error) throw error;
+}
+
 export async function fetchRestaurantCartRows(userId: string, restaurantId: number) {
   if (!userId || !Number.isFinite(restaurantId)) return [];
   const { data, error } = await supabase
     .from("user_cart_items")
-    .select("id, restaurant_id, menu_item_id, quantity")
+    .select("id, restaurant_id, menu_item_id, quantity, order_type")
     .eq("user_id", userId)
     .eq("restaurant_id", restaurantId);
   if (error) throw error;
@@ -151,6 +183,7 @@ export async function fetchRestaurantCartRows(userId: string, restaurantId: numb
     restaurant_id: number;
     menu_item_id: number;
     quantity: number;
+    order_type: string | null;
   }>;
 }
 

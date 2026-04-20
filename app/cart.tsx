@@ -3,16 +3,26 @@ import { View, Text, Pressable, Platform, ActivityIndicator, Image, ScrollView, 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { Minus, Plus, ShoppingCart, Trash2 } from "lucide-react-native";
+import { Minus, Plus, ShoppingCart, Trash2, UtensilsCrossed, Truck } from "lucide-react-native";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useAuth } from "@/lib/auth-context";
-import { fetchUserCartList, type UserCartListItem, upsertUserCartItem } from "@/lib/user-cart";
+import {
+  fetchUserCartList,
+  type UserCartListItem,
+  type UserCartOrderType,
+  upsertUserCartItem,
+} from "@/lib/user-cart";
 
 type RestaurantCartGroup = {
+  /** Composite key — restaurantId + orderType. A user can legitimately have
+   *  both a dine-in and takeout cart at the same restaurant; we render them
+   *  as two cards so the dining intent is unambiguous on checkout. */
+  groupKey: string;
   restaurantId: number;
   restaurantName: string;
   restaurantImage: string | null;
+  orderType: UserCartOrderType;
   items: UserCartListItem[];
   subtotal: number;
 };
@@ -57,17 +67,21 @@ export default function CartScreen() {
   };
 
   const grouped = useMemo<RestaurantCartGroup[]>(() => {
-    const map = new Map<number, RestaurantCartGroup>();
+    const map = new Map<string, RestaurantCartGroup>();
     for (const row of items) {
-      const existing = map.get(row.restaurantId);
+      const orderType = row.orderType ?? "dine_in";
+      const groupKey = `${row.restaurantId}:${orderType}`;
+      const existing = map.get(groupKey);
       if (existing) {
         existing.items.push(row);
         existing.subtotal += row.subtotal;
       } else {
-        map.set(row.restaurantId, {
+        map.set(groupKey, {
+          groupKey,
           restaurantId: row.restaurantId,
           restaurantName: row.restaurantName,
           restaurantImage: row.restaurantImage,
+          orderType,
           items: [row],
           subtotal: row.subtotal,
         });
@@ -85,7 +99,8 @@ export default function CartScreen() {
     async (row: UserCartListItem, nextQty: number) => {
       const userId = session?.user?.id;
       if (!userId) return;
-      const key = `${row.restaurantId}:${row.menuItemId}`;
+      const orderType = row.orderType ?? "dine_in";
+      const key = `${row.restaurantId}:${row.menuItemId}:${orderType}`;
 
       // Tag this write so we can ignore its failure if a newer tap supersedes it.
       reqCounter.current += 1;
@@ -97,11 +112,15 @@ export default function CartScreen() {
       // unrelated rows the user had already updated).
       const previousQty = row.quantity;
 
+      const matchesRow = (p: UserCartListItem) =>
+        p.restaurantId === row.restaurantId &&
+        p.menuItemId === row.menuItemId &&
+        (p.orderType ?? "dine_in") === orderType;
       setItems((prev) =>
         nextQty <= 0
-          ? prev.filter((p) => !(p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId))
+          ? prev.filter((p) => !matchesRow(p))
           : prev.map((p) =>
-              p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId
+              matchesRow(p)
                 ? {
                     ...p,
                     quantity: nextQty,
@@ -119,6 +138,7 @@ export default function CartScreen() {
           restaurantId: row.restaurantId,
           menuItemId: row.menuItemId,
           quantity: nextQty,
+          orderType,
         });
       } catch (err) {
         // Only revert if we're still the most recent write for this key; a
@@ -126,9 +146,7 @@ export default function CartScreen() {
         // clobbering it would show the wrong quantity.
         if (latestReqIdByKey.current.get(key) === reqId) {
           setItems((prev) => {
-            const exists = prev.some(
-              (p) => p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId,
-            );
+            const exists = prev.some((p) => matchesRow(p));
             if (!exists) {
               // Row was optimistically removed (nextQty <= 0). Put it back.
               return [
@@ -141,7 +159,7 @@ export default function CartScreen() {
               ];
             }
             return prev.map((p) =>
-              p.restaurantId === row.restaurantId && p.menuItemId === row.menuItemId
+              matchesRow(p)
                 ? {
                     ...p,
                     quantity: previousQty,
@@ -166,8 +184,13 @@ export default function CartScreen() {
   );
 
   const openRestaurant = useCallback(
-    (restaurantId: number) => {
-      router.push({ pathname: "/restaurant/[id]", params: { id: String(restaurantId) } } as any);
+    (restaurantId: number, orderType?: UserCartOrderType) => {
+      router.push({
+        pathname: "/restaurant/[id]",
+        params: orderType
+          ? { id: String(restaurantId), cartType: orderType }
+          : { id: String(restaurantId) },
+      } as any);
     },
     [router]
   );
@@ -271,9 +294,13 @@ export default function CartScreen() {
               contentContainerStyle={{ gap: 12, paddingBottom: 12 }}
               showsVerticalScrollIndicator={false}
             >
-              {grouped.map((group) => (
+              {grouped.map((group) => {
+                const isTakeout = group.orderType === "takeout";
+                const PillIcon = isTakeout ? Truck : UtensilsCrossed;
+                const pillColor = isTakeout ? "#60A5FA" : "#FF9933";
+                return (
                 <View
-                  key={group.restaurantId}
+                  key={group.groupKey}
                   style={{
                     backgroundColor: "#141414",
                     borderWidth: 1,
@@ -283,7 +310,7 @@ export default function CartScreen() {
                   }}
                 >
                   <Pressable
-                    onPress={() => openRestaurant(group.restaurantId)}
+                    onPress={() => openRestaurant(group.restaurantId, group.orderType)}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
@@ -318,9 +345,31 @@ export default function CartScreen() {
                       <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 15 }} numberOfLines={1}>
                         {group.restaurantName}
                       </Text>
-                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
-                        ${(group.subtotal || 0).toFixed(2)}
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+                        {/* Dining intent pill — makes it unambiguous what
+                            checkout will be when the user taps through. */}
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: 999,
+                            backgroundColor: `${pillColor}1F`,
+                            borderWidth: 1,
+                            borderColor: `${pillColor}55`,
+                          }}
+                        >
+                          <PillIcon size={11} color={pillColor} />
+                          <Text style={{ fontFamily: "Manrope_700Bold", color: pillColor, fontSize: 10, letterSpacing: 0.4 }}>
+                            {isTakeout ? "TAKEOUT" : "DINE-IN"}
+                          </Text>
+                        </View>
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
+                          ${(group.subtotal || 0).toFixed(2)}
+                        </Text>
+                      </View>
                     </View>
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#9a9a9a", fontSize: 12 }}>
                       View
@@ -329,7 +378,7 @@ export default function CartScreen() {
 
                   <View style={{ padding: 10, gap: 8 }}>
                     {group.items.map((row) => {
-                      const key = `${row.restaurantId}:${row.menuItemId}`;
+                      const key = `${row.restaurantId}:${row.menuItemId}:${group.orderType}`;
                       const busy = savingKey === key;
                       return (
                         <View
@@ -468,7 +517,8 @@ export default function CartScreen() {
                     })}
                   </View>
                 </View>
-              ))}
+                );
+              })}
             </ScrollView>
 
             <View

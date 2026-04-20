@@ -19,7 +19,6 @@ import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
-import * as SecureStore from 'expo-secure-store';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeOut, FadeOutDown,
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence,
@@ -64,24 +63,14 @@ type MenuItem = {
 
 type Restaurant = { id: number; name: string; image_url: string | null };
 
-function activeGroupOrderStorageKey(userId: string) {
-  return `rasvia_active_group_order_${userId}`;
-}
-
-/** Drop home-banner persistence when this session ends or user leaves it. */
-async function clearStoredActiveGroupOrderForSession(userId: string | undefined, sid: string) {
-  if (!userId) return;
-  const key = activeGroupOrderStorageKey(userId);
-  try {
-    const raw = await SecureStore.getItemAsync(key);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as { sessionId?: string };
-    if (String(parsed?.sessionId ?? '') !== String(sid)) return;
-    await SecureStore.deleteItemAsync(key);
-  } catch {
-    /* ignore */
-  }
-}
+/**
+ * Apple Pay / Google Pay show a "save card to this device?" sheet *after*
+ * the merchant flow has redirected back into the app. If we surface our own
+ * Alert.alert / haptics the instant the deep link lands, the system pulls
+ * focus back to us and the wallet sheet vanishes. Defer our reactions by
+ * just under a second so the wallet sheet keeps the foreground.
+ */
+const WALLET_INTERACTION_GRACE_MS = 900;
 
 const PAYMENT_MODES: { key: PaymentMode; title: string; subtitle: string }[] = [
   { key: 'host_pays',   title: 'Host covers everyone', subtitle: 'You pay the whole bill.' },
@@ -173,15 +162,6 @@ export default function JoinPartyScreen() {
     // session.status === 'open'
     setView((prev) => (prev === 'review' ? 'review' : 'browse'));
   }, [session?.status]);
-
-  // Home "in progress" card reads SecureStore; clear it as soon as this session
-  // reaches a terminal state (avoids stale banner if user never refocuses home).
-  useEffect(() => {
-    if (!session || !sessionId || !authSession?.user?.id) return;
-    const st = session.status;
-    if (st !== 'submitted' && st !== 'completed' && st !== 'cancelled') return;
-    void clearStoredActiveGroupOrderForSession(authSession.user.id, sessionId);
-  }, [session?.status, sessionId, authSession?.user?.id]);
 
   // Load saved credentials once we have sessionId. `credsLoaded` flips once
   // we know whether the device has any saved creds — we gate the name-entry
@@ -286,17 +266,26 @@ export default function JoinPartyScreen() {
     return () => handle.unsubscribe();
   }, [sessionId]);
 
-  // Handle checkout return (from payment-redirect deep link)
+  // Handle checkout return (from payment-redirect deep link).
+  //
+  // Apple Pay / Google Pay can render a "save this card to your device?"
+  // sheet on top of the redirect. If we fire haptics or an Alert.alert the
+  // instant the deep link lands, the system pops the focus to that alert
+  // and the wallet sheet vanishes before the user can tap on it. Delay our
+  // own UI by ~WALLET_INTERACTION_GRACE_MS so the wallet sheet wins focus.
   useEffect(() => {
     const status = params.checkout_status;
     if (!status) return;
-    if (status === 'success') {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else if (status === 'cancel') {
-      Alert.alert('Payment cancelled', 'You can try again when you are ready.');
-    } else if (status === 'error') {
-      Alert.alert('Payment issue', params.reason === 'payment_mismatch' ? 'Payment amount mismatch detected.' : 'We could not verify the payment. Please try again.');
-    }
+    const t = setTimeout(() => {
+      if (status === 'success') {
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else if (status === 'cancel') {
+        Alert.alert('Payment cancelled', 'You can try again when you are ready.');
+      } else if (status === 'error') {
+        Alert.alert('Payment issue', params.reason === 'payment_mismatch' ? 'Payment amount mismatch detected.' : 'We could not verify the payment. Please try again.');
+      }
+    }, WALLET_INTERACTION_GRACE_MS);
+    return () => clearTimeout(t);
   }, [params.checkout_status, params.reason]);
 
   // ── Actions ─────────────────────────────────────────────────────────────
@@ -465,7 +454,6 @@ export default function JoinPartyScreen() {
       const result = await cancelSession(supabase, creds);
       Alert.alert('Group order cancelled', `${result.refunded} payment${result.refunded === 1 ? '' : 's'} refunded.`);
       await clearPartyCreds(sessionId);
-      await clearStoredActiveGroupOrderForSession(authSession?.user?.id, sessionId);
       router.back();
     } catch (err) {
       Alert.alert('Cancel failed', err instanceof Error ? err.message : 'Try again.');
@@ -489,7 +477,6 @@ export default function JoinPartyScreen() {
           onPress: async () => {
             try { await leaveSession(supabase, creds); } catch { /* ignore */ }
             await clearPartyCreds(sessionId);
-            await clearStoredActiveGroupOrderForSession(authSession?.user?.id, sessionId);
             router.back();
           },
         },
@@ -558,11 +545,7 @@ export default function JoinPartyScreen() {
               {' '}Any paid shares have been refunded.
             </Text>
             <Pressable
-              onPress={async () => {
-                await clearPartyCreds(sessionId);
-                await clearStoredActiveGroupOrderForSession(authSession?.user?.id, sessionId);
-                router.replace('/');
-              }}
+              onPress={async () => { await clearPartyCreds(sessionId); router.replace('/'); }}
               style={[s.primaryBtn, { marginTop: 10, alignSelf: 'stretch' }]}
             >
               <Text style={s.primaryBtnText}>Back to home</Text>
@@ -624,7 +607,6 @@ export default function JoinPartyScreen() {
         creds={creds}
         onDone={async () => {
           await clearPartyCreds(sessionId);
-          await clearStoredActiveGroupOrderForSession(authSession?.user?.id, sessionId);
           router.replace('/');
         }}
       />

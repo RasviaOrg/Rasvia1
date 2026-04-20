@@ -33,6 +33,7 @@ import { InAppNotification } from "@/components/InAppNotification";
 import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
 import { EmailVerifyModal } from "@/components/EmailVerifyModal";
 import { ResetPasswordModal } from "@/components/ResetPasswordModal";
+import { friendlyAuthError } from "@/lib/friendly-auth-error";
 
 let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
@@ -179,9 +180,10 @@ export default function AuthScreen() {
                 await upsertProfileFromAuthUser(userData.user);
             }
         } catch (error: any) {
+            const friendly = friendlyAuthError(error, "Google sign-in failed. Please try again.");
             setNotification({
                 visible: true,
-                message: error?.message || "Google sign-in failed. Please try again.",
+                message: friendly.message || friendly.title,
                 type: "error",
             });
         } finally {
@@ -213,9 +215,10 @@ export default function AuthScreen() {
                 if (exists === true) setAuthPhase("signin_password");
                 else setAuthPhase("signup");
             } catch (e: any) {
+                const friendly = friendlyAuthError(e, "Could not verify. Please try again.");
                 setNotification({
                     visible: true,
-                    message: e?.message || "Could not verify. Please try again.",
+                    message: friendly.message || friendly.title,
                     type: "error",
                 });
             } finally {
@@ -241,9 +244,10 @@ export default function AuthScreen() {
                     setAuthPhase("signup");
                 }
             } catch (e: any) {
+                const friendly = friendlyAuthError(e, "Could not verify. Please try again.");
                 setNotification({
                     visible: true,
-                    message: e?.message || "Could not verify. Please try again.",
+                    message: friendly.message || friendly.title,
                     type: "error",
                 });
             } finally {
@@ -291,22 +295,13 @@ export default function AuthScreen() {
                 if (error) throw error;
             }
         } catch (error: any) {
-            const message = error.message || "Something went wrong.";
-            let friendlyMessage = message;
-            const lower = message.toLowerCase();
-            if (lower.includes("already registered") || lower.includes("already exists")) {
-                friendlyMessage = "Email already exists. Please Log In.";
-            } else if (
-                lower.includes("email not confirmed") ||
-                lower.includes("email_not_confirmed") ||
-                lower.includes("not confirmed")
-            ) {
-                friendlyMessage =
-                    "Please verify your email before signing in. Check your inbox for the link from Rasvia.";
-            }
+            // Friendly path covers: invalid credentials, email-not-verified,
+            // network errors, rate limits, and the "Email already exists"
+            // edge that used to surface here for some sign-in flows.
+            const friendly = friendlyAuthError(error);
             setNotification({
                 visible: true,
-                message: friendlyMessage,
+                message: friendly.message || friendly.title,
                 type: "error",
             });
         } finally {
@@ -396,15 +391,10 @@ export default function AuthScreen() {
             setPendingVerifyEmail(email.trim());
             setShowEmailVerify(true);
         } catch (error: any) {
-            const message = error.message || "Something went wrong.";
-            let friendlyMessage = message;
-            const lower = message.toLowerCase();
-            if (lower.includes("already registered") || lower.includes("already exists")) {
-                friendlyMessage = "Email already exists. Please Log In.";
-            }
+            const friendly = friendlyAuthError(error);
             setNotification({
                 visible: true,
-                message: friendlyMessage,
+                message: friendly.message || friendly.title,
                 type: "error",
             });
         } finally {
@@ -1085,36 +1075,51 @@ export default function AuthScreen() {
                                     )}
                                 </View>
 
+                                {/* Email field — when the user signed up via phone the email
+                                    was empty, so we have to let them type one here. When they
+                                    signed up via email, we lock the field (with a visible state
+                                    distinction) since the value already came from step 1. */}
                                 <View
                                     style={{
                                         flexDirection: "row",
                                         alignItems: "center",
-                                        backgroundColor: "#1a1a1a",
+                                        backgroundColor: signInWithPhone ? "#262626" : "#1a1a1a",
                                         borderRadius: 16,
                                         borderWidth: 1,
-                                        borderColor: "#2a2a2a",
+                                        borderColor: signInWithPhone ? "#333333" : "#2a2a2a",
                                         paddingHorizontal: 16,
                                         marginBottom: 14,
                                         height: 56,
-                                        opacity: 0.65,
+                                        opacity: signInWithPhone ? 1 : 0.65,
                                     }}
                                 >
-                                    <Mail size={18} color="#555555" />
+                                    <Mail size={18} color={signInWithPhone ? "#999999" : "#555555"} />
                                     <TextInput
                                         style={{
                                             flex: 1,
-                                            color: "#888888",
+                                            color: signInWithPhone ? "#f5f5f5" : "#888888",
                                             fontFamily: "Manrope_500Medium",
                                             fontSize: 15,
                                             marginLeft: 12,
                                         }}
+                                        placeholder={signInWithPhone ? "you@example.com" : undefined}
+                                        placeholderTextColor="#666666"
                                         value={email}
-                                        editable={false}
+                                        editable={signInWithPhone}
+                                        onChangeText={signInWithPhone ? setEmail : undefined}
+                                        onFocus={() => {
+                                            if (signInWithPhone && Platform.OS !== "web") Haptics.selectionAsync();
+                                        }}
                                         keyboardType="email-address"
                                         autoCapitalize="none"
                                         autoCorrect={false}
                                         keyboardAppearance="dark"
                                     />
+                                    {signInWithPhone && !!email && (
+                                        <Pressable onPress={clearField(setEmail)} hitSlop={10}>
+                                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#888", fontSize: 18 }}>×</Text>
+                                        </Pressable>
+                                    )}
                                 </View>
 
                                 <View

@@ -48,8 +48,6 @@ interface Restaurant {
   current_wait_time: number | null;
   lat: number | null;
   long: number | null;
-  /** Null/empty when the restaurant is cash-only — group orders disabled. */
-  stripe_account_id?: string | null;
 }
 
 type SortOption = "none" | "waitTime" | "distance";
@@ -70,7 +68,11 @@ export default function HostPartyScreen() {
     ? `rasvia_active_group_order_${currentUserId}`
     : null;
 
-  const [step, setStep] = useState<Step>("select");
+  // When arriving from `/restaurant/[id] → Group Order`, the auto-start
+  // effect will fire shortly after mount. Skipping straight to "starting"
+  // avoids a one-frame flash of the restaurant picker UI before the
+  // session is created.
+  const [step, setStep] = useState<Step>(paramRestaurantId ? "starting" : "select");
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [selectedRestaurant, setSelectedRestaurant] =
@@ -103,11 +105,13 @@ export default function HostPartyScreen() {
     const run = async () => {
       const { data, error } = await supabase
         .from("restaurants")
-        .select("id, name, cuisine_tags, image_url, current_wait_time, lat, long, stripe_account_id")
+        .select("id, name, cuisine_tags, image_url, current_wait_time, lat, long")
         .eq("id", paramRestaurantId)
-        .maybeSingle();
+        .single();
 
       if (error || !data) {
+        // Roll back to the picker — we pre-set "starting" optimistically.
+        setStep("select");
         Alert.alert("Error", "Could not load restaurant info.");
         return;
       }
@@ -115,18 +119,8 @@ export default function HostPartyScreen() {
       const r = data as Restaurant;
 
       if (closedRestaurantIds.has(String(r.id))) {
+        setStep("select");
         Alert.alert("Restaurant Closed", `${r.name} is currently closed and cannot accept group orders.`);
-        return;
-      }
-
-      // Cash-only restaurants can't host group orders because the
-      // split-pay flow needs Stripe to collect each guest's share.
-      if (!(data as any).stripe_account_id) {
-        Alert.alert(
-          "Cash-Only Restaurant",
-          `${r.name} only accepts cash, so split-pay group orders aren't available. You can still order together in person and pay individually at the counter.`,
-          [{ text: "OK", onPress: () => router.back() }],
-        );
         return;
       }
 
@@ -134,6 +128,7 @@ export default function HostPartyScreen() {
       // handleStart reads selectedRestaurant from state, but since we're in an effect,
       // we call the creation logic inline here to avoid stale-closure issues.
       if (existingSession) {
+        setStep("select");
         Alert.alert(
           "Active Order Exists",
           `You already have an open group order at ${existingSession.restaurantName}. Cancel it or go to it first.`,
@@ -230,7 +225,7 @@ export default function HostPartyScreen() {
           .from("party_sessions")
           .select("id, status, restaurants(name)")
           .eq("id", parsed.sessionId)
-          .maybeSingle();
+          .single();
 
         if (sess && sess.status === "open") {
           setExistingSession({
@@ -253,7 +248,7 @@ export default function HostPartyScreen() {
       const { data, error } = await supabase
         .from("restaurants")
         .select(
-          "id, name, cuisine_tags, image_url, current_wait_time, lat, long, stripe_account_id",
+          "id, name, cuisine_tags, image_url, current_wait_time, lat, long",
         )
         .or("is_enabled.is.null,is_enabled.eq.true")
         .order("name", { ascending: true });
@@ -318,13 +313,6 @@ export default function HostPartyScreen() {
   const handleSelectRestaurant = (r: Restaurant) => {
     if (closedRestaurantIds.has(String(r.id))) {
       Alert.alert("Restaurant Closed", `${r.name} is currently closed and cannot accept group orders.`);
-      return;
-    }
-    if (!r.stripe_account_id) {
-      Alert.alert(
-        "Cash-Only Restaurant",
-        `${r.name} only accepts cash, so split-pay group orders aren't available. Pick a card-enabled restaurant to host a group order.`,
-      );
       return;
     }
     if (Platform.OS !== "web")
@@ -715,13 +703,11 @@ export default function HostPartyScreen() {
                     const isSelected = selectedRestaurant?.id === r.id;
                     const wt = waitLabel(r);
                     const isClosed = closedRestaurantIds.has(String(r.id));
-                    const isCashOnly = !r.stripe_account_id;
-                    const rowDisabled = isClosed || isCashOnly;
                     return (
                       <View
                         key={r.id}
                       >
-                        <View style={{ opacity: rowDisabled ? 0.5 : 1 }}>
+                        <View style={{ opacity: isClosed ? 0.5 : 1 }}>
                           <Pressable
                             onPress={() => handleSelectRestaurant(r)}
                             disabled={isClosed}
@@ -792,18 +778,6 @@ export default function HostPartyScreen() {
                                   numberOfLines={1}
                                 >
                                   {r.cuisine_tags.join(" · ")}
-                                </Text>
-                              )}
-                              {isCashOnly && !isClosed && (
-                                <Text
-                                  style={{
-                                    fontFamily: "Manrope_600SemiBold",
-                                    color: "#F59E0B",
-                                    fontSize: 11,
-                                    marginTop: 3,
-                                  }}
-                                >
-                                  Cash only · group orders unavailable
                                 </Text>
                               )}
                             </View>

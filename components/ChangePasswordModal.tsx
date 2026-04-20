@@ -15,6 +15,7 @@ import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { Lock, Eye, EyeOff, Mail, ShieldCheck, CheckCircle, RefreshCw, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
+import { friendlyAuthError } from "@/lib/friendly-auth-error";
 
 interface ChangePasswordModalProps {
   visible: boolean;
@@ -105,7 +106,12 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
     } catch (e: any) {
       setStep("current-password");
       setStatusMsg("");
-      setError("Incorrect password. Please try again.");
+      // For password re-auth the only meaningful "wrong" state is bad
+      // credentials, but network failures should still read sensibly.
+      const friendly = friendlyAuthError(e, "Incorrect password. Please try again.");
+      setError(friendly.kind === "credentials"
+        ? "Incorrect password. Please try again."
+        : friendly.message || friendly.title);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }
@@ -125,7 +131,8 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
     } catch (e: any) {
       setStep("choose-method");
       setStatusMsg("");
-      setError(e.message || "Failed to send verification code");
+      const friendly = friendlyAuthError(e, "Failed to send verification code");
+      setError(friendly.message || friendly.title);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }
@@ -147,7 +154,8 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
     } catch (e: any) {
       setStep("email-code");
       setStatusMsg("");
-      setError(e.message || "Invalid code. Please try again.");
+      const friendly = friendlyAuthError(e, "Invalid code. Please try again.");
+      setError(friendly.message || friendly.title);
       setCode("");
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
@@ -197,7 +205,8 @@ export function ChangePasswordModal({ visible, email, onClose, onSuccess }: Chan
       settled = true;
       setStep("new-password");
       setStatusMsg("");
-      setError(e.message || "Failed to update password");
+      const friendly = friendlyAuthError(e, "Failed to update password");
+      setError(friendly.message || friendly.title);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }

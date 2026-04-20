@@ -56,9 +56,6 @@ import { getSwitchedInFrom, clearSwitchedInFrom } from "@/lib/accounts-store";
 import Animated, {
   FadeIn,
   FadeInDown,
-  FadeOut,
-  FadeOutDown,
-  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -78,8 +75,11 @@ import {
 } from "@/lib/push-notifications";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
-let SCREEN_WIDTH = Dimensions.get("window").width;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
+// NOTE: previously this module registered a persistent `Dimensions.addEventListener`
+// that was never cleaned up. Since `SCREEN_WIDTH` wasn't actually read anywhere
+// after registration, the listener was leaking across navigations with no
+// observable benefit. Removed entirely — callers that need live width should
+// use `useWindowDimensions()` inside the component.
 
 // ── CST day names used by debug picker ──
 const DEBUG_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -101,7 +101,7 @@ export default function ProfileSettingsScreen() {
   const router = useRouter();
   const { session } = useAuth();
   const { isAdmin, isRestaurantOwner, effectiveOwnerRestaurantId } = useAdminMode();
-  const { reloadLocationPrefs, setUserCoordsOverride, hasSavedAddress, diningPreferenceAreaLabel } = useLocation();
+  const { reloadLocationPrefs, setUserCoordsOverride } = useLocation();
   const [userEmail, setUserEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -1279,8 +1279,7 @@ export default function ProfileSettingsScreen() {
                 </Text>
               </View>
 
-              <Animated.View
-                layout={LinearTransition.duration(320)}
+              <View
                 style={{
                   backgroundColor: "#1a1a1a",
                   borderRadius: 20,
@@ -1289,55 +1288,6 @@ export default function ProfileSettingsScreen() {
                   padding: 20,
                 }}
               >
-                {!liveLocationEnabled &&
-                  !hasSavedAddress &&
-                  Boolean(diningPreferenceAreaLabel?.trim()) && (
-                    <Animated.View
-                      entering={FadeInDown.duration(280)}
-                      exiting={FadeOutDown.duration(220)}
-                      style={{ marginBottom: 16 }}
-                    >
-                      <View
-                        style={{
-                          padding: 12,
-                          borderRadius: 12,
-                          backgroundColor: "rgba(255,153,51,0.08)",
-                          borderWidth: 1,
-                          borderColor: "rgba(255,153,51,0.22)",
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontFamily: "Manrope_600SemiBold",
-                            color: "#e8e8e8",
-                            fontSize: 13,
-                            lineHeight: 19,
-                          }}
-                        >
-                          Showing nearby results for{" "}
-                          <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold" }}>
-                            {diningPreferenceAreaLabel}
-                          </Text>{" "}
-                          from your{" "}
-                          <Text
-                            onPress={() => {
-                              if (Platform.OS !== "web") Haptics.selectionAsync();
-                              router.push("/dining-preferences" as any);
-                            }}
-                            style={{
-                              color: "#FF9933",
-                              fontFamily: "Manrope_700Bold",
-                              textDecorationLine: "underline",
-                              textDecorationColor: "#FF9933",
-                            }}
-                          >
-                            dining preferences
-                          </Text>
-                          .
-                        </Text>
-                      </View>
-                    </Animated.View>
-                  )}
                 {/* === Live Location Toggle === */}
                 <View
                   style={{
@@ -1469,61 +1419,54 @@ export default function ProfileSettingsScreen() {
                 </View>
 
                 {/* === Save Location Button === */}
-                {/* Outer: enter/exit only. Inner: press scale — avoids Reanimated
-                    overwriting `transform` (layout/enter vs scale on one view). */}
                 {locationPrefsChanged && (
-                  <Animated.View
-                    entering={FadeIn.duration(320)}
-                    exiting={FadeOut.duration(220)}
-                    style={{ marginTop: 16 }}
-                  >
-                    <Animated.View style={saveLocStyle}>
-                      <Pressable
-                        onPress={handleSaveLocationSettings}
-                        onPressIn={() => {
-                          saveLocScale.value = withSpring(0.96);
-                        }}
-                        onPressOut={() => {
-                          saveLocScale.value = withSpring(1);
-                        }}
-                        disabled={isSavingLocation}
-                        style={{
-                          backgroundColor: "#FF9933",
-                          borderRadius: 14,
-                          height: 48,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          flexDirection: "row",
-                          shadowColor: "#FF9933",
-                          shadowOffset: { width: 0, height: 4 },
-                          shadowOpacity: 0.3,
-                          shadowRadius: 12,
-                          elevation: 8,
-                          opacity: isSavingLocation ? 0.7 : 1,
-                        }}
-                      >
-                        {isSavingLocation ? (
-                          <ActivityIndicator color="#0f0f0f" />
-                        ) : (
-                          <>
-                            <MapPin size={16} color="#0f0f0f" />
-                            <Text
-                              style={{
-                                fontFamily: "BricolageGrotesque_700Bold",
-                                color: "#0f0f0f",
-                                fontSize: 15,
-                                marginLeft: 6,
-                              }}
-                            >
-                              Save Location Settings
-                            </Text>
-                          </>
-                        )}
-                      </Pressable>
-                    </Animated.View>
+                  <Animated.View style={saveLocStyle}>
+                    <Pressable
+                      onPress={handleSaveLocationSettings}
+                      onPressIn={() => {
+                        saveLocScale.value = withSpring(0.96);
+                      }}
+                      onPressOut={() => {
+                        saveLocScale.value = withSpring(1);
+                      }}
+                      disabled={isSavingLocation}
+                      style={{
+                        backgroundColor: "#FF9933",
+                        borderRadius: 14,
+                        height: 48,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexDirection: "row",
+                        marginTop: 16,
+                        shadowColor: "#FF9933",
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 12,
+                        elevation: 8,
+                        opacity: isSavingLocation ? 0.7 : 1,
+                      }}
+                    >
+                      {isSavingLocation ? (
+                        <ActivityIndicator color="#0f0f0f" />
+                      ) : (
+                        <>
+                          <MapPin size={16} color="#0f0f0f" />
+                          <Text
+                            style={{
+                              fontFamily: "BricolageGrotesque_700Bold",
+                              color: "#0f0f0f",
+                              fontSize: 15,
+                              marginLeft: 6,
+                            }}
+                          >
+                            Save Location Settings
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
                   </Animated.View>
                 )}
-              </Animated.View>
+              </View>
             </Animated.View>
           )}
 

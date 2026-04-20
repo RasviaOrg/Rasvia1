@@ -15,6 +15,8 @@ import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { Mail, ShieldCheck, CheckCircle, RefreshCw, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
+import { friendlyAuthError } from "@/lib/friendly-auth-error";
+import { authGateFlags } from "@/lib/auth-gate-flags";
 
 interface EmailVerifyModalProps {
   visible: boolean;
@@ -34,7 +36,10 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
   const codeInputRef = useRef<TextInput>(null);
   const cooldownInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Reset state when modal opens
+  // Reset state when modal opens. Also flip the AuthGate suppression flag so
+  // verifyOtp's freshly-created session doesn't punt the user to "/" (or
+  // "/onboarding") *before* this modal has had a chance to show the success
+  // state and play its hand-off animation.
   useEffect(() => {
     if (visible) {
       setStep("code-sent");
@@ -42,7 +47,12 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
       setError("");
       setResendCooldown(60);
       startCooldown();
+      authGateFlags.suppressRedirect = true;
       setTimeout(() => codeInputRef.current?.focus(), 300);
+    } else {
+      // Defensive: if the modal is hidden without a successful flow, make
+      // sure we never strand the gate in a suppressed state.
+      authGateFlags.suppressRedirect = false;
     }
     return () => {
       if (cooldownInterval.current) clearInterval(cooldownInterval.current);
@@ -75,7 +85,8 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
       startCooldown();
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      setError(e.message || "Failed to resend code");
+      const friendly = friendlyAuthError(e, "Failed to resend code");
+      setError(friendly.message || friendly.title);
     } finally {
       setResending(false);
     }
@@ -100,11 +111,15 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
       setStep("success");
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setTimeout(() => {
+        // Hand control back to AuthGate now that the success state has
+        // played; the callback is what triggers any post-verify navigation.
+        authGateFlags.suppressRedirect = false;
         onVerified();
       }, 1200);
     } catch (e: any) {
       setStep("code-sent");
-      setError(e.message || "Invalid code. Please try again.");
+      const friendly = friendlyAuthError(e, "Invalid code. Please try again.");
+      setError(friendly.message || friendly.title);
       setCode("");
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }

@@ -16,6 +16,7 @@ import { Lock, Eye, EyeOff, Mail, ShieldCheck, ArrowLeft, CheckCircle, RefreshCw
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { authGateFlags } from "@/lib/auth-gate-flags";
+import { friendlyAuthError } from "@/lib/friendly-auth-error";
 
 interface ResetPasswordModalProps {
   visible: boolean;
@@ -105,7 +106,8 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
     } catch (e: any) {
       setStep("enter-email");
       setStatusMsg("");
-      setError(e.message || "Failed to send reset code");
+      const friendly = friendlyAuthError(e, "Failed to send reset code");
+      setError(friendly.message || friendly.title);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }
@@ -131,7 +133,8 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
     } catch (e: any) {
       setStep("enter-code");
       setStatusMsg("");
-      setError(e.message || "Invalid code. Please try again.");
+      const friendly = friendlyAuthError(e, "Invalid code. Please try again.");
+      setError(friendly.message || friendly.title);
       setCode("");
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
@@ -195,7 +198,8 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
       settled = true;
       setStep("new-password");
       setStatusMsg("");
-      setError(e.message || "Failed to update password");
+      const friendly = friendlyAuthError(e, "Failed to update password");
+      setError(friendly.message || friendly.title);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }

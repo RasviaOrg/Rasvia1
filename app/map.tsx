@@ -51,16 +51,12 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { AddRestaurantModal } from "@/components/AddRestaurantModal";
 import { AdminRestaurantPanel } from "@/components/AdminRestaurantPanel";
 import { BrandedLoader } from "@/components/BrandedLoader";
-import { APP_BOTTOM_NAV_HEIGHT, getBottomNavTopInset } from "@/components/AppBottomNav";
-import {
-  getHomeCacheRestaurants,
-  isHomeCacheRestaurantsFresh,
-  patchHomeCacheRestaurant,
-  setHomeCacheRestaurants,
-} from "@/lib/home-cache";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
-let SCREEN_WIDTH = Dimensions.get("window").width;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
+// NOTE: previously this module registered a persistent `Dimensions.addEventListener`
+// that was never removed. `SCREEN_WIDTH` is not read anywhere so the listener
+// was pure leak across navigations. Removed — use `useWindowDimensions()` in
+// the component if live width is ever needed.
 
 // Zoom threshold: below this latDelta = "zoomed in" (show cards), above = "zoomed out" (show dots)
 const ZOOM_THRESHOLD = 0.08;
@@ -136,6 +132,9 @@ const getNearbyOverlayHeight = (restaurantCount: number) => {
     NEARBY_SHEET_BOTTOM_PADDING
   );
 };
+const getBottomNavTopInset = (safeBottom: number) =>
+  APP_BOTTOM_NAV_HEIGHT + 8 + Math.max(safeBottom, 8) - APP_BOTTOM_NAV_OFFSET - 1;
+
 // ==============================
 // Cluster type
 // ==============================
@@ -211,10 +210,8 @@ export default function MapScreen() {
     useAdminMode();
 
   // State
-  const [restaurants, setRestaurants] = useState<UIRestaurant[]>(() => getHomeCacheRestaurants());
-  // Skip the loading splash if we already have restaurants cached from
-  // a previous home/map render — switching tabs should not reset the map.
-  const [loading, setLoading] = useState(() => getHomeCacheRestaurants().length === 0);
+  const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
+  const [loading, setLoading] = useState(true);
   const [mapCenter, setMapCenter] = useState<Region>(DEFAULT_REGION);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newRestCoords, setNewRestCoords] = useState<{ lat: number, lng: number } | null>(null);
@@ -250,6 +247,22 @@ export default function MapScreen() {
   const { targetLat, targetLng, restaurantId, adjust } = useLocalSearchParams<{ targetLat?: string; targetLng?: string; restaurantId?: string; adjust?: string }>();
   const hasCenteredRef = useRef(false);
   const consumedAdjustRouteRef = useRef(false);
+  // Timers that must be cleared on unmount so they don't fire on a torn-down map.
+  const animateRegionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nearbyListTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (animateRegionTimerRef.current) {
+        clearTimeout(animateRegionTimerRef.current);
+        animateRegionTimerRef.current = null;
+      }
+      if (nearbyListTimerRef.current) {
+        clearTimeout(nearbyListTimerRef.current);
+        nearbyListTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [isZoomedIn, setIsZoomedIn] = useState(false);
@@ -290,17 +303,14 @@ export default function MapScreen() {
         if (data) {
           const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userLocationRef.current));
           setRestaurants(uiRestaurants);
-          setHomeCacheRestaurants(uiRestaurants);
           // Overlay live review stats from restaurant_reviews
           const ids = uiRestaurants.map((r) => r.id);
           const statsMap = await fetchBatchReviewStats(ids);
-          const enriched = uiRestaurants.map((r) => {
+          setRestaurants(uiRestaurants.map((r) => {
             const s = statsMap.get(r.id);
             if (!s) return r;
             return { ...r, rating: s.average, reviewCount: s.count };
-          });
-          setRestaurants(enriched);
-          setHomeCacheRestaurants(enriched);
+          }));
         }
       } catch (err) {
         console.error("Map: error fetching restaurants:", err);
@@ -308,13 +318,7 @@ export default function MapScreen() {
         setLoading(false);
       }
     }
-    // Reuse the in-memory home cache so switching tabs doesn't blank the
-    // map and trigger another network round-trip.
-    if (!isHomeCacheRestaurantsFresh()) {
-      fetchRestaurants();
-    } else {
-      setLoading(false);
-    }
+    fetchRestaurants();
 
     const subscription = supabase
       .channel("map:restaurants")
@@ -324,17 +328,12 @@ export default function MapScreen() {
         (payload) => {
           if (payload.eventType === "UPDATE") {
             const updated = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocationRef.current);
-            patchHomeCacheRestaurant(updated);
             setRestaurants((prev) =>
               prev.map((r) => (r.id === updated.id ? updated : r)),
             );
           } else if (payload.eventType === "INSERT") {
             const added = mapSupabaseToUI(payload.new as SupabaseRestaurant, userLocationRef.current);
-            setRestaurants((prev) => {
-              const next = [...prev, added];
-              setHomeCacheRestaurants(next);
-              return next;
-            });
+            setRestaurants((prev) => [...prev, added]);
           }
         },
       )
@@ -368,7 +367,11 @@ export default function MapScreen() {
         longitudeDelta: 0.008,
       };
       setRegion(target);
-      setTimeout(() => mapRef.current?.animateToRegion(target, 600), 500);
+      if (animateRegionTimerRef.current) clearTimeout(animateRegionTimerRef.current);
+      animateRegionTimerRef.current = setTimeout(() => {
+        animateRegionTimerRef.current = null;
+        mapRef.current?.animateToRegion(target, 600);
+      }, 500);
       hasCenteredRef.current = true;
     } else if (userLocation) {
       // If live location is off, we're using city center coords → zoom out to show whole city
@@ -379,7 +382,11 @@ export default function MapScreen() {
         longitudeDelta: delta,
       };
       setRegion(initialRegion);
-      setTimeout(() => mapRef.current?.animateToRegion(initialRegion, 600), 500);
+      if (animateRegionTimerRef.current) clearTimeout(animateRegionTimerRef.current);
+      animateRegionTimerRef.current = setTimeout(() => {
+        animateRegionTimerRef.current = null;
+        mapRef.current?.animateToRegion(initialRegion, 600);
+      }, 500);
       hasCenteredRef.current = true;
     }
   }, [userLocation, targetLat, targetLng]);
@@ -573,9 +580,15 @@ export default function MapScreen() {
         if (r.image) Image.prefetch(r.image).catch(() => { });
       });
       setNearbyRestaurants([...clusterRestaurants].sort((a, b) => a.name.localeCompare(b.name)));
-      // setTimeout 100ms to ensure map marker press event clears before state update
+      // Ensure map marker press event clears before state update. Stored in a
+      // ref so unmount can clear it — otherwise we'd call setShowNearbyList on
+      // an unmounted component when the user rapidly navigates away.
       setSelectedRestaurant(null)
-      setTimeout(() => setShowNearbyList(true), 100);
+      if (nearbyListTimerRef.current) clearTimeout(nearbyListTimerRef.current);
+      nearbyListTimerRef.current = setTimeout(() => {
+        nearbyListTimerRef.current = null;
+        setShowNearbyList(true);
+      }, 100);
     }
   }, [userLocation, mappableRestaurants, insets.bottom]);
 
@@ -1382,7 +1395,6 @@ function SelectedRestaurantCard({
   isAdmin?: boolean;
   onAdminPress?: () => void;
 }) {
-  const insets = useSafeAreaInsets();
   const translateY = useRef(new RNAnimated.Value(CARD_HEIGHT)).current;
 
   // Slide in on mount
@@ -1436,9 +1448,7 @@ function SelectedRestaurantCard({
       {...panResponder.panHandlers}
       style={{
         position: "absolute",
-        // Sit just above the bottom nav so the card and its drag handle
-        // are never hidden behind the tab bar.
-        bottom: getBottomNavTopInset(insets.bottom) + 12,
+        bottom: 40,
         left: 16,
         right: 16,
         transform: [{ translateY }],

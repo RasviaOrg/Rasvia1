@@ -97,13 +97,26 @@ const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 const RESTAURANT_SHARE_WEB_BASE_URL = "https://rasvia.com";
 
 export default function RestaurantDetail() {
-  const { id, reorder, waitlist_entry } = useLocalSearchParams<{
+  const { id, reorder, waitlist_entry, mode, cartType, scrollTo } = useLocalSearchParams<{
     id: string;
     reorder?: string;
     waitlist_entry?: string;
+    mode?: string;
+    /** Optional intent passed from /cart so we open the correct checkout
+     *  flavour (dine_in vs takeout) without making the user re-pick. */
+    cartType?: string;
+    /** Anchor name — currently only "menu" is supported. Fired by the
+     *  Takeout "Browse Menu" CTA so the user lands directly in the food
+     *  rather than the hero. */
+    scrollTo?: string;
   }>();
   const waitlistEntryParam =
     typeof waitlist_entry === "string" && waitlist_entry.length > 0 ? waitlist_entry : undefined;
+  /** True when the user arrived here from the "no-wait, walk right in" sheet
+   *  — the menu is shown in pre-order mode with no backing waitlist row. */
+  const walkInPreorderMode = mode === "walk_in_preorder";
+  const cartTypeParam: 'dine_in' | 'takeout' | undefined =
+    cartType === "takeout" ? "takeout" : cartType === "dine_in" ? "dine_in" : undefined;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { userCoords } = useLocation();
@@ -155,14 +168,56 @@ export default function RestaurantDetail() {
     setLiveAvgRating(avg);
   }, []);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>('dine_in');
+  const [checkoutOrderType, setCheckoutOrderType] = useState<'dine_in' | 'takeout'>(
+    cartTypeParam ?? 'dine_in'
+  );
   const [lockCheckoutOrderType, setLockCheckoutOrderType] = useState(false);
+
+  // If the user lands here from /cart with an explicit dining intent, sync
+  // the checkout's order type once. Subsequent picker selections still win.
+  useEffect(() => {
+    if (cartTypeParam) setCheckoutOrderType(cartTypeParam);
+  }, [cartTypeParam]);
+
+  // Honor ?scrollTo=menu — request a scroll once the menu section has
+  // measured itself. If the layout pass hasn't finished, the onLayout
+  // handler below picks up the pending flag and fires it.
+  useEffect(() => {
+    if (scrollTo !== "menu") return;
+    pendingScrollToMenuRef.current = true;
+    // Small defer so it fires after the first render / layout pass.
+    const t = setTimeout(() => {
+      if (menuSectionYRef.current != null) scrollToMenu();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [scrollTo, scrollToMenu]);
+  // Whether this restaurant has Stripe Connect set up. Group orders settle
+  // via Stripe, so without an account we have to gate the "Group Order"
+  // entry-point and tell the user why it's unavailable.
+  const [onlinePaymentsEnabled, setOnlinePaymentsEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("restaurants")
+          .select("stripe_account_id")
+          .eq("id", Number(id))
+          .maybeSingle();
+        if (cancelled) return;
+        const acct = (data as any)?.stripe_account_id;
+        setOnlinePaymentsEnabled(typeof acct === "string" && acct.length > 0);
+      } catch {
+        if (!cancelled) setOnlinePaymentsEnabled(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
+
   const [communityImageTarget, setCommunityImageTarget] = useState<UIMenuItem | null>(null);
   const [acceptCommunityImages, setAcceptCommunityImages] = useState(true);
-  // True when the restaurant has Stripe Connect linked. Cash-only
-  // restaurants (no stripe_account_id) cannot host Group Orders because
-  // the split-pay flow depends on Stripe.
-  const [acceptsCard, setAcceptsCard] = useState(true);
   // Chain / multi-location picker
   const [chainLocations, setChainLocations] = useState<UIRestaurant[]>([]);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
@@ -220,10 +275,19 @@ export default function RestaurantDetail() {
   }, [hasItemsForFilter]);
 
 
+  // Tracks whether the "do I already have an active waitlist entry?" query
+  // has settled. We use this to gate the pre-order flow when the screen is
+  // opened via `?waitlist_entry=...` so we never render the cart/footer with
+  // `existingEntry == null` during the brief window between mount and the
+  // entry-query returning (which previously caused crashes when the footer
+  // deref'd `existingEntry.id`).
+  const [waitlistEntryChecked, setWaitlistEntryChecked] = useState(false);
+
   // Fetch party leader name + check for existing active entry
   useEffect(() => {
     if (!session?.user?.id) {
       setGlobalWaitlistEntry(null);
+      setWaitlistEntryChecked(true);
       return;
     }
 
@@ -231,7 +295,7 @@ export default function RestaurantDetail() {
       .from("profiles")
       .select("full_name, dietary_type, restricted_days, avatar_url")
       .eq("id", session.user.id)
-      .maybeSingle()
+      .single()
       .then(({ data }) => {
         if (data?.full_name) setPartyLeaderName(data.full_name);
         if (data?.dietary_type) setUserDietaryType(data.dietary_type);
@@ -256,6 +320,7 @@ export default function RestaurantDetail() {
         } else {
           setGlobalWaitlistEntry(null);
         }
+        setWaitlistEntryChecked(true);
       });
   }, [session?.user?.id]);
 
@@ -273,7 +338,7 @@ export default function RestaurantDetail() {
           .select("id, restaurant_id, status")
           .eq("id", stored.sessionId)
           .eq("status", "open")
-          .maybeSingle()
+          .single()
           .then(({ data }) => {
             setHasActiveGroupSession(!!data && String(data.restaurant_id) === String(id));
           });
@@ -291,7 +356,7 @@ export default function RestaurantDetail() {
         .from("waitlist_entries")
         .select("status")
         .eq("id", globalWaitlistEntry.id)
-        .maybeSingle()
+        .single()
         .then(({ data }) => {
           if (!data || data.status !== "waiting") {
             setGlobalWaitlistEntry(null);
@@ -303,17 +368,15 @@ export default function RestaurantDetail() {
   // Realtime: waitlist entry no longer active (staff cancel/remove) — clear local state (no system alert)
   useEffect(() => {
     if (!globalWaitlistEntry?.id) return;
-    const entryId = globalWaitlistEntry.id;
-    const topic = `restaurant-wl-entry:${entryId}:${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const ch = supabase
-      .channel(topic)
+      .channel(`restaurant-wl-entry:${globalWaitlistEntry.id}`)
       .on(
         "postgres_changes",
         {
           event: "UPDATE",
           schema: "public",
           table: "waitlist_entries",
-          filter: `id=eq.${entryId}`,
+          filter: `id=eq.${globalWaitlistEntry.id}`,
         },
         (payload) => {
           const s = (payload.new as { status?: string })?.status;
@@ -324,7 +387,7 @@ export default function RestaurantDetail() {
       )
       .subscribe();
     return () => {
-      void supabase.removeChannel(ch);
+      supabase.removeChannel(ch);
     };
   }, [globalWaitlistEntry?.id]);
 
@@ -339,12 +402,9 @@ export default function RestaurantDetail() {
     fetchQueueCount();
     fetchRestaurantMenuTags();
 
-    // One channel, unique topic per effect run: Supabase reuses topics by name; if a prior
-    // `restaurant:${id}` is still joining after navigation (e.g. waitlist → menu), `.channel()`
-    // can return a channel that's already subscribed and the first `.on()` throws.
-    const realtimeTopic = `restaurant-detail:${id}:${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const restaurantRealtime = supabase
-      .channel(realtimeTopic)
+    // Real-time: restaurant row changes
+    const restSub = supabase
+      .channel(`restaurant:${id}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "restaurants", filter: `id=eq.${id}` },
@@ -360,31 +420,43 @@ export default function RestaurantDetail() {
           });
         }
       )
+      .subscribe();
+
+    // Real-time: waitlist_entries changes → refresh queue count
+    const queueSub = supabase
+      .channel(`queue-count:${id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "waitlist_entries", filter: `restaurant_id=eq.${id}` },
-        () => {
-          fetchQueueCount();
-        }
+        () => { fetchQueueCount(); }
       )
+      .subscribe();
+
+    // Real-time: menu_items changes → refresh menu
+    const menuSub = supabase
+      .channel(`restaurant-menu:${id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${id}` },
-        () => {
-          fetchMenu();
-        }
+        () => { fetchMenu(); }
       )
+      .subscribe();
+
+    // Real-time: menu tag changes
+    const menuTagSub = supabase
+      .channel(`restaurant-menu-tags:${id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "restaurant_menu_tags", filter: `restaurant_id=eq.${id}` },
-        () => {
-          fetchRestaurantMenuTags();
-        }
+        () => { fetchRestaurantMenuTags(); }
       )
       .subscribe();
 
     return () => {
-      void supabase.removeChannel(restaurantRealtime);
+      supabase.removeChannel(restSub);
+      supabase.removeChannel(queueSub);
+      supabase.removeChannel(menuSub);
+      supabase.removeChannel(menuTagSub);
     };
   }, [id]);
 
@@ -422,14 +494,12 @@ export default function RestaurantDetail() {
         .from('restaurants')
         .select('*')
         .eq('id', id)
-        .maybeSingle();
+        .single();
 
       if (error) throw error;
-      if (!data) throw new Error('Restaurant not found');
       if (data) {
         const uiRestaurant = mapSupabaseToUI(data as SupabaseRestaurant, userCoords);
         setRestaurant(uiRestaurant);
-        setAcceptsCard(!!(data as any).stripe_account_id);
         // Fetch live review stats from restaurant_reviews (not the DB rating column)
         const stats = await fetchReviewStats(id);
         setLiveReviewCount(stats.count);
@@ -474,7 +544,7 @@ export default function RestaurantDetail() {
           .from("profiles")
           .select("favorite_restaurants")
           .eq("id", session.user.id)
-          .maybeSingle();
+          .single();
 
         if (profileData && profileData.favorite_restaurants) {
           const arr = parseFavorites(profileData.favorite_restaurants);
@@ -644,6 +714,36 @@ export default function RestaurantDetail() {
     },
   });
 
+  // Scroll-to-menu plumbing — used by both the ?scrollTo=menu deep link
+  // (e.g. Takeout's "Browse Menu" CTA) and the in-app "Browse Menu & Add
+  // Items" button on CheckoutModal. We measure the menu section once it
+  // mounts and then animate a smooth scroll to that y offset.
+  const scrollViewRef = useRef<any>(null);
+  const menuSectionYRef = useRef<number | null>(null);
+  const pendingScrollToMenuRef = useRef(false);
+
+  const scrollToMenu = useCallback(() => {
+    const node = scrollViewRef.current;
+    const y = menuSectionYRef.current;
+    if (!node) return;
+    if (y == null) {
+      // Menu hasn't laid out yet (still loading); flag to fire on layout.
+      pendingScrollToMenuRef.current = true;
+      return;
+    }
+    try {
+      // Subtract the sticky header height so the section title isn't hidden.
+      const target = Math.max(0, y - 24);
+      if (typeof node.scrollTo === "function") {
+        node.scrollTo({ y: target, animated: true });
+      } else if (typeof node.getNode === "function") {
+        node.getNode().scrollTo({ y: target, animated: true });
+      }
+    } catch {
+      // Best-effort — scrolling is non-critical UX glue.
+    }
+  }, []);
+
   // Hero: fixed height container, image fades out on scroll (no parallax shift)
   const heroInnerStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
@@ -695,21 +795,8 @@ export default function RestaurantDetail() {
     };
   });
 
-  const isClosedByHours = useMemo(
-    () =>
-      hoursStatus?.status === "closed" ||
-      hoursStatus?.status === "opening_soon",
-    [hoursStatus?.status]
-  );
-
-  const isClosed = useMemo(
-    () => restaurant?.waitStatus === "darkgrey" || isClosedByHours,
-    [restaurant?.waitStatus, isClosedByHours]
-  );
-
   const handleAddToCart = useCallback(
     (item: UIMenuItem) => {
-      if (isClosed || item.isAvailable === false) return;
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -736,6 +823,7 @@ export default function RestaurantDetail() {
             restaurantId,
             menuItemId,
             quantity: nextQuantity,
+            orderType: checkoutOrderType,
           }).catch(() => {
             // Non-blocking; UI remains responsive even if persistence fails.
           });
@@ -744,7 +832,7 @@ export default function RestaurantDetail() {
       });
       setSelectedItem(null);
     },
-    [id, localGroupMembers, session?.user?.id, isClosed]
+    [id, localGroupMembers, session?.user?.id, checkoutOrderType]
   );
 
   const handleUpdateQuantity = useCallback(
@@ -769,6 +857,7 @@ export default function RestaurantDetail() {
             restaurantId,
             menuItemId,
             quantity: nextQuantity,
+            orderType: checkoutOrderType,
           }).catch(() => {
             // Non-blocking persistence.
           });
@@ -776,7 +865,7 @@ export default function RestaurantDetail() {
         return next;
       });
     },
-    [id, session?.user?.id]
+    [id, session?.user?.id, checkoutOrderType]
   );
 
   useEffect(() => {
@@ -868,6 +957,44 @@ export default function RestaurantDetail() {
         return;
       }
 
+      // ── Zero-wait branch ───────────────────────────────────────────────
+      // If the user would be first in line AND the venue's current wait
+      // time is at or below zero, there's no need to create a waitlist row
+      // at all — they can just walk in. Surface a confirmation so the user
+      // can either start a walk-in pre-order (same restaurant page, but in
+      // `walk_in_preorder` mode with no waitlist entry backing it) or
+      // dismiss and physically head over.
+      const currentWaitTime = Number(restaurant?.waitTime ?? 0);
+      const wouldBeFirstInLine = (activeCount ?? 0) === 0;
+      if (wouldBeFirstInLine && currentWaitTime <= 0) {
+        setShowPartySizePicker(false);
+        setJoining(false);
+        // Short-circuit any further action — the user picks from the sheet.
+        setTimeout(() => {
+          Alert.alert(
+            "No wait right now — walk right in!",
+            "Would you like to browse the menu and pre-order before you get there, or just head over?",
+            [
+              {
+                text: "Browse menu & pre-order",
+                onPress: () => {
+                  router.replace(
+                    `/restaurant/${restaurant?.id}?mode=walk_in_preorder` as any,
+                  );
+                },
+              },
+              {
+                text: "Walk right in",
+                style: "cancel",
+                // Intentional no-op — the user just dismisses.
+              },
+            ],
+            { cancelable: true },
+          );
+        }, 0);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("waitlist_entries")
         .insert({
@@ -913,7 +1040,7 @@ export default function RestaurantDetail() {
     } finally {
       setJoining(false);
     }
-  }, [partySize, customParty, session, partyLeaderName, restaurant?.id, router]);
+  }, [partySize, customParty, session, partyLeaderName, restaurant?.id, restaurant?.waitTime, restaurant?.name, router, addEvent, refreshActive]);
 
   const handleToggleFavorite = useCallback(async () => {
     if (Platform.OS !== "web") {
@@ -934,7 +1061,7 @@ export default function RestaurantDetail() {
         .from("profiles")
         .select("favorite_restaurants")
         .eq("id", session.user.id)
-        .maybeSingle();
+        .single();
 
       if (fetchError) throw fetchError;
 
@@ -984,6 +1111,12 @@ export default function RestaurantDetail() {
     }
   }, [restaurant]);
 
+  const isClosedByHours =
+    hoursStatus?.status === "closed" ||
+    hoursStatus?.status === "opening_soon";
+  const isClosed =
+    restaurant?.waitStatus === "darkgrey" ||
+    isClosedByHours;
   const noWait = restaurant?.waitTime != null && restaurant.waitTime < 0;
   const waitlistClosed = restaurant?.waitlistOpen === false;
 
@@ -999,8 +1132,13 @@ export default function RestaurantDetail() {
     venueEmergencyClosed || (isClosedByHours && !scheduleAllowsWaitlist);
 
   /** Grey dine-in-only checkout only when opened from the waitlist screen (or equivalent URL with matching entry). */
+  // Gate on `waitlistEntryChecked` so we don't flicker the wrong footer UI
+  // between mount and the entry-query settling — that race previously
+  // produced a first-interaction crash when the user tapped the pre-order
+  // footer before `existingEntry` had populated.
   const checkoutFromWaitlist =
     !!waitlistEntryParam &&
+    waitlistEntryChecked &&
     !!existingEntry &&
     existingEntry.id === waitlistEntryParam &&
     !isClosed &&
@@ -1030,6 +1168,21 @@ export default function RestaurantDetail() {
       <View className="flex-1 bg-rasvia-black items-center justify-center">
         <Text style={{ color: '#999999', fontFamily: 'Manrope_500Medium' }}>
           {loading ? 'Loading...' : 'Restaurant not found'}
+        </Text>
+      </View>
+    );
+  }
+
+  // If the screen was opened from the user's own waitlist alert
+  // (`?waitlist_entry=...`) we must not mount the full restaurant tree until
+  // the matching entry row has been confirmed. Mounting early with a stale
+  // `existingEntry = null` previously caused the footer to crash when the
+  // user tapped it before the entry query finished.
+  if (waitlistEntryParam && !waitlistEntryChecked) {
+    return (
+      <View className="flex-1 bg-rasvia-black items-center justify-center">
+        <Text style={{ color: '#999999', fontFamily: 'Manrope_500Medium' }}>
+          Loading your order…
         </Text>
       </View>
     );
@@ -1352,6 +1505,7 @@ export default function RestaurantDetail() {
 
       {/* Main ScrollView */}
       <Animated.ScrollView
+        ref={scrollViewRef}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
@@ -1935,7 +2089,16 @@ export default function RestaurantDetail() {
         </View>
 
         {/* Menu Section */}
-        <View>
+        <View
+          onLayout={(e) => {
+            menuSectionYRef.current = e.nativeEvent.layout.y;
+            if (pendingScrollToMenuRef.current) {
+              pendingScrollToMenuRef.current = false;
+              // Defer one frame so the parent layout has stabilized.
+              requestAnimationFrame(scrollToMenu);
+            }
+          }}
+        >
           <View className="px-5 mt-4 mb-4">
             <Text
               style={{
@@ -2076,7 +2239,6 @@ export default function RestaurantDetail() {
               }}
               onQuickAdd={(item) => handleAddToCart(item)}
               restaurantId={id}
-              orderingAvailable={!isClosed}
               onContributeImage={acceptCommunityImages ? (item) => setCommunityImageTarget(item) : undefined}
             />
           </View>
@@ -2297,7 +2459,6 @@ export default function RestaurantDetail() {
           item={selectedItem}
           onClose={() => setSelectedItem(null)}
           onAddToCart={() => handleAddToCart(selectedItem)}
-          canAddToCart={!isClosed}
           showContributeImage={acceptCommunityImages && !selectedItem.hasOfficialImage && !selectedItem.communityImageCredit}
           onContributeImage={() => {
             if (!acceptCommunityImages) return;
@@ -2385,7 +2546,14 @@ export default function RestaurantDetail() {
         cartItems={cartItems}
         initialOrderType={checkoutOrderType}
         lockOrderType={lockCheckoutOrderType}
-        onAddMoreItems={() => setShowCheckout(false)}
+        onAddMoreItems={() => {
+          // Close the checkout sheet *and* immediately scroll to the menu so
+          // the user sees the items without having to swipe past the hero.
+          setShowCheckout(false);
+          // Defer slightly so the modal close animation doesn't fight the
+          // scroll offset change.
+          setTimeout(() => scrollToMenu(), 320);
+        }}
         waitlistEntryId={checkoutFromWaitlist ? existingEntry?.id : undefined}
         onUpdateQuantity={handleUpdateQuantity}
         onClose={() => setShowCheckout(false)}
@@ -2461,6 +2629,15 @@ export default function RestaurantDetail() {
                   );
                   return;
                 }
+                // Walk-in pre-order: the user already confirmed they're going
+                // straight in (no waitlist needed), so skip the party-size
+                // picker and open dine-in checkout directly.
+                if (walkInPreorderMode) {
+                  setCheckoutOrderType("dine_in");
+                  setLockCheckoutOrderType(true);
+                  setShowCheckout(true);
+                  return;
+                }
                 // Dine In → join waitlist (party size)
                 setCustomParty("");
                 setShowPartySizePicker(true);
@@ -2483,7 +2660,9 @@ export default function RestaurantDetail() {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>Dine In</Text>
                 <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
-                  {`Join the waitlist · ${restaurant?.waitTime != null && restaurant.waitTime > 0 ? `${restaurant.waitTime} min wait` : "No wait"}`}
+                  {walkInPreorderMode
+                    ? "Pre-order now — walk right in"
+                    : `Join the waitlist · ${restaurant?.waitTime != null && restaurant.waitTime > 0 ? `${restaurant.waitTime} min wait` : "No wait"}`}
                 </Text>
               </View>
             </Pressable>
@@ -2527,53 +2706,56 @@ export default function RestaurantDetail() {
               </View>
             </Pressable>
 
-            {/* Group Order — requires Stripe so split-pay can collect each
-                guest's share. Cash-only restaurants disable this option. */}
+            {/* Group Order — disabled when the restaurant either has no
+                Stripe account configured (group orders are paid online) or
+                is currently closed. */}
             {(() => {
-              const groupDisabled = isClosed || !acceptsCard;
+              const noOnlinePayments = onlinePaymentsEnabled === false;
+              const groupDisabled = isClosed || noOnlinePayments;
+              const groupSubtitle = isClosed
+                ? "Unavailable while closed"
+                : noOnlinePayments
+                  ? "Online payments aren’t enabled here"
+                  : "Order together with friends";
               return (
-                <Pressable
-                  onPress={() => {
-                    if (isClosed) {
-                      Alert.alert("Restaurant Closed", "Group orders are not available while the restaurant is closed.");
-                      return;
-                    }
-                    if (!acceptsCard) {
-                      Alert.alert(
-                        "Cash-Only Restaurant",
-                        "Group orders require card payments so each guest can pay their own share. This restaurant only accepts cash, so group orders aren't available here. You can still order together in person and pay individually at the counter.",
-                      );
-                      return;
-                    }
-                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    setShowOrderTypePicker(false);
-                    router.push(`/host_party?restaurantId=${restaurant?.id}` as any);
-                  }}
-                  style={{
-                    backgroundColor: groupDisabled ? "#141414" : "rgba(139,92,246,0.08)",
-                    borderRadius: 18,
-                    padding: 20,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    borderWidth: 1.5,
-                    borderColor: groupDisabled ? "#1e1e1e" : "rgba(139,92,246,0.25)",
-                    opacity: groupDisabled ? 0.5 : 1,
-                  }}
-                >
-                  <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: groupDisabled ? "#1a1a1a" : "rgba(139,92,246,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
-                    <Users size={22} color={groupDisabled ? "#555" : "#8B5CF6"} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: groupDisabled ? "#666" : "#f5f5f5", fontSize: 18 }}>Group Order</Text>
-                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
-                      {isClosed
-                        ? "Unavailable while closed"
-                        : !acceptsCard
-                        ? "Not available — cash-only restaurant"
-                        : "Order together with friends"}
-                    </Text>
-                  </View>
-                </Pressable>
+            <Pressable
+              onPress={() => {
+                if (isClosed) {
+                  Alert.alert("Restaurant Closed", "Group orders are not available while the restaurant is closed.");
+                  return;
+                }
+                if (noOnlinePayments) {
+                  Alert.alert(
+                    "Group orders unavailable",
+                    `${restaurant?.name ?? "This restaurant"} hasn’t enabled online payments yet, so group ordering isn’t available. Try again later or pay in-person at the restaurant.`,
+                  );
+                  return;
+                }
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setShowOrderTypePicker(false);
+                router.push(`/host_party?restaurantId=${restaurant?.id}` as any);
+              }}
+              style={{
+                backgroundColor: groupDisabled ? "#141414" : "rgba(139,92,246,0.08)",
+                borderRadius: 18,
+                padding: 20,
+                flexDirection: "row",
+                alignItems: "center",
+                borderWidth: 1.5,
+                borderColor: groupDisabled ? "#1e1e1e" : "rgba(139,92,246,0.25)",
+                opacity: groupDisabled ? 0.55 : 1,
+              }}
+            >
+              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: groupDisabled ? "#1a1a1a" : "rgba(139,92,246,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
+                <Users size={22} color={groupDisabled ? "#555" : "#8B5CF6"} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: groupDisabled ? "#666" : "#f5f5f5", fontSize: 18 }}>Group Order</Text>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
+                  {groupSubtitle}
+                </Text>
+              </View>
+            </Pressable>
               );
             })()}
           </Animated.View>

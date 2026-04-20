@@ -73,17 +73,24 @@ const rasviaTheme = {
 // ==========================================
 function GlobalTableReadyBanner() {
   const { tableReadyAlert, clearTableReadyAlert, seatedAlert, clearSeatedAlert } = useNotifications();
+  // Remember which entryId we last haptic'd for so re-renders of the same
+  // alert (realtime echoes, focus-triggered refreshes) don't re-fire the
+  // notification haptic. Only a new entryId counts as "new alert".
+  const lastTableReadyEntryRef = useRef<string | null>(null);
+  const lastSeatedEntryRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (tableReadyAlert && Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
+    if (!tableReadyAlert || Platform.OS === "web") return;
+    if (lastTableReadyEntryRef.current === tableReadyAlert.entryId) return;
+    lastTableReadyEntryRef.current = tableReadyAlert.entryId;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [tableReadyAlert]);
 
   useEffect(() => {
-    if (seatedAlert && Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
+    if (!seatedAlert || Platform.OS === "web") return;
+    if (lastSeatedEntryRef.current === seatedAlert.entryId) return;
+    lastSeatedEntryRef.current = seatedAlert.entryId;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [seatedAlert]);
 
   // Show seated (blue) banner on top if present, otherwise table ready (green)

@@ -13,6 +13,7 @@ import {
   Image,
   TextInput,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -28,6 +29,7 @@ import Animated, {
   withTiming,
   runOnJS,
   interpolateColor,
+  cancelAnimation,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from 'expo-secure-store';
@@ -37,6 +39,7 @@ import { FilterBar } from "@/components/FilterBar";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { type FilterType } from "@/data/mockData";
 import { supabase } from "@/lib/supabase";
+import { cancelOrder, cancelErrorMessage } from "@/lib/order-cancel";
 import { fetchBatchReviewStats } from "@/lib/review-stats";
 import {
   type SupabaseRestaurant,
@@ -57,28 +60,17 @@ import { OwnerHomeContent } from "@/components/OwnerHomeContent";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { withTimeout } from "@/lib/with-timeout";
 import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRecentlyViewedRestaurant, type RestaurantMediaSlide } from "@/lib/restaurant-media";
-import {
-  HOME_RESTAURANT_FRESH_MS,
-  clearUserHomeCache,
-  getHomeCacheAnnouncement,
-  getHomeCacheDietary,
-  getHomeCacheFavorites,
-  getHomeCacheMedia,
-  getHomeCacheOwnerId,
-  getHomeCacheRecentlyViewed,
-  getHomeCacheRestaurants,
-  isHomeCacheRestaurantsFresh,
-  patchHomeCacheRestaurant,
-  setHomeCacheAnnouncement,
-  setHomeCacheDietary,
-  setHomeCacheFavorites,
-  setHomeCacheMedia,
-  setHomeCacheRecentlyViewed,
-  setHomeCacheRestaurants,
-} from "@/lib/home-cache";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
+// Store the subscription so it's a tracked singleton (not a leaked anonymous
+// listener) — in production the module is imported once so this is registered
+// exactly once for the lifetime of the app. The real per-navigation leaks
+// that contributed to the sequential-crash were elsewhere (realtime channels,
+// timers, reanimated values) and are handled separately.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const __homeDimensionsSub = Dimensions.addEventListener("change", ({ window }) => {
+  SCREEN_WIDTH = window.width;
+});
 
 interface ActiveGroupOrder {
   sessionId: string;
@@ -109,44 +101,8 @@ function liveStepIndex(status: OrderStatus): number {
   return -1;
 }
 
-/** Legacy global keys (v1); v2 is per-user so dismissals survive account switch and cold starts reliably. */
-const LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia_home-live-order-dismissed-ids_v1";
-const LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia_home-waitlist-seated-dismissed-entry-ids_v1";
-
-function homeLiveOrderDismissedStorageKey(userId: string) {
-  return `rasvia_home_live_order_dismissed_v2_${userId}`;
-}
-
-function homeWaitlistSeatedDismissedStorageKey(userId: string) {
-  return `rasvia_home_waitlist_seated_dismissed_v2_${userId}`;
-}
-
-async function readDismissedIdSet(primaryKey: string, legacyKey: string | null): Promise<Set<string>> {
-  const next = new Set<string>();
-  try {
-    const raw = await SecureStore.getItemAsync(primaryKey);
-    if (raw) {
-      for (const id of JSON.parse(raw) as string[]) {
-        if (typeof id === "string") next.add(id);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  if (legacyKey) {
-    try {
-      const leg = await SecureStore.getItemAsync(legacyKey);
-      if (leg) {
-        for (const id of JSON.parse(leg) as string[]) {
-          if (typeof id === "string") next.add(id);
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return next;
-}
+const HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia_home-live-order-dismissed-ids_v1";
+const HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia_home-waitlist-seated-dismissed-entry-ids_v1";
 
 /** Live order banner: Received → Preparing → Ready → Served (orange → blue → teal → green) */
 const LIVE_ORDER_CARD_BG = [
@@ -184,16 +140,7 @@ export default function DiscoveryFeed() {
     effectiveOwnerRestaurantId,
     loading: roleLoading,
   } = useAdminMode();
-  const {
-    userCoords,
-    locationLabel,
-    requestLocationPermission,
-    setUserCoordsOverride,
-    setSearchOverride,
-    reloadLocationPrefs,
-    isUsingDiningPreferenceFallback,
-    diningPreferenceAreaLabel,
-  } = useLocation();
+  const { userCoords, locationLabel, requestLocationPermission, setUserCoordsOverride, setSearchOverride, reloadLocationPrefs } = useLocation();
   const [addressBarExpanded, setAddressBarExpanded] = useState(false);
   const [addressInput, setAddressInput] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: number; lon: number }>>([]);
@@ -201,8 +148,6 @@ export default function DiscoveryFeed() {
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [isSavingAddress, setIsSavingAddress] = useState(false);
   const addressSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Stable per screen mount so Realtime channel names never collide across remounts. */
-  const homeRealtimeInstanceId = useRef(`rt-${Math.random().toString(36).slice(2, 11)}`);
   const Location = require("expo-location");
 
   // Nominatim address autocomplete — guard against stale responses (fast
@@ -358,10 +303,23 @@ export default function DiscoveryFeed() {
   const liveOrderSwipeRef = useRef<Swipeable>(null);
   const liveOrderTrackRef = useRef<typeof liveOrderTrack>(null);
   const dismissedLiveOrderIdsRef = useRef<Set<string>>(new Set());
-  const dismissedSeatedWaitlistEntryIdsRef = useRef<Set<string>>(new Set());
   const liveOrderFadeOutRef = useRef(false);
   const bannerOpacity = useSharedValue(1);
   const liveColorProgress = useSharedValue(0);
+
+  // Cancel any in-flight withTiming callbacks on unmount so they can't fire
+  // `runOnJS` or write back to shared values after the component has been torn
+  // down. Previously these animations would keep rescheduling across
+  // navigations and contribute to the sequential-crash memory pressure.
+  useEffect(() => {
+    return () => {
+      cancelAnimation(bannerOpacity);
+      cancelAnimation(liveColorProgress);
+    };
+    // bannerOpacity / liveColorProgress identities are stable for the life of
+    // this component (useSharedValue returns the same object), so no deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     liveOrderTrackRef.current = liveOrderTrack;
@@ -370,10 +328,6 @@ export default function DiscoveryFeed() {
   useEffect(() => {
     dismissedLiveOrderIdsRef.current = dismissedLiveOrderIds;
   }, [dismissedLiveOrderIds]);
-
-  useEffect(() => {
-    dismissedSeatedWaitlistEntryIdsRef.current = dismissedSeatedWaitlistEntryIds;
-  }, [dismissedSeatedWaitlistEntryIds]);
 
   useEffect(() => {
     if (!liveOrderTrack) return;
@@ -421,13 +375,112 @@ export default function DiscoveryFeed() {
     return activeLiveOrders.filter((o) => o.id !== liveOrderTrack.id).length;
   }, [activeLiveOrders, liveOrderTrack]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await SecureStore.getItemAsync(HOME_LIVE_ORDER_DISMISSED_KEY);
+        if (raw) setDismissedLiveOrderIds(new Set(JSON.parse(raw) as string[]));
+        const rawWl = await SecureStore.getItemAsync(HOME_WAITLIST_SEATED_DISMISSED_KEY);
+        if (rawWl) setDismissedSeatedWaitlistEntryIds(new Set(JSON.parse(rawWl) as string[]));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
+
+  const dismissLiveOrderBanner = useCallback((orderId: string) => {
+    setDismissedLiveOrderIds((prev) => {
+      const next = new Set(prev).add(orderId);
+      void SecureStore.setItemAsync(HOME_LIVE_ORDER_DISMISSED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  /**
+   * Lookup a restaurant's phone number for "Contact to cancel" fallback.
+   * Returns null if unknown.
+   */
+  const fetchRestaurantPhone = useCallback(async (restaurantName: string): Promise<string | null> => {
+    try {
+      const { data } = await supabase
+        .from("restaurants")
+        .select("phone")
+        .eq("name", restaurantName)
+        .maybeSingle();
+      const phone = (data as any)?.phone ?? null;
+      return phone && typeof phone === "string" && phone.length > 0 ? phone : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /**
+   * Attempt to cancel an active order from the home banner. Cash/unpaid orders
+   * are flipped to `cancelled` directly; paid-card orders surface a "contact
+   * restaurant" flow with a tap-to-call button when the phone is available.
+   */
+  const handleCancelLiveOrder = useCallback(
+    async (orderId: string, restaurantName: string) => {
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const confirm = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          "Cancel order?",
+          `This will cancel your current order at ${restaurantName}. You can't undo this.`,
+          [
+            { text: "Keep order", style: "cancel", onPress: () => resolve(false) },
+            { text: "Cancel order", style: "destructive", onPress: () => resolve(true) },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        );
+      });
+      if (!confirm) return;
+
+      const result = await cancelOrder(orderId);
+      if (result.ok) {
+        dismissLiveOrderBanner(orderId);
+        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
+
+      if (result.reason === "paid_card") {
+        const phone = await fetchRestaurantPhone(restaurantName);
+        const { title, message } = cancelErrorMessage(result.reason, restaurantName);
+        Alert.alert(
+          title,
+          message,
+          phone
+            ? [
+                { text: "Not now", style: "cancel" },
+                {
+                  text: `Call ${restaurantName}`,
+                  onPress: () => Linking.openURL(`tel:${phone.replace(/[^0-9+]/g, "")}`),
+                },
+              ]
+            : [{ text: "OK", style: "cancel" }],
+        );
+        return;
+      }
+
+      const { title, message } = cancelErrorMessage(result.reason, restaurantName);
+      Alert.alert(title, message);
+    },
+    [dismissLiveOrderBanner, fetchRestaurantPhone],
+  );
+
+  const dismissSeatedWaitlistBanner = useCallback((entryId: string) => {
+    setDismissedSeatedWaitlistEntryIds((prev) => {
+      const next = new Set(prev).add(entryId);
+      void SecureStore.setItemAsync(HOME_WAITLIST_SEATED_DISMISSED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
   const personalization = usePersonalization();
   const [refreshing, setRefreshing] = useState(false);
-  const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>(() => getHomeCacheFavorites());
-  const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>(() => getHomeCacheRecentlyViewed());
-  const [announcementBanner, setAnnouncementBanner] = useState(() => getHomeCacheAnnouncement());
-  const [userDietaryType, setUserDietaryType] = useState(() => getHomeCacheDietary().userDietaryType);
-  const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>(() => getHomeCacheDietary().userRestrictedDays);
+  const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<number[]>([]);
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<number[]>([]);
+  const [announcementBanner, setAnnouncementBanner] = useState("");
+  const [userDietaryType, setUserDietaryType] = useState("");
+  const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
   const [ownerHomeMode, setOwnerHomeMode] = useState<"discover" | "dashboard">("dashboard");
 
   // Owners see their dashboard inline — no redirect needed
@@ -435,12 +488,9 @@ export default function DiscoveryFeed() {
   // ==================================================
   // STATE MANAGEMENT - Replace Mock Data
   // ==================================================
-  const [restaurants, setRestaurants] = useState<UIRestaurant[]>(() => getHomeCacheRestaurants());
-  const [restaurantMediaById, setRestaurantMediaById] = useState<Record<string, RestaurantMediaSlide[]>>(() => getHomeCacheMedia());
-  // Only show the loading splash on the very first cold start. Once we
-  // have any cached restaurants, subsequent tab returns must NOT flash
-  // the loader.
-  const [loading, setLoading] = useState(() => getHomeCacheRestaurants().length === 0);
+  const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
+  const [restaurantMediaById, setRestaurantMediaById] = useState<Record<string, RestaurantMediaSlide[]>>({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!loading) return;
@@ -462,42 +512,24 @@ export default function DiscoveryFeed() {
         .from("system_config")
         .select("value")
         .eq("key", "announcement_banner")
-        .maybeSingle();
-      const next = (data as any)?.value ?? "";
-      setAnnouncementBanner(next);
-      setHomeCacheAnnouncement(next);
+        .single();
+      setAnnouncementBanner((data as any)?.value ?? "");
     } catch {
       setAnnouncementBanner("");
-      setHomeCacheAnnouncement("");
     }
   }, []);
 
   useEffect(() => {
-    // Only refetch on mount if cache is stale or empty. The realtime
-    // subscription below keeps the cached list current, so a tab switch
-    // doesn't need to re-hit the network.
-    if (!isHomeCacheRestaurantsFresh()) {
-      fetchRestaurants();
-    } else {
-      // Cache is fresh — just clear the loading state immediately
-      setLoading(false);
-    }
-    if (!getHomeCacheAnnouncement()) {
-      fetchAnnouncementBanner();
-    }
+    fetchRestaurants();
+    fetchAnnouncementBanner();
 
-    // Use a dedicated channel name — avoid strings like `public:restaurants` that
-    // mirror Realtime topic ids; Supabase may treat them as the same channel and
-    // throw "cannot add postgres_changes callbacks … after subscribe()" on remount
-    // (e.g. React Strict Mode) or when the name collides with an active subscription.
     const subscription = supabase
-      .channel(`rasvia-home-restaurant-updates-${homeRealtimeInstanceId.current}`)
+      .channel('public:restaurants')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'restaurants' },
         (payload) => {
           const updatedRestaurant = mapSupabaseToUI(payload.new as SupabaseRestaurant, userCoordsRef.current);
-          patchHomeCacheRestaurant(updatedRestaurant);
           setRestaurants((currentData) =>
             currentData.map((item) =>
               item.id === updatedRestaurant.id ? updatedRestaurant : item
@@ -508,14 +540,12 @@ export default function DiscoveryFeed() {
       .subscribe();
 
     const bannerSubscription = supabase
-      .channel(`rasvia-home-announcement-banner-${homeRealtimeInstanceId.current}`)
+      .channel('system_config:announcement')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'system_config', filter: 'key=eq.announcement_banner' },
         (payload) => {
-          const next = (payload.new as any)?.value ?? "";
-          setAnnouncementBanner(next);
-          setHomeCacheAnnouncement(next);
+          setAnnouncementBanner((payload.new as any)?.value ?? "");
         }
       )
       .subscribe();
@@ -530,7 +560,6 @@ export default function DiscoveryFeed() {
   const fetchFavoriteRestaurantIds = useCallback(async () => {
     const userId = session?.user?.id;
     if (!userId) {
-      clearUserHomeCache();
       setFavoriteRestaurantIds([]);
       return;
     }
@@ -539,40 +568,24 @@ export default function DiscoveryFeed() {
         .from("profiles")
         .select("favorite_restaurants")
         .eq("id", userId)
-        .maybeSingle();
-      const ids = parseFavorites((data as any)?.favorite_restaurants);
-      setFavoriteRestaurantIds(ids);
-      setHomeCacheFavorites(ids, userId);
+        .single();
+      setFavoriteRestaurantIds(parseFavorites((data as any)?.favorite_restaurants));
     } catch {
       setFavoriteRestaurantIds([]);
-      setHomeCacheFavorites([], userId);
     }
   }, [session?.user?.id]);
 
   useEffect(() => {
-    const userId = session?.user?.id ?? null;
-    // If the cached data belongs to a different user, drop it before
-    // hydrating so we don't briefly show another user's favorites.
-    if (getHomeCacheOwnerId() !== userId) {
-      clearUserHomeCache();
-      setFavoriteRestaurantIds([]);
-      setRecentlyViewedIds([]);
-      setUserDietaryType("");
-      setUserRestrictedDays([]);
-    }
     fetchFavoriteRestaurantIds();
-  }, [fetchFavoriteRestaurantIds, session?.user?.id]);
+  }, [fetchFavoriteRestaurantIds]);
 
   const fetchRecentlyViewedIds = useCallback(async () => {
     const userId = session?.user?.id;
     if (!userId) {
       setRecentlyViewedIds([]);
-      setHomeCacheRecentlyViewed([]);
       return;
     }
-    const ids = await fetchRecentlyViewedRestaurantIds(userId);
-    setRecentlyViewedIds(ids);
-    setHomeCacheRecentlyViewed(ids);
+    setRecentlyViewedIds(await fetchRecentlyViewedRestaurantIds(userId));
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -592,7 +605,6 @@ export default function DiscoveryFeed() {
     
     // Optimistic UI update
     setFavoriteRestaurantIds(nextFavs);
-    setHomeCacheFavorites(nextFavs, userId);
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
@@ -604,7 +616,6 @@ export default function DiscoveryFeed() {
     } catch (e) {
       // Revert if error
       setFavoriteRestaurantIds(favoriteRestaurantIds);
-      setHomeCacheFavorites(favoriteRestaurantIds, userId);
     }
   }, [session?.user?.id, favoriteRestaurantIds]);
 
@@ -613,7 +624,6 @@ export default function DiscoveryFeed() {
     if (!userId) {
       setUserDietaryType("");
       setUserRestrictedDays([]);
-      setHomeCacheDietary("", []);
       return;
     }
     try {
@@ -621,16 +631,12 @@ export default function DiscoveryFeed() {
         .from("profiles")
         .select("dietary_type, restricted_days")
         .eq("id", userId)
-        .maybeSingle();
-      const dietary = (data as any)?.dietary_type ?? "";
-      const restricted = ((data as any)?.restricted_days as string[]) ?? [];
-      setUserDietaryType(dietary);
-      setUserRestrictedDays(restricted);
-      setHomeCacheDietary(dietary, restricted);
+        .single();
+      setUserDietaryType((data as any)?.dietary_type ?? "");
+      setUserRestrictedDays(((data as any)?.restricted_days as string[]) ?? []);
     } catch {
       setUserDietaryType("");
       setUserRestrictedDays([]);
-      setHomeCacheDietary("", []);
     }
   }, [session?.user?.id]);
 
@@ -681,7 +687,6 @@ export default function DiscoveryFeed() {
       if (data) {
         const uiRestaurants = data.map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userCoordsRef.current));
         setRestaurants(uiRestaurants);
-        setHomeCacheRestaurants(uiRestaurants);
         // Overlay live review stats (count + average) from restaurant_reviews
         const ids = uiRestaurants.map((r: UIRestaurant) => r.id);
         const statsMap = await withTimeout(
@@ -695,10 +700,7 @@ export default function DiscoveryFeed() {
           return { ...r, rating: s.average, reviewCount: s.count };
         });
         setRestaurants(withReviews);
-        setHomeCacheRestaurants(withReviews);
-        const media = await fetchRestaurantMediaSlides(withReviews.map((r: UIRestaurant) => r.id));
-        setRestaurantMediaById(media);
-        setHomeCacheMedia(media);
+        setRestaurantMediaById(await fetchRestaurantMediaSlides(withReviews.map((r: UIRestaurant) => r.id)));
       }
     } catch (error) {
       console.error('Error fetching restaurants:', error);
@@ -711,95 +713,6 @@ export default function DiscoveryFeed() {
   const activeOrderKey = currentUserId
     ? `rasvia_active_group_order_${currentUserId}`
     : null;
-
-  useEffect(() => {
-    if (!currentUserId) {
-      setDismissedLiveOrderIds(new Set());
-      setDismissedSeatedWaitlistEntryIds(new Set());
-      dismissedLiveOrderIdsRef.current = new Set();
-      dismissedSeatedWaitlistEntryIdsRef.current = new Set();
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const [liveDismissed, wlDismissed] = await Promise.all([
-          readDismissedIdSet(
-            homeLiveOrderDismissedStorageKey(currentUserId),
-            LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY
-          ),
-          readDismissedIdSet(
-            homeWaitlistSeatedDismissedStorageKey(currentUserId),
-            LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY
-          ),
-        ]);
-        if (cancelled) return;
-        // Never shrink refs: a slower read must not overwrite an in-session dismiss or a
-        // concurrent fetchLiveOrder merge (fixes cancelled banner reappearing after navigation).
-        dismissedLiveOrderIdsRef.current = new Set([
-          ...liveDismissed,
-          ...dismissedLiveOrderIdsRef.current,
-        ]);
-        dismissedSeatedWaitlistEntryIdsRef.current = new Set([
-          ...wlDismissed,
-          ...dismissedSeatedWaitlistEntryIdsRef.current,
-        ]);
-        setDismissedLiveOrderIds(new Set(dismissedLiveOrderIdsRef.current));
-        setDismissedSeatedWaitlistEntryIds(new Set(dismissedSeatedWaitlistEntryIdsRef.current));
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentUserId]);
-
-  const dismissLiveOrderBanner = useCallback(
-    (orderId: string) => {
-      if (!currentUserId) return;
-      const key = homeLiveOrderDismissedStorageKey(currentUserId);
-      setDismissedLiveOrderIds((prev) => {
-        const next = new Set(prev).add(orderId);
-        dismissedLiveOrderIdsRef.current = next;
-        return next;
-      });
-      void (async () => {
-        try {
-          await SecureStore.setItemAsync(
-            key,
-            JSON.stringify([...dismissedLiveOrderIdsRef.current])
-          );
-        } catch {
-          /* ignore */
-        }
-      })();
-    },
-    [currentUserId]
-  );
-
-  const dismissSeatedWaitlistBanner = useCallback(
-    (entryId: string) => {
-      if (!currentUserId) return;
-      const key = homeWaitlistSeatedDismissedStorageKey(currentUserId);
-      setDismissedSeatedWaitlistEntryIds((prev) => {
-        const next = new Set(prev).add(entryId);
-        dismissedSeatedWaitlistEntryIdsRef.current = next;
-        return next;
-      });
-      void (async () => {
-        try {
-          await SecureStore.setItemAsync(
-            key,
-            JSON.stringify([...dismissedSeatedWaitlistEntryIdsRef.current])
-          );
-        } catch {
-          /* ignore */
-        }
-      })();
-    },
-    [currentUserId]
-  );
 
   const discardGroupOrder = useCallback(async (sessId: string) => {
     Alert.alert(
@@ -841,7 +754,7 @@ export default function DiscoveryFeed() {
           .from('party_sessions')
           .select('id, status, restaurants(name, image_url)')
           .eq('id', parsed.sessionId)
-          .maybeSingle();
+          .single();
 
         if (!error && sess && ['open', 'locked', 'paying'].includes(String((sess as any).status))) {
           setActiveGroupOrder({
@@ -893,14 +806,6 @@ export default function DiscoveryFeed() {
       return;
     }
     try {
-      const fromStore = await readDismissedIdSet(
-        homeLiveOrderDismissedStorageKey(currentUserId),
-        LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY
-      );
-      const mergedDismissed = new Set([...fromStore, ...dismissedLiveOrderIdsRef.current]);
-      dismissedLiveOrderIdsRef.current = mergedDismissed;
-      setDismissedLiveOrderIds(mergedDismissed);
-
       const { data, error } = await supabase
         .from("orders")
         .select("id, status, restaurants(name)")
@@ -916,8 +821,8 @@ export default function DiscoveryFeed() {
       }));
       setAllLiveOrders(allRows.filter((r) => r.status !== "cancelled" && r.status !== "completed"));
 
-      const chosen = allRows.find((r) => !mergedDismissed.has(r.id)) ?? null;
-      if (error || !chosen) {
+      const row = data?.[0];
+      if (error || !row) {
         const prev = liveOrderTrackRef.current;
         const dismissed = dismissedLiveOrderIdsRef.current;
         if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
@@ -942,9 +847,9 @@ export default function DiscoveryFeed() {
       liveOrderFadeOutRef.current = false;
       bannerOpacity.value = 1;
       setLiveOrderTrack({
-        id: chosen.id,
-        restaurantName: chosen.restaurantName,
-        status: chosen.status,
+        id: String(row.id),
+        restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
+        status: row.status as OrderStatus,
       });
     } catch {
       const prev = liveOrderTrackRef.current;
@@ -974,19 +879,14 @@ export default function DiscoveryFeed() {
       return;
     }
     try {
-      const fromStore = await readDismissedIdSet(
-        homeWaitlistSeatedDismissedStorageKey(currentUserId),
-        LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY
-      );
-      const mergedSeatedDismissed = new Set([...fromStore, ...dismissedSeatedWaitlistEntryIdsRef.current]);
-      dismissedSeatedWaitlistEntryIdsRef.current = mergedSeatedDismissed;
-      setDismissedSeatedWaitlistEntryIds(mergedSeatedDismissed);
-
       const { data, error } = await supabase
         .from("waitlist_entries")
         .select("id, party_size, restaurant_id, created_at, notified_at, status, restaurants(name)")
         .eq("user_id", currentUserId)
-        .in("status", ["waiting", "seated"])
+        // Include "notified" so the home banner matches what Alerts shows —
+        // otherwise a table-ready entry disappears from home until the user
+        // is physically seated by staff.
+        .in("status", ["waiting", "notified", "seated"])
         .order("created_at", { ascending: false })
         .limit(1);
 
@@ -1006,12 +906,6 @@ export default function DiscoveryFeed() {
         phase = "in_queue";
       }
 
-      const entryId = String(row.id);
-      if (phase === "seated" && mergedSeatedDismissed.has(entryId)) {
-        setLiveWaitlistBanner(null);
-        return;
-      }
-
       let position = 1;
       if (phase === "in_queue") {
         const rid = row.restaurant_id;
@@ -1026,7 +920,7 @@ export default function DiscoveryFeed() {
       }
 
       setLiveWaitlistBanner({
-        entryId,
+        entryId: String(row.id),
         restaurantId: String(row.restaurant_id),
         restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
         partySize: row.party_size,
@@ -1047,9 +941,7 @@ export default function DiscoveryFeed() {
     }
     void fetchLiveOrder();
     const ch = supabase
-      .channel(
-        `rasvia-live-order-${currentUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      )
+      .channel(`home-live-order:${currentUserId}`)
       .on(
         "postgres_changes",
         {
@@ -1075,9 +967,7 @@ export default function DiscoveryFeed() {
     }
     void fetchLiveWaitlist();
     const ch = supabase
-      .channel(
-        `rasvia-waitlist-${currentUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      )
+      .channel(`home-waitlist:${currentUserId}`)
       .on(
         "postgres_changes",
         {
@@ -1101,9 +991,7 @@ export default function DiscoveryFeed() {
     const eid = liveWaitlistBanner?.entryId;
     if (!eid || !currentUserId) return;
     const ch = supabase
-      .channel(
-        `rasvia-waitlist-entry-${eid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      )
+      .channel(`home-waitlist-entry:${eid}`)
       .on(
         "postgres_changes",
         {
@@ -1122,93 +1010,13 @@ export default function DiscoveryFeed() {
     };
   }, [liveWaitlistBanner?.entryId, currentUserId, fetchLiveWaitlist]);
 
-  // Group order banner: session can finish while this tab stays mounted (no
-  // focus event). Subscribing to `party_sessions` keeps SecureStore + UI in sync.
-  useEffect(() => {
-    if (!currentUserId) return;
-    const ch = supabase
-      .channel(
-        `home-party-host-${currentUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "party_sessions",
-          filter: `host_user_id=eq.${currentUserId}`,
-        },
-        () => {
-          void checkActiveGroupOrder();
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, [currentUserId, checkActiveGroupOrder]);
-
-  useEffect(() => {
-    const sid = activeGroupOrder?.sessionId;
-    if (!sid) return;
-    const ch = supabase
-      .channel(
-        `home-party-sess-${sid}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "party_sessions",
-          filter: `id=eq.${sid}`,
-        },
-        () => {
-          void checkActiveGroupOrder();
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, [activeGroupOrder?.sessionId, checkActiveGroupOrder]);
-
-  // Re-merge persisted dismissals and refetch live order / waitlist on focus so a trash
-  // dismiss survives navigation (storage is awaited on dismiss; focus re-reads before fetch).
   useFocusEffect(
     useCallback(() => {
       checkActiveGroupOrder();
-      if (!currentUserId) return;
-      void (async () => {
-        try {
-          const [liveD, wlD] = await Promise.all([
-            readDismissedIdSet(
-              homeLiveOrderDismissedStorageKey(currentUserId),
-              LEGACY_HOME_LIVE_ORDER_DISMISSED_KEY
-            ),
-            readDismissedIdSet(
-              homeWaitlistSeatedDismissedStorageKey(currentUserId),
-              LEGACY_HOME_WAITLIST_SEATED_DISMISSED_KEY
-            ),
-          ]);
-          const mergedLive = new Set([...liveD, ...dismissedLiveOrderIdsRef.current]);
-          dismissedLiveOrderIdsRef.current = mergedLive;
-          setDismissedLiveOrderIds(mergedLive);
-          const mergedWl = new Set([...wlD, ...dismissedSeatedWaitlistEntryIdsRef.current]);
-          dismissedSeatedWaitlistEntryIdsRef.current = mergedWl;
-          setDismissedSeatedWaitlistEntryIds(mergedWl);
-        } catch {
-          /* ignore */
-        }
-        void fetchLiveOrder();
-        void fetchLiveWaitlist();
-      })();
-    }, [
-      checkActiveGroupOrder,
-      currentUserId,
-      fetchLiveOrder,
-      fetchLiveWaitlist,
-    ])
+      fetchFavoriteRestaurantIds();
+      void fetchLiveOrder();
+      void fetchLiveWaitlist();
+    }, [checkActiveGroupOrder, fetchFavoriteRestaurantIds, fetchLiveOrder, fetchLiveWaitlist])
   );
 
   // Recalculate distances when userCoords arrives after initial fetch
@@ -1354,30 +1162,14 @@ export default function DiscoveryFeed() {
 
   const nothingToShow = trendingRestaurants.length === 0 && nearbyRestaurants.length === 0 && quickBites.length === 0;
 
-  // Debounce restaurant card presses so a double-tap doesn't push the
-  // detail screen twice (which would stack two copies on the navigator
-  // and force the user to back twice). 800ms covers the slowest navigation
-  // animation on low-end Androids.
-  const restaurantNavLockRef = useRef<{ id: string; at: number } | null>(null);
   const handleRestaurantPress = useCallback(
     (id: string) => {
-      const now = Date.now();
-      const lock = restaurantNavLockRef.current;
-      if (lock && lock.id === id && now - lock.at < 800) {
-        return;
-      }
-      restaurantNavLockRef.current = { id, at: now };
-
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
       const restaurantIdNum = Number(id);
       if (Number.isFinite(restaurantIdNum) && restaurantIdNum > 0) {
-        setRecentlyViewedIds((prev) => {
-          const next = [restaurantIdNum, ...prev.filter((x) => x !== restaurantIdNum)].slice(0, 10);
-          setHomeCacheRecentlyViewed(next);
-          return next;
-        });
+        setRecentlyViewedIds((prev) => [restaurantIdNum, ...prev.filter((x) => x !== restaurantIdNum)].slice(0, 10));
         const userId = session?.user?.id;
         if (userId) {
           void recordRecentlyViewedRestaurant(userId, restaurantIdNum);
@@ -1498,7 +1290,11 @@ export default function DiscoveryFeed() {
             gap: 10,
           }}
         >
-          <Search size={16} color="#FF9933" />
+          {isOwnerDashboardMode ? (
+            <UtensilsCrossed size={16} color="#f5f5f5" />
+          ) : (
+            <Search size={16} color="#FF9933" />
+          )}
           <Text
             style={{
               flex: 1,
@@ -1526,49 +1322,6 @@ export default function DiscoveryFeed() {
               zIndex: 20,
             }}
           >
-            {isUsingDiningPreferenceFallback && diningPreferenceAreaLabel && (
-              <View
-                style={{
-                  marginBottom: 12,
-                  padding: 12,
-                  borderRadius: 12,
-                  backgroundColor: "rgba(255,153,51,0.08)",
-                  borderWidth: 1,
-                  borderColor: "rgba(255,153,51,0.22)",
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: "Manrope_600SemiBold",
-                    color: "#e8e8e8",
-                    fontSize: 13,
-                    lineHeight: 19,
-                  }}
-                >
-                  Showing nearby results for{" "}
-                  <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold" }}>
-                    {diningPreferenceAreaLabel}
-                  </Text>{" "}
-                  from your{" "}
-                  <Text
-                    onPress={() => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      setAddressBarExpanded(false);
-                      router.push("/dining-preferences" as any);
-                    }}
-                    style={{
-                      color: "#FF9933",
-                      fontFamily: "Manrope_700Bold",
-                      textDecorationLine: "underline",
-                      textDecorationColor: "#FF9933",
-                    }}
-                  >
-                    dining preferences
-                  </Text>
-                  .
-                </Text>
-              </View>
-            )}
             {/* Address Input + Detect button */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <View
@@ -2187,13 +1940,37 @@ export default function DiscoveryFeed() {
                       })}
                     </View>
                   </View>
-                  <View style={{ marginTop: -15, justifyContent: "center" }}>
+                  <View style={{ marginTop: -15, justifyContent: "center", alignItems: "flex-end", gap: 8 }}>
                     <ChevronRight
                       size={20}
                       color={
                         LIVE_ORDER_ACCENT_SOLID[liveStepIndex(liveOrderTrack.status)] ?? LIVE_ORDER_ACCENT_SOLID[0]
                       }
                     />
+                    {/* Cancel chip — only meaningful for not-yet-prepared orders.
+                        For paid-card orders the helper surfaces a "Contact the
+                        restaurant" prompt instead of flipping the row itself. */}
+                    {(liveOrderTrack.status === "pending" || liveOrderTrack.status === "pending_payment") && (
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          void handleCancelLiveOrder(liveOrderTrack.id, liveOrderTrack.restaurantName);
+                        }}
+                        hitSlop={8}
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 10,
+                          borderWidth: 1,
+                          borderColor: "rgba(239,68,68,0.35)",
+                          backgroundColor: "rgba(239,68,68,0.10)",
+                        }}
+                      >
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FCA5A5", fontSize: 10, letterSpacing: 0.4 }}>
+                          CANCEL
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                   </Animated.View>
                   )}

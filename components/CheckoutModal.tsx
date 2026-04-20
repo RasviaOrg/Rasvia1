@@ -36,6 +36,7 @@ import { useNotifications } from "@/lib/notifications-context";
 import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from "@/lib/edge-function-error";
 import { withTimeout } from "@/lib/with-timeout";
 import { getCheckoutUrlOrThrow } from "@/lib/checkout-response";
+import { clearUserCartForRestaurant } from "@/lib/user-cart";
 import type { CartItem } from "@/data/mockData";
 import type { OrderType } from "@/lib/restaurant-types";
 
@@ -63,6 +64,15 @@ interface CheckoutModalProps {
 }
 
 const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
+
+/**
+ * Apple Pay / Google Pay show a "Save card to this device?" prompt *after*
+ * the merchant flow returns. If we dismiss the in-app browser the instant
+ * the redirect lands, the prompt is dismissed with it and the user never
+ * gets to interact with it. Wait briefly so the wallet sheet has time to
+ * render its own UI before we yank the surrounding browser.
+ */
+const WALLET_INTERACTION_GRACE_MS = 900;
 
 const S = {
     card: {
@@ -151,18 +161,22 @@ export function CheckoutModal({
     const [hasStripe, setHasStripe] = useState(false);
     const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
 
-    // Takeout orders are cash-only by policy — pickup happens at the
-    // counter so the customer hands payment over there. We force cash
-    // whenever the order type is takeout to avoid customers reaching
-    // the Stripe sheet for a payment we don't want to process online.
-    const lockToCash = orderType === 'takeout';
-    useEffect(() => {
-        if (lockToCash && paymentMethod !== 'cash') {
-            setPaymentMethod('cash');
-        }
-    }, [lockToCash, paymentMethod]);
-
     const subtotal = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
+
+    // Wipe the shared server-side cart for this restaurant. Run after a
+    // successful order so the user's cart doesn't still contain items that
+    // were just ordered. Swallows errors — a stale cart is recoverable and
+    // shouldn't block the confirmation UX.
+    const clearCartForThisRestaurant = useCallback(async () => {
+        const uid = session?.user?.id;
+        const rid = Number(restaurantId);
+        if (!uid || !Number.isFinite(rid)) return;
+        try {
+            await clearUserCartForRestaurant(uid, rid);
+        } catch (err) {
+            console.warn("[CheckoutModal] failed to clear user cart", err);
+        }
+    }, [session?.user?.id, restaurantId]);
 
     const reset = useCallback(() => {
         setOrderType(defaultType);
@@ -195,7 +209,7 @@ export function CheckoutModal({
                     .from('restaurants')
                     .select('stripe_account_id')
                     .eq('id', Number(restaurantId))
-                    .maybeSingle();
+                    .single();
                 if (cancelled) return;
                 if (data?.stripe_account_id) {
                     setHasStripe(true);
@@ -219,22 +233,34 @@ export function CheckoutModal({
     useEffect(() => {
         if (!visible || paymentMethod !== 'card') return;
 
+        // Track timers so unmount can cancel any deferred dismiss/navigate.
+        const deferredTimers: ReturnType<typeof setTimeout>[] = [];
+        const deferDismiss = () => {
+            const t = setTimeout(() => {
+                try { WebBrowser.dismissBrowser(); } catch { }
+            }, WALLET_INTERACTION_GRACE_MS);
+            deferredTimers.push(t);
+        };
+
         const handleUrl = (event: { url: string }) => {
             const { path, queryParams } = Linking.parse(event.url);
             if (path === 'order-confirmation') {
-                try { WebBrowser.dismissBrowser(); } catch { }
+                // Defer dismissBrowser so the wallet's "save card" prompt has
+                // time to render before we tear down the surrounding browser.
+                deferDismiss();
                 const params = queryParams as any;
                 setDone(true);
                 setPlacedOrderId(params?.order_id || null);
                 if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                void clearCartForThisRestaurant();
                 onOrderPlaced(params?.order_id || '', orderType);
             } else if (path === 'checkout/cancel') {
-                try { WebBrowser.dismissBrowser(); } catch { }
+                deferDismiss();
                 setPlacing(false);
                 if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                 Alert.alert('Payment Cancelled', 'Your payment was not processed. No charges were made.');
             } else if (path === 'checkout/error') {
-                try { WebBrowser.dismissBrowser(); } catch { }
+                deferDismiss();
                 setPlacing(false);
                 if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                 Alert.alert('Payment Error', 'Something went wrong. Please try again.');
@@ -242,8 +268,11 @@ export function CheckoutModal({
         };
 
         const subscription = Linking.addEventListener('url', handleUrl);
-        return () => subscription.remove();
-    }, [visible, paymentMethod, orderType, onOrderPlaced]);
+        return () => {
+            subscription.remove();
+            deferredTimers.forEach((t) => clearTimeout(t));
+        };
+    }, [visible, paymentMethod, orderType, onOrderPlaced, clearCartForThisRestaurant]);
 
     const handlePlaceOrder = async () => {
         if (placing) return;
@@ -384,15 +413,24 @@ export function CheckoutModal({
                           message: `Order placed at ${restaurantName || "Restaurant"}`,
                           metadata: { status: "pending" },
                         });
-                        onClose();
-                        reset();
-                        onOrderPlaced(params.order_id, orderType);
+                        void clearCartForThisRestaurant();
+                        // Don't tear down the modal/navigate immediately —
+                        // openAuthSessionAsync has already returned, but Apple
+                        // Pay / Google Pay may still be presenting their own
+                        // post-payment "save card" sheet on top. Wait through
+                        // WALLET_INTERACTION_GRACE_MS so the user can react
+                        // to the wallet UI before we yank everything.
                         setTimeout(() => {
-                            router.push({
-                                pathname: '/order-confirmation' as any,
-                                params,
-                            });
-                        }, 150);
+                            onClose();
+                            reset();
+                            onOrderPlaced(params.order_id, orderType);
+                            setTimeout(() => {
+                                router.push({
+                                    pathname: '/order-confirmation' as any,
+                                    params,
+                                });
+                            }, 150);
+                        }, WALLET_INTERACTION_GRACE_MS);
                         return;
                     } else if (rawUrl.includes('checkout/cancel')) {
                         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -493,6 +531,7 @@ export function CheckoutModal({
                 message: `Order placed at ${restaurantName || "Restaurant"}`,
                 metadata: { status: "pending" },
             });
+            void clearCartForThisRestaurant();
             onOrderPlaced(orderId, orderType);
         } catch (err: unknown) {
             const parsedError = await parseEdgeFunctionError(
@@ -783,10 +822,6 @@ export function CheckoutModal({
                                         </Pressable>
                                         <Pressable
                                             onPress={() => {
-                                                if (lockToCash) {
-                                                    Alert.alert('Cash Only', 'Takeout orders are paid in cash at the counter when you pick up.');
-                                                    return;
-                                                }
                                                 if (!hasStripe) {
                                                     Alert.alert('Card Not Available', 'This restaurant does not accept card payments yet.');
                                                     return;
@@ -805,7 +840,7 @@ export function CheckoutModal({
                                                 borderWidth: 1.5,
                                                 backgroundColor: paymentMethod === 'card' ? 'rgba(129,140,248,0.12)' : '#0f0f0f',
                                                 borderColor: paymentMethod === 'card' ? '#818CF8' : '#2a2a2a',
-                                                opacity: lockToCash || !hasStripe ? 0.5 : 1,
+                                                opacity: hasStripe ? 1 : 0.5,
                                             }}
                                         >
                                             <CreditCard size={16} color={paymentMethod === 'card' ? '#818CF8' : '#666'} />
@@ -814,11 +849,6 @@ export function CheckoutModal({
                                             </Text>
                                         </Pressable>
                                     </View>
-                                    {lockToCash && (
-                                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 8 }}>
-                                            Takeout orders are paid in cash when you pick up.
-                                        </Text>
-                                    )}
                                 </View>
                             </Animated.View>
 

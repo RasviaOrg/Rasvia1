@@ -126,13 +126,7 @@ const NotificationsContext = createContext<NotificationsContextValue>({
 });
 
 const STORAGE_KEY = "rasvia.notifications.v2";
-/** Legacy global dismissed waitlist entry ids (v1); v2 is per-user. */
-const DISMISSED_WAITLIST_ENTRIES_LEGACY_KEY = "rasvia.dismissed_entries.v1";
-
-function dismissedWaitlistEntriesStorageKey(userId: string) {
-  return `rasvia_dismissed_waitlist_entries_v2_${userId}`;
-}
-
+const DISMISSED_KEY = "rasvia.dismissed_entries.v1";
 const LEGACY_STORAGE_KEY = "rasvia:notifications:v2";
 
 // ==========================================
@@ -184,38 +178,19 @@ async function saveEvents(events: NotificationEvent[]): Promise<void> {
   }
 }
 
-async function loadDismissedWaitlistEntryIds(userId: string | undefined): Promise<Set<string>> {
-  const next = new Set<string>();
-  if (!userId) return next;
+async function loadDismissedIds(): Promise<Set<string>> {
   try {
-    const raw = await SecureStore.getItemAsync(dismissedWaitlistEntriesStorageKey(userId));
-    if (raw) {
-      for (const id of JSON.parse(raw) as string[]) {
-        if (typeof id === "string") next.add(id);
-      }
-    }
+    const raw = await SecureStore.getItemAsync(DISMISSED_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
   } catch {
-    /* ignore */
+    return new Set();
   }
-  try {
-    const leg = await SecureStore.getItemAsync(DISMISSED_WAITLIST_ENTRIES_LEGACY_KEY);
-    if (leg) {
-      for (const id of JSON.parse(leg) as string[]) {
-        if (typeof id === "string") next.add(id);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return next;
 }
 
-async function saveDismissedWaitlistEntryIds(userId: string, ids: Set<string>): Promise<void> {
+async function saveDismissedIds(ids: Set<string>): Promise<void> {
   try {
-    await SecureStore.setItemAsync(
-      dismissedWaitlistEntriesStorageKey(userId),
-      JSON.stringify([...ids])
-    );
+    await SecureStore.setItemAsync(DISMISSED_KEY, JSON.stringify([...ids]));
   } catch {
     // silently ignore
   }
@@ -236,16 +211,28 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   // Track entry IDs we're already watching to avoid duplicate subscriptions
   const watchedEntryIds = useRef<Set<string>>(new Set());
   const channelsRef = useRef<any[]>([]);
+  // Separate map so we can remove a specific entry's channel when it reaches
+  // a terminal status (cancelled/seated/removed/completed). Previously the
+  // anonymous-list pattern meant these channels accumulated for the life of
+  // the provider, even though the waitlist row was no longer relevant —
+  // contributing to per-navigation realtime churn and eventual crashes on
+  // long sessions.
+  const entryChannelsRef = useRef<Map<string, any>>(new Map());
   const dismissedIdsRef = useRef<Set<string>>(new Set());
   const restaurantNameCacheRef = useRef<Record<string, string>>({});
   // Track last-known state per entry to avoid relying on oldRow (REPLICA IDENTITY may not be FULL)
   const entryStateRef = useRef<Record<string, { status: string; notified_at: string | null }>>({});
+  // Hard cap on how many per-entry states we keep resident in memory. Older
+  // non-active entries are evicted when the cap is exceeded so this map never
+  // grows unbounded across long sessions.
+  const ENTRY_STATE_HARD_CAP = 50;
 
   // ==========================================
-  // Load persisted events on mount (waitlist dismissals load per-user in refreshActive)
+  // Load persisted events + dismissed IDs on mount
   // ==========================================
   useEffect(() => {
     loadStoredEvents().then(setLocalEvents);
+    loadDismissedIds().then((ids) => { dismissedIdsRef.current = ids; });
   }, []);
 
   const refreshServerEvents = useCallback(async () => {
@@ -352,21 +339,27 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     });
   }, []);
 
+  // Release the realtime channel + tracked state for a single entry once it
+  // reaches a terminal status. Safe to call multiple times.
+  const releaseEntrySubscription = useCallback((entryId: string) => {
+    const ch = entryChannelsRef.current.get(entryId);
+    if (ch) {
+      try { supabase.removeChannel(ch); } catch { /* ignore */ }
+      entryChannelsRef.current.delete(entryId);
+      const idx = channelsRef.current.indexOf(ch);
+      if (idx >= 0) channelsRef.current.splice(idx, 1);
+    }
+    watchedEntryIds.current.delete(entryId);
+    delete entryStateRef.current[entryId];
+  }, []);
+
   // ==========================================
   // Fetch + watch active waitlist entries
   // ==========================================
   const refreshActive = useCallback(async () => {
-    const userId = session?.user?.id;
-    if (!userId) {
+    if (!session?.user?.id) {
       setActiveEntries([]);
       return;
-    }
-
-    try {
-      const fromStore = await loadDismissedWaitlistEntryIds(userId);
-      dismissedIdsRef.current = new Set([...fromStore, ...dismissedIdsRef.current]);
-    } catch {
-      /* ignore */
     }
 
     try {
@@ -387,7 +380,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             current_wait_time
           )
         `)
-        .eq("user_id", userId)
+        .eq("user_id", session.user.id)
         .in("status", ["waiting", "notified", "seated"])
         .order("created_at", { ascending: false });
 
@@ -439,11 +432,28 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       });
 
       // Seed tracked state for reliable change detection in realtime handler
+      const activeIds = new Set<string>();
       for (const row of data) {
         entryStateRef.current[row.id] = {
           status: row.status,
           notified_at: row.notified_at ?? null,
         };
+        activeIds.add(String(row.id));
+      }
+
+      // Enforce a hard cap: if we've accumulated too many stale (non-active)
+      // entries over long sessions, evict anything not in the current active
+      // set. This keeps the memory footprint bounded regardless of how many
+      // waitlists the user has joined.
+      const stateKeys = Object.keys(entryStateRef.current);
+      if (stateKeys.length > ENTRY_STATE_HARD_CAP) {
+        for (const id of stateKeys) {
+          if (!activeIds.has(id)) {
+            delete entryStateRef.current[id];
+            // Also drop any lingering channel for this entry.
+            releaseEntrySubscription(id);
+          }
+        }
       }
 
       // Filter out manually dismissed entries
@@ -460,7 +470,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     } catch {
       // silently ignore
     }
-  }, [session]);
+  }, [session, releaseEntrySubscription]);
 
   // ==========================================
   // Subscribe to a single entry for status changes
@@ -490,22 +500,19 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 partySize,
                 timestamp: new Date().toISOString(),
               });
-              if (!dismissedIdsRef.current.has(entryId)) {
-                setTableReadyAlert({ restaurantName, entryId });
-              }
+              setTableReadyAlert({ restaurantName, entryId });
               schedulePushNotification(
                 "🎉 Your Table is Ready!",
                 `${restaurantName} — your table is ready! Head over now.`,
                 { type: "table_ready", entryId, restaurantId },
               );
-              setActiveEntries((prevEntries) => {
-                if (dismissedIdsRef.current.has(entryId)) return prevEntries;
-                return prevEntries.map((e) =>
+              setActiveEntries((prevEntries) =>
+                prevEntries.map((e) =>
                   e.entryId === entryId
                     ? { ...e, status: "notified", notifiedAt: newRow.notified_at }
                     : e
-                );
-              });
+                )
+              );
             }
 
             if (newRow.status === "seated" && prev.status !== "seated") {
@@ -517,22 +524,19 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 partySize,
                 timestamp: new Date().toISOString(),
               });
-              if (!dismissedIdsRef.current.has(entryId)) {
-                setSeatedAlert({ restaurantName, entryId });
-              }
+              setSeatedAlert({ restaurantName, entryId });
               schedulePushNotification(
                 "🍽️ You're Seated!",
                 `Enjoy your meal at ${restaurantName}!`,
                 { type: "seated", entryId, restaurantId },
               );
-              setActiveEntries((prevEntries) => {
-                if (dismissedIdsRef.current.has(entryId)) return prevEntries;
-                return prevEntries.map((e) =>
+              setActiveEntries((prevEntries) =>
+                prevEntries.map((e) =>
                   e.entryId === entryId
                     ? { ...e, status: "seated", seatedAt: new Date().toISOString() }
                     : e
-                );
-              });
+                )
+              );
             }
 
             if (newRow.status === "removed" && prev.status !== "removed") {
@@ -558,30 +562,38 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
               status: newRow.status,
               notified_at: newRow.notified_at ?? null,
             };
+
+            // Release the per-entry realtime channel once it reaches a
+            // terminal state so channels don't accumulate across the session.
+            const terminal = ["cancelled", "removed", "completed", "seated"];
+            if (terminal.includes(String(newRow.status))) {
+              // Defer so any listeners reacting to the same payload finish first.
+              setTimeout(() => releaseEntrySubscription(entryId), 0);
+            }
           }
         )
         .subscribe();
 
       channelsRef.current.push(channel);
+      entryChannelsRef.current.set(entryId, channel);
     },
-    [session]
+    [session, releaseEntrySubscription]
   );
 
   // ==========================================
   // Refresh when session changes
   // ==========================================
   useEffect(() => {
-    channelsRef.current.forEach((ch) => supabase.removeChannel(ch));
+    channelsRef.current.forEach((ch) => {
+      try { supabase.removeChannel(ch); } catch { /* ignore */ }
+    });
     channelsRef.current = [];
+    entryChannelsRef.current.clear();
     watchedEntryIds.current.clear();
+    entryStateRef.current = {};
 
-    if (!session?.user?.id) {
-      dismissedIdsRef.current = new Set();
-      setActiveEntries([]);
-    }
-
-    void refreshActive();
-    void refreshServerEvents();
+    refreshActive();
+    refreshServerEvents();
   }, [session?.user?.id, refreshActive, refreshServerEvents]);
 
   useEffect(() => {
@@ -676,7 +688,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   // ==========================================
   useEffect(() => {
     return () => {
-      channelsRef.current.forEach((ch) => supabase.removeChannel(ch));
+      channelsRef.current.forEach((ch) => {
+        try { supabase.removeChannel(ch); } catch { /* ignore */ }
+      });
+      channelsRef.current = [];
+      entryChannelsRef.current.clear();
+      watchedEntryIds.current.clear();
+      entryStateRef.current = {};
     };
   }, []);
 
@@ -743,16 +761,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     });
   }, [serverEvents, session?.user?.id]);
 
-  const dismissEntry = useCallback(
-    (entryId: string) => {
-      const userId = session?.user?.id;
-      if (!userId) return;
-      dismissedIdsRef.current.add(entryId);
-      void saveDismissedWaitlistEntryIds(userId, dismissedIdsRef.current);
-      setActiveEntries((prev) => prev.filter((e) => e.entryId !== entryId));
-    },
-    [session?.user?.id]
-  );
+  const dismissEntry = useCallback((entryId: string) => {
+    dismissedIdsRef.current.add(entryId);
+    saveDismissedIds(dismissedIdsRef.current);
+    setActiveEntries((prev) => prev.filter((e) => e.entryId !== entryId));
+  }, []);
 
   const markAllRead = useCallback(async () => {
     setLocalEvents((prev) => {
@@ -777,12 +790,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, [serverEvents, session?.user?.id]);
 
   const clearAll = useCallback(async () => {
-    const userId = session?.user?.id;
     setActiveEntries((prev) => {
       prev.forEach((e) => dismissedIdsRef.current.add(e.entryId));
       return [];
     });
-    if (userId) await saveDismissedWaitlistEntryIds(userId, dismissedIdsRef.current);
+    saveDismissedIds(dismissedIdsRef.current);
     setLocalEvents([]);
     setServerEvents([]);
     await AsyncStorage.removeItem(STORAGE_KEY);

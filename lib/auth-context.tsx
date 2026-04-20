@@ -54,7 +54,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (error || !data) return true; // needs onboarding
             return !data.onboarding_completed;
         } catch {
-            return false;
+            // We used to return false here, which silently let users into the
+            // app even if their profile wasn't actually set up — the home tab
+            // would flash and onboarding would never run. Treat ambiguous
+            // failures as "still needs onboarding" so the gate keeps them on
+            // the onboarding flow until we successfully read their profile.
+            return true;
         }
     }, []);
 
