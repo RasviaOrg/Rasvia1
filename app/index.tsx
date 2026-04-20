@@ -2211,14 +2211,8 @@ export default function DiscoveryFeed() {
                       })}
                     </View>
                   </View>
-                  <View style={{ justifyContent: "center", alignItems: "flex-end" }}>
-                    <ChevronRight
-                      size={20}
-                      color={
-                        LIVE_ORDER_ACCENT_SOLID[liveStepIndex(liveOrderTrack.status)] ?? LIVE_ORDER_ACCENT_SOLID[0]
-                      }
-                    />
-                  </View>
+                  {/* No chevron — the X cancel button already anchors the
+                      right edge; a second right-arrow was redundant. */}
                   {/* Cancel button — top-right icon, only meaningful for
                       not-yet-prepared orders. Paid-card orders go through the
                       "Contact the restaurant" prompt instead. */}

@@ -665,112 +665,115 @@ function NotificationRow({
           disabled={!onPress}
           android_ripple={onPress ? { color: "#222" } : undefined}
           style={({ pressed }) => ({
-            flexDirection: "row",
-            alignItems: "flex-start",
-            paddingHorizontal: 18,
-            paddingVertical: 16,
+            paddingHorizontal: 16,
+            paddingTop: 14,
+            paddingBottom: 14,
             borderBottomWidth: isLast ? 0 : 1,
             borderBottomColor: "#2a2a2a",
             backgroundColor: event.read
               ? pressed && onPress
                 ? "#202020"
-                : "#1a1a1a"
+                : "transparent"
               : pressed && onPress
               ? "rgba(255,153,51,0.08)"
               : "rgba(255,153,51,0.04)",
           })}
         >
-          {/* Icon */}
-          <View
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: `${cfg.color}18`,
-              borderWidth: 1,
-              borderColor: `${cfg.color}30`,
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: 12,
-              flexShrink: 0,
-            }}
-          >
-            <Icon size={18} color={cfg.color} />
-          </View>
-
-          {/* Text */}
-          <View style={{ flex: 1 }}>
-            {event.title ? (
-              <Text
-                style={{
-                  fontFamily: "Manrope_700Bold",
-                  color: "#A1A1AA",
-                  fontSize: 11,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.45,
-                  marginBottom: 6,
-                }}
-              >
-                {event.title}
-              </Text>
-            ) : null}
-            <Text
-              style={{
-                fontFamily: "Manrope_600SemiBold",
-                color: "#f5f5f5",
-                fontSize: 14,
-                lineHeight: 20,
-                marginBottom: 4,
-              }}
-            >
-              {primaryText}
-            </Text>
-            {event.partySize > 0 && (
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  marginBottom: 4,
-                }}
-              >
-                <Users size={10} color="#555" />
-                <Text
-                  style={{
-                    fontFamily: "Manrope_500Medium",
-                    color: "#555555",
-                    fontSize: 11,
-                  }}
-                >
-                  Party of {event.partySize}
-                </Text>
-              </View>
-            )}
-            <Text
-              style={{
-                fontFamily: "Manrope_500Medium",
-                color: "#9CA3AF",
-                fontSize: 12,
-                marginTop: 2,
-              }}
-            >
-              {timeAgo(event.timestamp)}
-            </Text>
-          </View>
-
-          {/* Unread dot */}
-          {!event.read && (
+          {/* Top row: icon + title/primary text + unread dot */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            {/* Icon — padded from card edge, vertically centred to this row */}
             <View
               style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: "#FF9933",
-                marginTop: 6,
-                marginLeft: 8,
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: `${cfg.color}18`,
+                borderWidth: 1,
+                borderColor: `${cfg.color}30`,
+                alignItems: "center",
+                justifyContent: "center",
                 flexShrink: 0,
               }}
-            />
+            >
+              <Icon size={20} color={cfg.color} />
+            </View>
+
+            {/* Title + primary message — centred relative to the icon */}
+            <View style={{ flex: 1, justifyContent: "center" }}>
+              {event.title ? (
+                <Text
+                  style={{
+                    fontFamily: "Manrope_700Bold",
+                    color: "#A1A1AA",
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                    marginBottom: 3,
+                  }}
+                >
+                  {event.title}
+                </Text>
+              ) : null}
+              <Text
+                style={{
+                  fontFamily: "Manrope_600SemiBold",
+                  color: "#f5f5f5",
+                  fontSize: 14,
+                  lineHeight: 19,
+                }}
+                numberOfLines={2}
+              >
+                {primaryText}
+              </Text>
+            </View>
+
+            {/* Unread dot */}
+            {!event.read && (
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: "#FF9933",
+                  flexShrink: 0,
+                }}
+              />
+            )}
+          </View>
+
+          {/* Bottom row: secondary details — left-aligned, indented to clear the icon */}
+          {(event.partySize > 0 || true) && (
+            <View
+              style={{
+                marginTop: 8,
+                marginLeft: 56,  /* 44 icon + 12 gap */
+                gap: 4,
+              }}
+            >
+              {event.partySize > 0 && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Users size={10} color="#555" />
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: "#555555",
+                      fontSize: 11,
+                    }}
+                  >
+                    Party of {event.partySize}
+                  </Text>
+                </View>
+              )}
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: "#6B7280",
+                  fontSize: 12,
+                }}
+              >
+                {timeAgo(event.timestamp)}
+              </Text>
+            </View>
           )}
         </Pressable>
       </Swipeable>

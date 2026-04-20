@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
+  LogIn,
 } from "lucide-react-native";
 import Animated, {
   useAnimatedStyle,
@@ -2946,7 +2947,7 @@ export default function RestaurantDetail() {
                   justifyContent: "center",
                 }}
               >
-                <Text style={{ fontSize: 18 }}>🚶</Text>
+                <LogIn size={18} color="#4ade80" />
               </View>
               <Text
                 style={{
@@ -2956,7 +2957,7 @@ export default function RestaurantDetail() {
                   flex: 1,
                 }}
               >
-                No wait right now
+                No wait time right now
               </Text>
             </View>
             <Text
@@ -3002,14 +3003,14 @@ export default function RestaurantDetail() {
                 if (Platform.OS !== "web") Haptics.selectionAsync();
                 setShowZeroWaitSheet(false);
               }}
-              style={{
+              style={({ pressed }) => ({
                 borderRadius: 14,
                 paddingVertical: 14,
                 alignItems: "center",
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
-                backgroundColor: "#1a1a1a",
-              }}
+                borderColor: pressed ? "#444" : "#2a2a2a",
+                backgroundColor: pressed ? "#222" : "#1a1a1a",
+              })}
             >
               <Text
                 style={{
