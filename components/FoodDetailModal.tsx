@@ -17,6 +17,8 @@ interface FoodDetailModalProps {
   onOpenSettings?: () => void;
   showContributeImage?: boolean;
   onContributeImage?: () => void;
+  /** When false, primary CTA is greyed (restaurant closed or item unavailable). */
+  canAddToCart?: boolean;
 }
 
 export function FoodDetailModal({
@@ -26,8 +28,15 @@ export function FoodDetailModal({
   onOpenSettings,
   showContributeImage = false,
   onContributeImage,
+  canAddToCart = true,
 }: FoodDetailModalProps) {
   const hasImage = !!item.image?.trim();
+  const addBlocked = !canAddToCart || item.isAvailable === false;
+  const addLabel = !canAddToCart
+    ? "Restaurant is closed"
+    : item.isAvailable === false
+      ? "Out of stock"
+      : `Add to Cart — $${item.price.toFixed(2)}`;
   return (
     <Animated.View
       entering={FadeIn.duration(300)}
@@ -331,7 +340,9 @@ export function FoodDetailModal({
           {/* Add to Cart */}
           <View className="px-5 pb-10">
             <Pressable
+              disabled={addBlocked}
               onPress={() => {
+                if (addBlocked) return;
                 if (Platform.OS !== "web") {
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
@@ -339,24 +350,27 @@ export function FoodDetailModal({
               }}
               className="rounded-2xl py-4 flex-row items-center justify-center"
               style={{
-                backgroundColor: "#FF9933",
-                shadowColor: "#FF9933",
+                backgroundColor: addBlocked ? "#3a3a3a" : "#FF9933",
+                borderWidth: addBlocked ? 1 : 0,
+                borderColor: "rgba(255,255,255,0.08)",
+                shadowColor: addBlocked ? "transparent" : "#FF9933",
                 shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
+                shadowOpacity: addBlocked ? 0 : 0.3,
                 shadowRadius: 12,
-                elevation: 8,
+                elevation: addBlocked ? 0 : 8,
               }}
             >
-              <Plus size={20} color="#0f0f0f" strokeWidth={3} />
+              {!addBlocked && <Plus size={20} color="#0f0f0f" strokeWidth={3} />}
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#0f0f0f",
-                  fontSize: 17,
-                  marginLeft: 8,
+                  color: addBlocked ? "#a3a3a3" : "#0f0f0f",
+                  fontSize: addBlocked ? 15 : 17,
+                  marginLeft: addBlocked ? 0 : 8,
+                  textAlign: "center",
                 }}
               >
-                Add to Cart — ${item.price.toFixed(2)}
+                {addLabel}
               </Text>
             </Pressable>
           </View>

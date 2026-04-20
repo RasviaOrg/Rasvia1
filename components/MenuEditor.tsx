@@ -188,6 +188,7 @@ function EditableMenuItem({
   onDelete,
   canEdit,
   showQuickAdd,
+  orderingAvailable,
   onContributeImage,
   menuTags,
 }: {
@@ -199,6 +200,7 @@ function EditableMenuItem({
   onDelete: (id: string) => void;
   canEdit: boolean;
   showQuickAdd: boolean;
+  orderingAvailable: boolean;
   onContributeImage?: (item: UIMenuItem) => void;
   menuTags: MenuTagConfig[];
 }) {
@@ -318,7 +320,16 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} />
+      <MenuGridItem
+        item={item as any}
+        index={index}
+        onPress={onPress}
+        onQuickAdd={onQuickAdd}
+        showQuickAdd={showQuickAdd}
+        orderingAvailable={orderingAvailable}
+        onContributeImage={onContributeImage}
+        ownerBadgeOffset={canEdit}
+      />
 
       {canEdit && (
         <Pressable
@@ -531,12 +542,22 @@ interface MenuEditorProps {
   restaurantId?: string;
   onContributeImage?: (item: UIMenuItem) => void;
   onMenuTagsChange?: (tags: MenuTagConfig[]) => void;
+  /** When false, + is shown but greyed (e.g. restaurant closed by hours). */
+  orderingAvailable?: boolean;
 }
 
-export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId, onContributeImage, onMenuTagsChange }: MenuEditorProps) {
+export function MenuEditor({
+  menu,
+  setMenu,
+  onItemPress,
+  onQuickAdd,
+  restaurantId,
+  onContributeImage,
+  onMenuTagsChange,
+  orderingAvailable = true,
+}: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
-  const canOrder = !isRestaurantOwner && !isAdmin;
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");
@@ -957,7 +978,8 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
-              showQuickAdd={canOrder}
+              showQuickAdd
+              orderingAvailable={orderingAvailable}
               onContributeImage={onContributeImage}
               menuTags={menuTags}
             />
@@ -974,7 +996,8 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               onItemUpdated={handleItemUpdated}
               onDelete={handleDelete}
               canEdit={canEdit}
-              showQuickAdd={canOrder}
+              showQuickAdd
+              orderingAvailable={orderingAvailable}
               onContributeImage={onContributeImage}
               menuTags={menuTags}
             />

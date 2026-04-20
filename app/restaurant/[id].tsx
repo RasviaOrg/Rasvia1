@@ -303,15 +303,17 @@ export default function RestaurantDetail() {
   // Realtime: waitlist entry no longer active (staff cancel/remove) — clear local state (no system alert)
   useEffect(() => {
     if (!globalWaitlistEntry?.id) return;
+    const entryId = globalWaitlistEntry.id;
+    const topic = `restaurant-wl-entry:${entryId}:${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const ch = supabase
-      .channel(`restaurant-wl-entry:${globalWaitlistEntry.id}`)
+      .channel(topic)
       .on(
         "postgres_changes",
         {
           event: "UPDATE",
           schema: "public",
           table: "waitlist_entries",
-          filter: `id=eq.${globalWaitlistEntry.id}`,
+          filter: `id=eq.${entryId}`,
         },
         (payload) => {
           const s = (payload.new as { status?: string })?.status;
@@ -322,7 +324,7 @@ export default function RestaurantDetail() {
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(ch);
+      void supabase.removeChannel(ch);
     };
   }, [globalWaitlistEntry?.id]);
 
@@ -337,9 +339,12 @@ export default function RestaurantDetail() {
     fetchQueueCount();
     fetchRestaurantMenuTags();
 
-    // Real-time: restaurant row changes
-    const restSub = supabase
-      .channel(`restaurant:${id}`)
+    // One channel, unique topic per effect run: Supabase reuses topics by name; if a prior
+    // `restaurant:${id}` is still joining after navigation (e.g. waitlist → menu), `.channel()`
+    // can return a channel that's already subscribed and the first `.on()` throws.
+    const realtimeTopic = `restaurant-detail:${id}:${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const restaurantRealtime = supabase
+      .channel(realtimeTopic)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "restaurants", filter: `id=eq.${id}` },
@@ -355,43 +360,31 @@ export default function RestaurantDetail() {
           });
         }
       )
-      .subscribe();
-
-    // Real-time: waitlist_entries changes → refresh queue count
-    const queueSub = supabase
-      .channel(`queue-count:${id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "waitlist_entries", filter: `restaurant_id=eq.${id}` },
-        () => { fetchQueueCount(); }
+        () => {
+          fetchQueueCount();
+        }
       )
-      .subscribe();
-
-    // Real-time: menu_items changes → refresh menu
-    const menuSub = supabase
-      .channel(`restaurant-menu:${id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "menu_items", filter: `restaurant_id=eq.${id}` },
-        () => { fetchMenu(); }
+        () => {
+          fetchMenu();
+        }
       )
-      .subscribe();
-
-    // Real-time: menu tag changes
-    const menuTagSub = supabase
-      .channel(`restaurant-menu-tags:${id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "restaurant_menu_tags", filter: `restaurant_id=eq.${id}` },
-        () => { fetchRestaurantMenuTags(); }
+        () => {
+          fetchRestaurantMenuTags();
+        }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(restSub);
-      supabase.removeChannel(queueSub);
-      supabase.removeChannel(menuSub);
-      supabase.removeChannel(menuTagSub);
+      void supabase.removeChannel(restaurantRealtime);
     };
   }, [id]);
 
@@ -702,8 +695,21 @@ export default function RestaurantDetail() {
     };
   });
 
+  const isClosedByHours = useMemo(
+    () =>
+      hoursStatus?.status === "closed" ||
+      hoursStatus?.status === "opening_soon",
+    [hoursStatus?.status]
+  );
+
+  const isClosed = useMemo(
+    () => restaurant?.waitStatus === "darkgrey" || isClosedByHours,
+    [restaurant?.waitStatus, isClosedByHours]
+  );
+
   const handleAddToCart = useCallback(
     (item: UIMenuItem) => {
+      if (isClosed || item.isAvailable === false) return;
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -738,7 +744,7 @@ export default function RestaurantDetail() {
       });
       setSelectedItem(null);
     },
-    [id, localGroupMembers, session?.user?.id]
+    [id, localGroupMembers, session?.user?.id, isClosed]
   );
 
   const handleUpdateQuantity = useCallback(
@@ -978,12 +984,6 @@ export default function RestaurantDetail() {
     }
   }, [restaurant]);
 
-  const isClosedByHours =
-    hoursStatus?.status === "closed" ||
-    hoursStatus?.status === "opening_soon";
-  const isClosed =
-    restaurant?.waitStatus === "darkgrey" ||
-    isClosedByHours;
   const noWait = restaurant?.waitTime != null && restaurant.waitTime < 0;
   const waitlistClosed = restaurant?.waitlistOpen === false;
 
@@ -2076,6 +2076,7 @@ export default function RestaurantDetail() {
               }}
               onQuickAdd={(item) => handleAddToCart(item)}
               restaurantId={id}
+              orderingAvailable={!isClosed}
               onContributeImage={acceptCommunityImages ? (item) => setCommunityImageTarget(item) : undefined}
             />
           </View>
@@ -2296,6 +2297,7 @@ export default function RestaurantDetail() {
           item={selectedItem}
           onClose={() => setSelectedItem(null)}
           onAddToCart={() => handleAddToCart(selectedItem)}
+          canAddToCart={!isClosed}
           showContributeImage={acceptCommunityImages && !selectedItem.hasOfficialImage && !selectedItem.communityImageCredit}
           onContributeImage={() => {
             if (!acceptCommunityImages) return;

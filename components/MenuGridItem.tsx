@@ -23,6 +23,8 @@ interface MenuGridItemProps {
   onPress: () => void;
   onQuickAdd: () => void;
   showQuickAdd?: boolean;
+  /** When false (e.g. restaurant closed), the + stays visible but greyed and inert. */
+  orderingAvailable?: boolean;
   onContributeImage?: (item: UIMenuItem) => void;
   /**
    * When true, the parent editor draws a settings cog at top-right of
@@ -38,12 +40,14 @@ export function MenuGridItem({
   onPress,
   onQuickAdd,
   showQuickAdd = true,
+  orderingAvailable = true,
   onContributeImage,
   ownerBadgeOffset = false,
 }: MenuGridItemProps) {
   const pressScale = useSharedValue(1);
   const isEven = index % 2 === 0;
   const imageHeight = isEven ? 180 : 220;
+  const quickAddMuted = !orderingAvailable || item.isAvailable === false;
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressScale.value }],
@@ -108,10 +112,10 @@ export function MenuGridItem({
             {/* Quick Add Button */}
             {showQuickAdd && (
               <Pressable
-                disabled={item.isAvailable === false}
+                disabled={quickAddMuted}
                 onPress={(e) => {
                   e.stopPropagation?.();
-                  if (item.isAvailable === false) return;
+                  if (quickAddMuted) return;
                   if (Platform.OS !== "web") {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   }
@@ -119,20 +123,22 @@ export function MenuGridItem({
                 }}
                 className="absolute bottom-2 right-2"
                 style={{
-                  backgroundColor: item.isAvailable === false ? "#444444" : "#FF9933",
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
+                  backgroundColor: quickAddMuted ? "#3a3a3a" : "#FF9933",
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
                   alignItems: "center",
                   justifyContent: "center",
-                  shadowColor: item.isAvailable === false ? "transparent" : "#FF9933",
+                  borderWidth: quickAddMuted ? 1 : 0,
+                  borderColor: "rgba(255,255,255,0.08)",
+                  shadowColor: quickAddMuted ? "transparent" : "#FF9933",
                   shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.4,
+                  shadowOpacity: quickAddMuted ? 0 : 0.4,
                   shadowRadius: 6,
-                  elevation: 5,
+                  elevation: quickAddMuted ? 0 : 5,
                 }}
               >
-                <Plus size={18} color="#0f0f0f" strokeWidth={3} />
+                <Plus size={18} color={quickAddMuted ? "#737373" : "#0f0f0f"} strokeWidth={3} />
               </Pressable>
             )}
 
