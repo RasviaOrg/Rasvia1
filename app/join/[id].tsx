@@ -14,6 +14,9 @@ import {
   View, Text, TextInput, FlatList, Pressable, ScrollView, Platform,
   KeyboardAvoidingView, Alert, ActivityIndicator, StyleSheet, Image, Share, Modal,
 } from 'react-native';
+import { CachedImage } from '../../components/CachedImage';
+import { ImageFetchProvider } from '../../lib/image-fetch-context';
+import { prefetchImages } from '../../lib/image-cache';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
@@ -324,7 +327,12 @@ export default function JoinPartyScreen() {
   const { colors, isDark } = useAppTheme();
   const joinS = useMemo(() => createJoinPartyStyles(colors, isDark), [colors, isDark]);
   const wrapJoin = (ui: ReactElement) => (
-    <JoinPartyStylesContext.Provider value={joinS}>{ui}</JoinPartyStylesContext.Provider>
+    // The join page is the "user clicked through to a specific restaurant"
+    // entry point via a deep link, so it's one of the screens allowed to
+    // hit the image server and populate the disk cache.
+    <ImageFetchProvider allowFetch={true}>
+      <JoinPartyStylesContext.Provider value={joinS}>{ui}</JoinPartyStylesContext.Provider>
+    </ImageFetchProvider>
   );
 
   // Derived view based on session status
@@ -425,7 +433,11 @@ export default function JoinPartyScreen() {
           .eq('in_stock', true)
           .order('category', { ascending: true })
           .order('name', { ascending: true });
-        setMenu((menuRows ?? []) as MenuItem[]);
+        const items = (menuRows ?? []) as MenuItem[];
+        setMenu(items);
+        // The join page counts as "clicking through to a restaurant" for
+        // the caching policy, so warm the disk cache for every menu image.
+        void prefetchImages([(rest as any)?.image_url, ...items.map((m) => m.image_url)]);
         const { data: rawTags } = await supabase
           .from('restaurant_menu_tags')
           .select('key, label, color, bg, border, enabled, position')
@@ -1143,7 +1155,7 @@ function MenuRow({ item, inCartCount, onAdd, onOpenDetails }: { item: MenuItem; 
     <Animated.View entering={FadeInDown} style={s.menuRow}>
       <Pressable onPress={onOpenDetails} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         {item.image_url ? (
-          <Image source={{ uri: item.image_url }} style={s.menuImg} />
+          <CachedImage source={{ uri: item.image_url }} style={s.menuImg} />
         ) : (
           <View style={[s.menuImg, { backgroundColor: colors.pressableBg, alignItems: 'center', justifyContent: 'center' }]}>
             <Text style={{ color: colors.textMuted }}>—</Text>
@@ -1195,7 +1207,7 @@ function MenuItemDetailsModal({
             </Pressable>
           </View>
           {item.image_url ? (
-            <Image source={{ uri: item.image_url }} style={s.itemDetailsImage} />
+            <CachedImage source={{ uri: item.image_url }} style={s.itemDetailsImage} />
           ) : (
             <View style={[s.itemDetailsImage, { backgroundColor: colors.pressableBg, alignItems: 'center', justifyContent: 'center' }]}>
               <Text style={{ color: colors.textMuted }}>No image</Text>

@@ -9,8 +9,8 @@ import {
   Alert,
   Platform,
   TextInput,
-  Image,
 } from "react-native";
+import { CachedImage } from "@/components/CachedImage";
 import * as ExpoClipboard from "expo-clipboard";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -745,7 +745,7 @@ export default function HostPartyScreen() {
                           >
                             {/* Restaurant image */}
                             {r.image_url ? (
-                              <Image
+                              <CachedImage
                                 source={{ uri: r.image_url }}
                                 style={{
                                   width: 52,
@@ -754,6 +754,16 @@ export default function HostPartyScreen() {
                                   backgroundColor: colors.pressableBg,
                                 }}
                                 resizeMode="cover"
+                                fallback={
+                                  <View
+                                    style={{
+                                      width: 52,
+                                      height: 52,
+                                      borderRadius: 10,
+                                      backgroundColor: colors.pressableBg,
+                                    }}
+                                  />
+                                }
                               />
                             ) : (
                               <View

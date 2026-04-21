@@ -1,7 +1,19 @@
 import React, { useMemo, useState } from "react";
-import { View, Image, FlatList, Text, NativeSyntheticEvent, NativeScrollEvent } from "react-native";
+import { View, FlatList, Text, NativeSyntheticEvent, NativeScrollEvent } from "react-native";
 import { Camera } from "lucide-react-native";
 import type { RestaurantMediaSlide } from "@/lib/restaurant-media";
+import { CachedImage } from "@/components/CachedImage";
+
+function NoImagePlaceholder() {
+  return (
+    <View style={{ width: "100%", height: "100%", backgroundColor: "#1b1b1b", alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <Camera size={22} color="#7a7a7a" />
+      <Text style={{ fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 11 }}>
+        No image available
+      </Text>
+    </View>
+  );
+}
 
 type Props = {
   defaultImage: string;
@@ -62,18 +74,14 @@ export function RestaurantMediaFrame({ defaultImage, slides, height, borderRadiu
           renderItem={({ item }) => (
             <View style={{ width: width || "100%", height: "100%" }}>
               {item.imageUrl ? (
-                <Image
+                <CachedImage
                   source={{ uri: item.imageUrl }}
                   style={{ width: "100%", height: "100%" }}
                   resizeMode="cover"
+                  fallback={<NoImagePlaceholder />}
                 />
               ) : (
-                <View style={{ width: "100%", height: "100%", backgroundColor: "#1b1b1b", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                  <Camera size={22} color="#7a7a7a" />
-                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 11 }}>
-                    No image available
-                  </Text>
-                </View>
+                <NoImagePlaceholder />
               )}
               {item.menuItemName ? (
                 <View
@@ -108,18 +116,14 @@ export function RestaurantMediaFrame({ defaultImage, slides, height, borderRadiu
       ) : (
         <View style={{ width: "100%", height: "100%" }}>
           {renderSlides[0].imageUrl ? (
-            <Image
+            <CachedImage
               source={{ uri: renderSlides[0].imageUrl }}
               style={{ width: "100%", height: "100%" }}
               resizeMode="cover"
+              fallback={<NoImagePlaceholder />}
             />
           ) : (
-            <View style={{ width: "100%", height: "100%", backgroundColor: "#1b1b1b", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <Camera size={22} color="#7a7a7a" />
-              <Text style={{ fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 11 }}>
-                No image available
-              </Text>
-            </View>
+            <NoImagePlaceholder />
           )}
           {renderSlides[0]?.menuItemName ? (
             <View

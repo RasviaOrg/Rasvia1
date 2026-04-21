@@ -1,9 +1,10 @@
 import React from "react";
-import { View, Text, Pressable, Image, ScrollView, Platform } from "react-native";
+import { View, Text, Pressable, ScrollView, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Plus } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import type { MenuItem } from "@/data/mockData";
+import { CachedImage } from "@/components/CachedImage";
 import Animated, {
   FadeInRight,
   useAnimatedStyle,
@@ -132,10 +133,11 @@ function AppetizerCard({
           className="rounded-xl overflow-hidden bg-rasvia-card"
         >
           <View style={{ height: 110, position: "relative" }}>
-            <Image
+            <CachedImage
               source={{ uri: item.image }}
               style={{ width: "100%", height: "100%" }}
               resizeMode="cover"
+              fallback={<View style={{ width: "100%", height: "100%", backgroundColor: "#1b1b1b" }} />}
             />
             <LinearGradient
               colors={["transparent", "rgba(34,34,34,0.95)"]}

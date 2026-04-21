@@ -6,8 +6,8 @@ import {
   Pressable,
   ScrollView,
   Platform,
-  Image,
 } from "react-native";
+import { CachedImage } from "@/components/CachedImage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { X, Search, Users, Clock, MapPin, ArrowUpDown, ChevronDown, ChevronUp } from "lucide-react-native";
@@ -647,7 +647,7 @@ function SearchResultCard({
           borderColor: colors.cardBorder,
         }}
       >
-        <Image
+        <CachedImage
           source={{ uri: restaurant.image }}
           style={{
             width: 60,
@@ -655,8 +655,21 @@ function SearchResultCard({
             borderRadius: 14,
             borderWidth: 1,
             borderColor: colors.cardBorder,
+            backgroundColor: colors.pressableBg,
           }}
           resizeMode="cover"
+          fallback={
+            <View
+              style={{
+                width: 60,
+                height: 60,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+                backgroundColor: colors.pressableBg,
+              }}
+            />
+          }
         />
 
         <View style={{ flex: 1, marginLeft: 14 }}>

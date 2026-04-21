@@ -1,11 +1,12 @@
 import React from "react";
-import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native";
+import { View, Text, Pressable, Dimensions, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { X, Plus, Leaf, Moon, Flame, Settings, Camera } from "lucide-react-native";
 import type { UIMenuItem } from "@/lib/restaurant-types";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { useAppTheme } from "@/lib/app-theme";
+import { CachedImage } from "@/components/CachedImage";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 let SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -59,10 +60,26 @@ export function FoodDetailModal({
           {/* Image Section with Video Placeholder */}
           <View style={{ height: SCREEN_HEIGHT * 0.45, position: "relative" }}>
             {hasImage ? (
-              <Image
+              <CachedImage
                 source={{ uri: item.image }}
                 style={{ width: "100%", height: "100%" }}
                 resizeMode="cover"
+                fallback={
+                  <View
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: isDark ? "#1b1b1b" : colors.pressableBg,
+                    }}
+                  >
+                    <Camera size={34} color={colors.iconMuted} />
+                    <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 13 }}>
+                      No image available
+                    </Text>
+                  </View>
+                }
               />
             ) : (
               <View

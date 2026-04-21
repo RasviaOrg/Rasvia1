@@ -137,6 +137,65 @@ Rasvia1/
 - Avatars → `avatars` Storage bucket
 - All uploads use `ArrayBuffer` (not Blob) for React Native compatibility
 
+### Image Caching / Egress Control (April 2026)
+
+Supabase Storage egress for restaurant/menu imagery is governed by a custom
+disk-cache layer built on top of `expo-image`. Before touching anything that
+renders a restaurant or menu photo, read the rules below.
+
+Core files:
+- `lib/image-cache.ts` — TTL-based cache versioning + disk-cache introspection
+- `lib/image-fetch-context.tsx` — `ImageFetchProvider` / `useAllowImageFetch`
+- `components/CachedImage.tsx` — the ONLY component that should render remote
+  restaurant / menu images
+
+How it works:
+- `expo-image` handles the actual disk cache (`cachePolicy="memory-disk"`).
+  We do NOT use RAM-only caching for these images.
+- Each image URL is rewritten to `<url>?rsvc=<N>` so that `expo-image` treats a
+  new version as a fresh entry. The per-URL `{ version, fetchedAt }` map lives
+  in `AsyncStorage` under `@rasvia_image_cache_v1` and is primed at startup via
+  `primeImageCache()` in `app/_layout.tsx`.
+- If an image hasn't been refreshed in more than `REFRESH_MS` (7 days),
+  `resolveVersionedUri` bumps the version and stamps `fetchedAt`, forcing
+  `expo-image` to refetch on the next render.
+- `CachedImage` gates actual network fetches on an `ImageFetchProvider`
+  context. `allowFetch = false` (default) means: render the cached copy if it's
+  already on disk, otherwise render the supplied `fallback` placeholder — do
+  not hit the network.
+
+Where fetching is allowed (must wrap with `<ImageFetchProvider allowFetch>`):
+- Home tab (`app/(tabs)/index.tsx`)
+- Restaurant detail (`app/restaurant/[id].tsx`) — both the "coming soon" branch
+  and the normal render
+- Party join screen (`app/join/[id].tsx`) — guests need to see menu photos
+
+Every other screen (cart, favorites, cuisine lists, host party, map, search,
+etc.) is read-only: `CachedImage` will display cached images if present and
+fall back to a placeholder otherwise. DO NOT wrap these screens with
+`ImageFetchProvider` unless you have a very good reason — it defeats the whole
+point of the egress budget.
+
+Prefetching:
+- The allowed screens call `prefetchImages([...urls])` after loading data so
+  that other screens can display the images from disk. When you add a new
+  restaurant/menu fetch on one of these screens, add its image URLs to the
+  prefetch call.
+
+Rules for future work:
+1. NEVER import `Image` from `react-native` for remote restaurant or menu
+   imagery. Use `CachedImage` from `@/components/CachedImage`. Local
+   `require(...)` assets and user avatars / review photos are out of scope and
+   may still use `react-native`'s `Image`.
+2. If you introduce a new screen that legitimately needs to fetch restaurant
+   or menu imagery from the server, wrap it with
+   `<ImageFetchProvider allowFetch={true}>` AND call `prefetchImages` with any
+   URLs it loads. Do both, or the cache never warms on that screen.
+3. If you change the refresh window, update `REFRESH_MS` in
+   `lib/image-cache.ts` — don't sprinkle TTL logic elsewhere.
+4. Debug helper: `clearImageCache()` nukes both the versioning map and
+   `expo-image`'s disk + memory caches. Only for local debugging.
+
 ## Environment Variables
 
 ```

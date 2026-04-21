@@ -1,9 +1,10 @@
 import React from "react";
-import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native";
+import { View, Text, Pressable, Dimensions, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Plus, Leaf, Flame, Camera } from "lucide-react-native";
 import type { UIMenuItem } from "@/lib/restaurant-types";
 import { useAppTheme } from "@/lib/app-theme";
+import { CachedImage } from "@/components/CachedImage";
 import Animated, {
   FadeInUp,
   useAnimatedStyle,
@@ -79,10 +80,26 @@ export function MenuGridItem({
         >
           <View style={{ height: imageHeight, position: "relative" }}>
             {hasImage ? (
-              <Image
+              <CachedImage
                 source={{ uri: item.image }}
                 style={{ width: "100%", height: "100%", opacity: item.isAvailable === false ? 0.8 : 1 }}
                 resizeMode="cover"
+                fallback={
+                  <View
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: isDark ? "#1b1b1b" : colors.pressableBg,
+                    }}
+                  >
+                    <Camera size={30} color={colors.iconMuted} />
+                    <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 12 }}>
+                      No image
+                    </Text>
+                  </View>
+                }
               />
             ) : (
               <View

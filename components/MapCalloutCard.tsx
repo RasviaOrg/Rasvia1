@@ -1,6 +1,7 @@
 import React from "react";
-import { View, Text, Image } from "react-native";
+import { View, Text } from "react-native";
 import { Star, ChevronRight } from "lucide-react-native";
+import { CachedImage } from "@/components/CachedImage";
 
 interface MapCalloutCardProps {
     name: string;
@@ -22,8 +23,10 @@ export function MapCalloutCard({ name, rating, imageUrl }: MapCalloutCardProps) 
                 width: 220,
             }}
         >
-            {/* Thumbnail */}
-            <Image
+            {/* Thumbnail — falls back to a plain tile when the map page hasn't
+                cached this restaurant's image yet (the map never fetches from
+                server; images only load after the user visits home). */}
+            <CachedImage
                 source={{ uri: imageUrl }}
                 style={{
                     width: 50,
@@ -31,6 +34,16 @@ export function MapCalloutCard({ name, rating, imageUrl }: MapCalloutCardProps) 
                     borderRadius: 10,
                     backgroundColor: "#262626",
                 }}
+                fallback={
+                    <View
+                        style={{
+                            width: 50,
+                            height: 50,
+                            borderRadius: 10,
+                            backgroundColor: "#262626",
+                        }}
+                    />
+                }
             />
             {/* Info */}
             <View style={{ flex: 1, marginLeft: 10 }}>

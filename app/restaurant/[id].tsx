@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import {
   View,
   Text,
-  Image,
   Pressable,
   Dimensions,
   Alert,
@@ -87,6 +86,9 @@ import {
 import * as SecureStore from 'expo-secure-store';
 import * as ExpoClipboard from "expo-clipboard";
 import { recordRecentlyViewedRestaurant } from "@/lib/restaurant-media";
+import { ImageFetchProvider } from "@/lib/image-fetch-context";
+import { prefetchImages } from "@/lib/image-cache";
+import { CachedImage } from "@/components/CachedImage";
 import { useAppTheme } from "@/lib/app-theme";
 import { useRestaurantBottomNav } from "@/lib/restaurant-bottom-nav-context";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
@@ -534,6 +536,9 @@ export default function RestaurantDetail() {
       if (data) {
         const uiRestaurant = mapSupabaseToUI(data as SupabaseRestaurant, userCoords);
         setRestaurant(uiRestaurant);
+        // Warm the restaurant hero into the disk cache so back-navigation
+        // and collapsed-header renders don't each trigger a fetch.
+        if (uiRestaurant.image) void prefetchImages([uiRestaurant.image]);
         // Fetch live review stats from restaurant_reviews (not the DB rating column)
         const stats = await fetchReviewStats(id);
         setLiveReviewCount(stats.count);
@@ -667,14 +672,22 @@ export default function RestaurantDetail() {
                       : null,
               };
             });
-            setMenu(sortByImageFirst(merged));
+            const sorted = sortByImageFirst(merged);
+            setMenu(sorted);
+            // Prefetch menu images to disk cache now that the user opened
+            // this restaurant (one of the two screens allowed to hit the
+            // network). Downstream screens (cart, my-orders, etc.) will
+            // render the same URLs from the cache without egress.
+            void prefetchImages(sorted.map((m) => m.image));
             return;
           }
         } catch {
           // community_menu_images table may not exist yet — silently skip
         }
 
-        setMenu(sortByImageFirst(uiMenuItems));
+        const sorted = sortByImageFirst(uiMenuItems);
+        setMenu(sorted);
+        void prefetchImages(sorted.map((m) => m.image));
       }
     } catch (error) {
       console.error('Error fetching menu:', error);
@@ -1245,10 +1258,11 @@ export default function RestaurantDetail() {
       : (["rgba(255,255,255,0.2)", "rgba(255,255,255,0.75)", colors.background] as const);
     const navPad = APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + Math.max(insets.bottom, 8);
     return (
+      <ImageFetchProvider allowFetch={true}>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         {/* Hero image with overlay */}
         <View style={{ height: HERO_HEIGHT, position: "relative" }}>
-          <Image
+          <CachedImage
             source={{ uri: restaurant.image }}
             style={{ width: "100%", height: "100%", position: "absolute" }}
             resizeMode="cover"
@@ -1367,10 +1381,12 @@ export default function RestaurantDetail() {
           </View>
         </View>
       </View>
+      </ImageFetchProvider>
     );
   }
 
   return (
+    <ImageFetchProvider allowFetch={true}>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* Collapsed Sticky Header */}
       <Animated.View
@@ -1418,7 +1434,7 @@ export default function RestaurantDetail() {
               <ArrowLeft size={20} color={colors.text} />
             </Pressable>
 
-            <Image
+            <CachedImage
               source={{ uri: restaurant.image }}
               style={{
                 width: 40,
@@ -1598,7 +1614,7 @@ export default function RestaurantDetail() {
           <Animated.View
             style={[heroInnerStyle, { position: "absolute", top: 0, left: 0, right: 0, height: HERO_HEIGHT }]}
           >
-            <Image
+            <CachedImage
               source={{ uri: restaurant.image }}
               style={{ width: "100%", height: HERO_HEIGHT, position: "absolute", top: 0, left: 0, right: 0 }}
               resizeMode="cover"
@@ -3252,7 +3268,7 @@ export default function RestaurantDetail() {
                         borderColor: isCurrent ? "rgba(255,153,51,0.45)" : (isDark ? "#242424" : colors.cardBorder),
                       }}
                     >
-                      <Image
+                      <CachedImage
                         source={{ uri: loc.image }}
                         style={{ width: 52, height: 52, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder }}
                         resizeMode="cover"
@@ -3292,5 +3308,6 @@ export default function RestaurantDetail() {
         </Modal>
       )}
     </View>
+    </ImageFetchProvider>
   );
 }

@@ -60,6 +60,8 @@ import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
 import { TabScreenEntrance } from "@/components/TabScreenEntrance";
 import { withTimeout } from "@/lib/with-timeout";
 import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRecentlyViewedRestaurant, type RestaurantMediaSlide } from "@/lib/restaurant-media";
+import { ImageFetchProvider } from "@/lib/image-fetch-context";
+import { prefetchImages } from "@/lib/image-cache";
 import { loadActiveParties, removeActiveParty, subscribeActiveParties } from "@/lib/party-active";
 import { loadPartyCreds } from "@/lib/party-credentials";
 import { fetchSnapshot } from "@/lib/party-session";
@@ -627,7 +629,23 @@ export default function DiscoveryFeed() {
           return { ...r, rating: s.average, reviewCount: s.count };
         });
         setRestaurants(withReviews);
-        setRestaurantMediaById(await fetchRestaurantMediaSlides(withReviews.map((r: UIRestaurant) => r.id)));
+        const slidesByRestaurant = await fetchRestaurantMediaSlides(withReviews.map((r: UIRestaurant) => r.id));
+        setRestaurantMediaById(slidesByRestaurant);
+        // Warm the on-disk image cache for every restaurant card the user is
+        // likely to see on the home feed. This is the only route (along with
+        // restaurant detail) that is allowed to pull fresh images from
+        // Supabase — screens like map / favorites / search / cart / discover
+        // render exclusively from whatever we cache here, which is how we
+        // keep cached-egress under control.
+        const urlsToWarm: string[] = [];
+        for (const r of withReviews as UIRestaurant[]) {
+          if (r.image) urlsToWarm.push(r.image);
+          const slides = slidesByRestaurant[r.id] ?? [];
+          for (const s of slides) {
+            if (s.imageUrl) urlsToWarm.push(s.imageUrl);
+          }
+        }
+        void prefetchImages(urlsToWarm);
       }
     } catch (error) {
       console.error('Error fetching restaurants:', error);
@@ -1313,6 +1331,7 @@ export default function DiscoveryFeed() {
   const showDiscoverFeedLoading = isDiscoverFeedRoute && loading;
 
   return (
+    <ImageFetchProvider allowFetch={true}>
     <View className="flex-1" style={{ backgroundColor: colors.homeBg }}>
       <SafeAreaView className="flex-1" edges={["top"]} style={{ backgroundColor: colors.homeBg }}>
         <TabScreenEntrance>
@@ -2873,5 +2892,6 @@ export default function DiscoveryFeed() {
         {showSearch && <SearchOverlay onClose={() => setShowSearch(false)} />}
       </SafeAreaView>
     </View>
+    </ImageFetchProvider>
   );
 }

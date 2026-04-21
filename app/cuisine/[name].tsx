@@ -4,11 +4,11 @@ import {
   Text,
   ScrollView,
   Pressable,
-  Image,
   Platform,
   Dimensions,
   ActivityIndicator,
 } from "react-native";
+import { CachedImage } from "@/components/CachedImage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, Star, MapPin, Clock, Users } from "lucide-react-native";
@@ -339,10 +339,11 @@ function CuisineRestaurantCard({
             borderColor: "#2a2a2a",
           }}
         >
-        <Image
+        <CachedImage
           source={{ uri: restaurant.image }}
           style={{ width: "100%", height: 110 }}
           resizeMode="cover"
+          fallback={<View style={{ width: "100%", height: 110, backgroundColor: "#1b1b1b" }} />}
         />
 
         {/* Info */}

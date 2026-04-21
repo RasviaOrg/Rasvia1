@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, Pressable, Platform, ActivityIndicator, Image, ScrollView, Alert } from "react-native";
+import { View, Text, Pressable, Platform, ActivityIndicator, ScrollView, Alert } from "react-native";
+import { CachedImage } from "@/components/CachedImage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -383,9 +384,23 @@ export default function CartScreen() {
                     }}
                   >
                     {group.restaurantImage ? (
-                      <Image
+                      <CachedImage
                         source={{ uri: group.restaurantImage }}
                         style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: colors.pressableBg }}
+                        fallback={
+                          <View
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 10,
+                              backgroundColor: colors.pressableBg,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <ShoppingCart size={17} color={colors.iconMuted} />
+                          </View>
+                        }
                       />
                     ) : (
                       <View
@@ -508,9 +523,23 @@ export default function CartScreen() {
                         >
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                             {row.itemImage ? (
-                              <Image
+                              <CachedImage
                                 source={{ uri: row.itemImage }}
                                 style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: colors.pressableBg }}
+                                fallback={
+                                  <View
+                                    style={{
+                                      width: 48,
+                                      height: 48,
+                                      borderRadius: 10,
+                                      backgroundColor: colors.pressableBg,
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    <ShoppingCart size={18} color={colors.iconMuted} />
+                                  </View>
+                                }
                               />
                             ) : (
                               <View

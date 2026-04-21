@@ -6,8 +6,8 @@ import {
   ScrollView,
   Platform,
   RefreshControl,
-  Image,
 } from "react-native";
+import { CachedImage } from "@/components/CachedImage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { ArrowLeft, MapPin, Clock } from "lucide-react-native";
@@ -305,7 +305,7 @@ export default function FavoritesScreen() {
                         opacity: isClosed ? 0.6 : 1,
                       }}
                     >
-                      <Image
+                      <CachedImage
                         source={{
                           uri: restaurant.image_url || "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4",
                         }}
@@ -315,6 +315,16 @@ export default function FavoritesScreen() {
                           borderRadius: 12,
                           backgroundColor: colors.pressableBg,
                         }}
+                        fallback={
+                          <View
+                            style={{
+                              width: 80,
+                              height: 80,
+                              borderRadius: 12,
+                              backgroundColor: colors.pressableBg,
+                            }}
+                          />
+                        }
                       />
                       <View style={{ flex: 1, marginLeft: 16 }}>
                         <Text

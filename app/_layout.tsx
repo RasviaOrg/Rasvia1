@@ -48,6 +48,7 @@ import {
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { LocationProvider } from "@/lib/location-context";
 import { NotificationsProvider, useNotifications } from "@/lib/notifications-context";
+import { primeImageCache } from "@/lib/image-cache";
 import { InAppNotification } from "@/components/InAppNotification";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { AppBottomNav, type TabKey } from "@/components/AppBottomNav";
@@ -442,6 +443,13 @@ function RootLayoutWithFonts() {
       SplashScreen.hideAsync();
     }
   }, [fontsReady]);
+
+  // Warm the persisted image cache index as early as possible so the very
+  // first render of the home feed already knows which URLs have live 7-day
+  // cache entries (prevents a flicker while we hydrate from AsyncStorage).
+  useEffect(() => {
+    primeImageCache();
+  }, []);
 
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(colors.background);
