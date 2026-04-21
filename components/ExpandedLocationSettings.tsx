@@ -16,6 +16,8 @@ import { MapPin, Search, X, Crosshair, BookmarkPlus, Trash2 } from "lucide-react
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "@/lib/location-context";
+import { useAppTheme } from "@/lib/app-theme";
+import { buildTexasNominatimSearchUrl, nominatimResultInTexas } from "@/lib/nominatim-texas";
 
 type Suggestion = { display_name: string; lat: number; lon: number };
 
@@ -58,6 +60,7 @@ type Props = {
 
 export function ExpandedLocationSettings({ onApplied }: Props) {
   const { session, refreshProfile } = useAuth();
+  const { colors, isDark } = useAppTheme();
   const {
     isUsingDiningPreferenceFallback,
     diningPreferenceAreaLabel,
@@ -129,14 +132,20 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
       }
       setSearching(true);
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=4&q=${encodeURIComponent(addressQuery)}`,
-          { headers: { "User-Agent": "RasviaApp/1.0" }, signal: controller.signal }
-        );
-        const results = await res.json();
+        const res = await fetch(buildTexasNominatimSearchUrl(addressQuery), {
+          headers: { "User-Agent": "RasviaApp/1.0" },
+          signal: controller.signal,
+        });
+        const results = (await res.json()) as Array<{
+          display_name: string;
+          lat: string;
+          lon: string;
+          address?: Record<string, string>;
+        }>;
         if (!active) return;
+        const inTexas = results.filter(nominatimResultInTexas).slice(0, 4);
         setSuggestions(
-          (results || []).map((r: { display_name: string; lat: string; lon: string }) => ({
+          inTexas.map((r) => ({
             display_name: r.display_name,
             lat: parseFloat(r.lat),
             lon: parseFloat(r.lon),
@@ -358,17 +367,20 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
   if (!hydrated) {
     return (
       <View style={{ paddingVertical: 20, alignItems: "center" }}>
-        <ActivityIndicator color="#FF9933" />
+        <ActivityIndicator color={colors.saffron} />
       </View>
     );
   }
+
+  const dividerColor = colors.cardBorder;
+  const suggestionRowBorder = colors.cardBorder;
 
   return (
     <Animated.View entering={FadeInDown.duration(250)}>
       <Text
         style={{
           fontFamily: "Manrope_600SemiBold",
-          color: "#888",
+          color: colors.textMuted,
           fontSize: 11,
           letterSpacing: 0.6,
           textTransform: "uppercase",
@@ -386,9 +398,9 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
           alignItems: "center",
           justifyContent: "center",
           gap: 10,
-          backgroundColor: "rgba(255,153,51,0.12)",
+          backgroundColor: isDark ? "rgba(255,153,51,0.12)" : "rgba(255,153,51,0.1)",
           borderWidth: 1,
-          borderColor: "rgba(255,153,51,0.35)",
+          borderColor: isDark ? "rgba(255,153,51,0.35)" : "rgba(255,153,51,0.28)",
           borderRadius: 14,
           paddingVertical: 12,
           paddingHorizontal: 14,
@@ -396,18 +408,18 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
         }}
       >
         {liveBusy ? (
-          <ActivityIndicator color="#FF9933" />
+          <ActivityIndicator color={colors.saffron} />
         ) : (
-          <Crosshair size={18} color="#FF9933" />
+          <Crosshair size={18} color={colors.saffron} />
         )}
-        <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 15 }}>
+        <Text style={{ fontFamily: "Manrope_700Bold", color: colors.saffron, fontSize: 15 }}>
           Use current location
         </Text>
       </Pressable>
       <Text
         style={{
           fontFamily: "Manrope_500Medium",
-          color: "#666",
+          color: colors.textMuted,
           fontSize: 11,
           marginTop: 8,
           lineHeight: 15,
@@ -419,12 +431,12 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
       <View
         style={{
           height: 1,
-          backgroundColor: "#2a2a2a",
+          backgroundColor: dividerColor,
           marginVertical: 14,
         }}
       />
 
-      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 12, marginBottom: 8 }}>
+      <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 12, marginBottom: 8 }}>
         Search address
       </Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -433,29 +445,29 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
             flex: 1,
             flexDirection: "row",
             alignItems: "center",
-            backgroundColor: "#262626",
+            backgroundColor: colors.backgroundElevated,
             borderRadius: 14,
             borderWidth: 1,
-            borderColor: "#333",
+            borderColor: colors.cardBorder,
             paddingHorizontal: 12,
             height: 44,
           }}
         >
-          <Search size={16} color="#666" />
+          <Search size={16} color={colors.iconMuted} />
           <TextInput
             style={{
               flex: 1,
-              color: "#f5f5f5",
+              color: colors.text,
               fontFamily: "Manrope_500Medium",
               fontSize: 14,
               marginLeft: 8,
             }}
             placeholder="Search and pick a result…"
-            placeholderTextColor="#666"
+            placeholderTextColor={colors.textMuted}
             value={addressQuery}
             onChangeText={setAddressQuery}
             autoCorrect={false}
-            keyboardAppearance="dark"
+            keyboardAppearance={isDark ? "dark" : "light"}
             returnKeyType="search"
           />
           {addressQuery.length > 0 && (
@@ -466,23 +478,23 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
               }}
               hitSlop={10}
             >
-              <X size={16} color="#888" />
+              <X size={16} color={colors.iconMuted} />
             </Pressable>
           )}
         </View>
       </View>
       {searching && (
-        <Text style={{ color: "#666", fontSize: 11, fontFamily: "Manrope_500Medium", marginTop: 8 }}>
+        <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: "Manrope_500Medium", marginTop: 8 }}>
           Searching…
         </Text>
       )}
       {suggestions.length > 0 && (
         <View
           style={{
-            backgroundColor: "#222",
+            backgroundColor: colors.card,
             borderRadius: 12,
             borderWidth: 1,
-            borderColor: "#2a2a2a",
+            borderColor: colors.cardBorder,
             marginTop: 10,
             overflow: "hidden",
             maxHeight: 220,
@@ -496,7 +508,7 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
                   flexDirection: "row",
                   alignItems: "center",
                   borderBottomWidth: idx < suggestions.length - 1 ? 1 : 0,
-                  borderColor: "#3a3a3a",
+                  borderColor: suggestionRowBorder,
                   opacity: applyingPick ? 0.5 : 1,
                 }}
               >
@@ -509,11 +521,11 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
-                    <MapPin size={14} color="#FF9933" style={{ marginTop: 2 }} />
+                    <MapPin size={14} color={colors.saffron} style={{ marginTop: 2 }} />
                     <Text
                       style={{
                         flex: 1,
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontFamily: "Manrope_500Medium",
                         fontSize: 13,
                         lineHeight: 18,
@@ -533,13 +545,17 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
                     paddingHorizontal: 12,
                     paddingVertical: 12,
                     borderLeftWidth: 1,
-                    borderLeftColor: "#3a3a3a",
+                    borderLeftColor: suggestionRowBorder,
                   }}
                   hitSlop={8}
                 >
                   <BookmarkPlus
                     size={20}
-                    color={savingRowId === `new-${item.lat}-${item.lon}` ? "#666" : "#FF9933"}
+                    color={
+                      savingRowId === `new-${item.lat}-${item.lon}`
+                        ? colors.iconMuted
+                        : colors.saffron
+                    }
                   />
                 </Pressable>
               </View>
@@ -549,15 +565,15 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
       )}
       {applyingPick && (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 10, gap: 8 }}>
-          <ActivityIndicator size="small" color="#FF9933" />
-          <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 12 }}>Applying…</Text>
+          <ActivityIndicator size="small" color={colors.saffron} />
+          <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 12 }}>Applying…</Text>
         </View>
       )}
 
       <View
         style={{
           height: 1,
-          backgroundColor: "#2a2a2a",
+          backgroundColor: dividerColor,
           marginVertical: 14,
         }}
       />
@@ -568,8 +584,8 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
             marginBottom: 12,
             borderRadius: 10,
             borderWidth: 1,
-            borderColor: "rgba(255,153,51,0.24)",
-            backgroundColor: "rgba(255,153,51,0.08)",
+            borderColor: isDark ? "rgba(255,153,51,0.24)" : "rgba(255,153,51,0.22)",
+            backgroundColor: isDark ? "rgba(255,153,51,0.08)" : "rgba(255,153,51,0.06)",
             paddingHorizontal: 10,
             paddingVertical: 8,
           }}
@@ -577,7 +593,7 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#FFB566",
+              color: isDark ? "#FFB566" : "#c2410c",
               fontSize: 12,
               lineHeight: 16,
             }}
@@ -587,15 +603,15 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
         </View>
       )}
 
-      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 12, marginBottom: 8 }}>
+      <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 12, marginBottom: 8 }}>
         Saved addresses
       </Text>
       {loadingSaved ? (
         <View style={{ paddingVertical: 16, alignItems: "center" }}>
-          <ActivityIndicator color="#FF9933" size="small" />
+          <ActivityIndicator color={colors.saffron} size="small" />
         </View>
       ) : savedList.length === 0 ? (
-        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 13, lineHeight: 18 }}>
+        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, lineHeight: 18 }}>
           No saved addresses yet. Tap the bookmark on a search result to save one here.
         </Text>
       ) : (
@@ -604,10 +620,10 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
             <View
               key={row.id}
               style={{
-                backgroundColor: "#262626",
+                backgroundColor: colors.backgroundElevated,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: "#333",
+                borderColor: colors.cardBorder,
                 flexDirection: "row",
                 alignItems: "center",
                 overflow: "hidden",
@@ -622,7 +638,7 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
                   <Text
                     style={{
                       fontFamily: "Manrope_700Bold",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 14,
                       marginBottom: 4,
                     }}
@@ -634,7 +650,7 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#a3a3a3",
+                    color: colors.textSecondary,
                     fontSize: 12,
                     lineHeight: 16,
                   }}
@@ -653,9 +669,9 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
                   }}
                 >
                   {savingRowId === row.id ? (
-                    <ActivityIndicator size="small" color="#FF9933" />
+                    <ActivityIndicator size="small" color={colors.saffron} />
                   ) : (
-                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 12 }}>Use</Text>
+                    <Text style={{ fontFamily: "Manrope_700Bold", color: colors.saffron, fontSize: 12 }}>Use</Text>
                   )}
                 </Pressable>
                 <Pressable
@@ -663,7 +679,7 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
                   style={{ paddingVertical: 12, paddingHorizontal: 12 }}
                   hitSlop={8}
                 >
-                  <Trash2 size={18} color="#888" />
+                  <Trash2 size={18} color={colors.iconMuted} />
                 </Pressable>
               </View>
             </View>

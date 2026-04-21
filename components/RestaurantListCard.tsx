@@ -30,7 +30,7 @@ export function RestaurantListCard({
   onToggleFavorite,
   mediaSlides,
 }: RestaurantListCardProps) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const pressScale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -100,14 +100,14 @@ export function RestaurantListCard({
                   position: "absolute",
                   inset: 0,
                   top: 0, left: 0, right: 0, bottom: 0,
-                  backgroundColor: "rgba(15,15,15,0.62)",
+                  backgroundColor: isDark ? "rgba(15,15,15,0.62)" : "rgba(255,255,255,0.45)",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
                 <View
                   style={{
-                    backgroundColor: "rgba(10,10,10,0.92)",
+                    backgroundColor: isDark ? "rgba(10,10,10,0.92)" : "rgba(255,255,255,0.96)",
                     borderWidth: 2,
                     borderColor: "#FF9F43",
                     borderRadius: 999,
@@ -118,16 +118,16 @@ export function RestaurantListCard({
                     gap: 6,
                     shadowColor: "#FF9F43",
                     shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.3,
+                    shadowOpacity: isDark ? 0.3 : 0.15,
                     shadowRadius: 10,
                     elevation: 6,
                   }}
                 >
-                  <Hourglass size={12} color="#FFB56B" />
+                  <Hourglass size={12} color="#FF9933" />
                   <Text
                     style={{
                       fontFamily: "Manrope_700Bold",
-                      color: "#FFC484",
+                      color: isDark ? "#FFC484" : "#C2410C",
                       fontSize: 12,
                       letterSpacing: 0.45,
                     }}
@@ -144,10 +144,12 @@ export function RestaurantListCard({
                 position: "absolute",
                 top: 8,
                 left: 8,
-                backgroundColor: "rgba(0,0,0,0.65)",
+                backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.94)",
                 borderRadius: 8,
                 paddingHorizontal: 7,
                 paddingVertical: 3,
+                borderWidth: 1,
+                borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
               }}
             >
               <Text

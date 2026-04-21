@@ -87,6 +87,9 @@ import {
 import * as SecureStore from 'expo-secure-store';
 import * as ExpoClipboard from "expo-clipboard";
 import { recordRecentlyViewedRestaurant } from "@/lib/restaurant-media";
+import { useAppTheme } from "@/lib/app-theme";
+import { useRestaurantBottomNav } from "@/lib/restaurant-bottom-nav-context";
+import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 let SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -183,18 +186,6 @@ export default function RestaurantDetail() {
     if (cartTypeParam) setCheckoutOrderType(cartTypeParam);
   }, [cartTypeParam]);
 
-  // Honor ?scrollTo=menu — request a scroll once the menu section has
-  // measured itself. If the layout pass hasn't finished, the onLayout
-  // handler below picks up the pending flag and fires it.
-  useEffect(() => {
-    if (scrollTo !== "menu") return;
-    pendingScrollToMenuRef.current = true;
-    // Small defer so it fires after the first render / layout pass.
-    const t = setTimeout(() => {
-      if (menuSectionYRef.current != null) scrollToMenu();
-    }, 250);
-    return () => clearTimeout(t);
-  }, [scrollTo, scrollToMenu]);
   // Whether this restaurant has Stripe Connect set up. Group orders settle
   // via Stripe, so without an account we have to gate the "Group Order"
   // entry-point and tell the user why it's unavailable.
@@ -260,10 +251,32 @@ export default function RestaurantDetail() {
   const [selectedMenuFilters, setSelectedMenuFilters] = useState<MenuFilter[]>([]);
   const [showTagFilterMenu, setShowTagFilterMenu] = useState(false);
   const [adminBypassComingSoon, setAdminBypassComingSoon] = useState(false);
+  const { colors, isDark } = useAppTheme();
+  const { setForceShowRestaurantBottomNav } = useRestaurantBottomNav();
 
   useEffect(() => {
     setAdminBypassComingSoon(false);
   }, [id]);
+
+  useEffect(() => {
+    return () => setForceShowRestaurantBottomNav(false);
+  }, [setForceShowRestaurantBottomNav]);
+
+  useEffect(() => {
+    if (!restaurant) {
+      setForceShowRestaurantBottomNav(false);
+      return;
+    }
+    const showTabBar =
+      restaurant.isComingSoon && (!isAdmin || !adminBypassComingSoon);
+    setForceShowRestaurantBottomNav(showTabBar);
+  }, [
+    restaurant?.id,
+    restaurant?.isComingSoon,
+    isAdmin,
+    adminBypassComingSoon,
+    setForceShowRestaurantBottomNav,
+  ]);
   // User dietary preferences for veg indicator
   const [userDietaryType, setUserDietaryType] = useState("");
   const [userRestrictedDays, setUserRestrictedDays] = useState<string[]>([]);
@@ -765,6 +778,18 @@ export default function RestaurantDetail() {
     }
   }, []);
 
+  // Honor ?scrollTo=menu — request a scroll once the menu section has
+  // measured itself. If the layout pass hasn't finished, the onLayout
+  // handler below picks up the pending flag and fires it.
+  useEffect(() => {
+    if (scrollTo !== "menu") return;
+    pendingScrollToMenuRef.current = true;
+    const t = setTimeout(() => {
+      if (menuSectionYRef.current != null) scrollToMenu();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [scrollTo, scrollToMenu]);
+
   // Hero: fixed height container, image fades out on scroll (no parallax shift)
   const heroInnerStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
@@ -1190,9 +1215,9 @@ export default function RestaurantDetail() {
   // Show loading or error state
   if (!restaurant) {
     return (
-      <View className="flex-1 bg-rasvia-black items-center justify-center">
-        <Text style={{ color: '#999999', fontFamily: 'Manrope_500Medium' }}>
-          {loading ? 'Loading...' : 'Restaurant not found'}
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium" }}>
+          {loading ? "Loading..." : "Restaurant not found"}
         </Text>
       </View>
     );
@@ -1205,8 +1230,8 @@ export default function RestaurantDetail() {
   // user tapped it before the entry query finished.
   if (waitlistEntryParam && !waitlistEntryChecked) {
     return (
-      <View className="flex-1 bg-rasvia-black items-center justify-center">
-        <Text style={{ color: '#999999', fontFamily: 'Manrope_500Medium' }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium" }}>
           Loading your order…
         </Text>
       </View>
@@ -1215,9 +1240,13 @@ export default function RestaurantDetail() {
 
   // ── Coming Soon gate (all users; admins can bypass into menu) ────────────
   if (restaurant.isComingSoon && (!isAdmin || !adminBypassComingSoon)) {
+    const heroGradient = isDark
+      ? (["rgba(15,15,15,0.45)", "rgba(15,15,15,0.85)", "rgba(15,15,15,1)"] as const)
+      : (["rgba(255,255,255,0.2)", "rgba(255,255,255,0.75)", colors.background] as const);
+    const navPad = APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + Math.max(insets.bottom, 8);
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
-        {/* Hero image with dark overlay */}
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        {/* Hero image with overlay */}
         <View style={{ height: HERO_HEIGHT, position: "relative" }}>
           <Image
             source={{ uri: restaurant.image }}
@@ -1225,7 +1254,7 @@ export default function RestaurantDetail() {
             resizeMode="cover"
           />
           <LinearGradient
-            colors={["rgba(15,15,15,0.45)", "rgba(15,15,15,0.85)", "rgba(15,15,15,1)"]}
+            colors={heroGradient}
             locations={[0, 0.55, 1]}
             style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
           />
@@ -1234,23 +1263,32 @@ export default function RestaurantDetail() {
               <Pressable
                 onPress={() => router.back()}
                 style={{
-                  backgroundColor: "rgba(15,15,15,0.6)",
+                  backgroundColor: isDark ? "rgba(15,15,15,0.6)" : "rgba(255,255,255,0.92)",
                   width: 44, height: 44, borderRadius: 22,
                   alignItems: "center", justifyContent: "center",
-                  borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+                  borderWidth: 1,
+                  borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
                 }}
               >
-                <ArrowLeft size={22} color="#f5f5f5" />
+                <ArrowLeft size={22} color={colors.text} />
               </Pressable>
             </View>
           </SafeAreaView>
         </View>
 
         {/* Coming Soon content */}
-        <View style={{ flex: 1, alignItems: "center", paddingHorizontal: 32, paddingTop: 40 }}>
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            paddingHorizontal: 32,
+            paddingTop: 40,
+            paddingBottom: navPad + 12,
+          }}
+        >
           <View
             style={{
-              backgroundColor: "rgba(255,153,51,0.12)",
+              backgroundColor: isDark ? "rgba(255,153,51,0.12)" : "rgba(255,153,51,0.16)",
               borderWidth: 1.5,
               borderColor: "rgba(255,153,51,0.5)",
               borderRadius: 28,
@@ -1271,7 +1309,7 @@ export default function RestaurantDetail() {
           <Text
             style={{
               fontFamily: "BricolageGrotesque_800ExtraBold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 32,
               textAlign: "center",
               letterSpacing: -0.5,
@@ -1284,7 +1322,7 @@ export default function RestaurantDetail() {
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#888",
+              color: colors.textMuted,
               fontSize: 15,
               textAlign: "center",
               lineHeight: 22,
@@ -1295,11 +1333,11 @@ export default function RestaurantDetail() {
             Check back soon — we&apos;re working on it!
           </Text>
 
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
             <Pressable
               onPress={() => router.back()}
               style={{
-                backgroundColor: "#FF9933",
+                backgroundColor: colors.saffron,
                 borderRadius: 16,
                 paddingHorizontal: 24,
                 paddingVertical: 14,
@@ -1313,15 +1351,15 @@ export default function RestaurantDetail() {
               <Pressable
                 onPress={() => setAdminBypassComingSoon(true)}
                 style={{
-                  backgroundColor: "rgba(148,163,184,0.15)",
+                  backgroundColor: isDark ? "rgba(148,163,184,0.15)" : colors.pressableBg,
                   borderRadius: 16,
                   borderWidth: 1,
-                  borderColor: "rgba(148,163,184,0.45)",
+                  borderColor: isDark ? "rgba(148,163,184,0.45)" : colors.cardBorder,
                   paddingHorizontal: 18,
                   paddingVertical: 14,
                 }}
               >
-                <Text style={{ fontFamily: "Manrope_700Bold", color: "#CBD5E1", fontSize: 14 }}>
+                <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textSecondary, fontSize: 14 }}>
                   View Menu (Admin)
                 </Text>
               </Pressable>
@@ -1333,7 +1371,7 @@ export default function RestaurantDetail() {
   }
 
   return (
-    <View className="flex-1 bg-rasvia-black">
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* Collapsed Sticky Header */}
       <Animated.View
         style={[
@@ -1344,9 +1382,9 @@ export default function RestaurantDetail() {
             left: 0,
             right: 0,
             zIndex: 100,
-            backgroundColor: "rgba(15, 15, 15, 0.97)",
+            backgroundColor: isDark ? "rgba(15, 15, 15, 0.97)" : "rgba(250, 250, 250, 0.97)",
             borderBottomWidth: 1,
-            borderBottomColor: "#222222",
+            borderBottomColor: colors.cardBorder,
           },
         ]}
       >
@@ -1372,12 +1410,12 @@ export default function RestaurantDetail() {
                 borderRadius: 19,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.pressableBg,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
-              <ArrowLeft size={20} color="#f5f5f5" />
+              <ArrowLeft size={20} color={colors.text} />
             </Pressable>
 
             <Image
@@ -1388,7 +1426,7 @@ export default function RestaurantDetail() {
                 borderRadius: 10,
                 marginLeft: 12,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
               resizeMode="cover"
             />
@@ -1398,7 +1436,7 @@ export default function RestaurantDetail() {
                 numberOfLines={1}
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 17,
                   letterSpacing: -0.3,
                 }}
@@ -1444,7 +1482,7 @@ export default function RestaurantDetail() {
                     <View
                       key={tag}
                       style={{
-                        backgroundColor: "rgba(255, 153, 51, 0.15)",
+                        backgroundColor: "rgba(255, 153, 51, 0.85)",
                         borderRadius: 10,
                         paddingHorizontal: 6,
                         paddingVertical: 1,
@@ -1454,7 +1492,7 @@ export default function RestaurantDetail() {
                       <Text
                         style={{
                           fontFamily: "Manrope_500Medium",
-                          color: "#FF9933",
+                          color: "#ffffff",
                           fontSize: 9,
                         }}
                       >
@@ -1479,7 +1517,7 @@ export default function RestaurantDetail() {
                     borderRadius: 17,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.pressableBg,
                     borderWidth: 1,
                     borderColor: isAdmin ? "rgba(255,153,51,0.4)" : "rgba(74,222,128,0.4)",
                     marginRight: 6,
@@ -1496,15 +1534,15 @@ export default function RestaurantDetail() {
                   borderRadius: 17,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.pressableBg,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                   marginRight: 6,
                 }}
               >
                 <Heart
                   size={16}
-                  color={isFavorited ? "#EF4444" : "#f5f5f5"}
+                  color={isFavorited ? "#EF4444" : colors.text}
                   fill={isFavorited ? "#EF4444" : "transparent"}
                 />
               </Pressable>
@@ -1516,12 +1554,12 @@ export default function RestaurantDetail() {
                   borderRadius: 17,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.pressableBg,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                 }}
               >
-                <Share2 size={16} color="#f5f5f5" />
+                <Share2 size={16} color={colors.text} />
               </Pressable>
             </View>
           </View>
@@ -1541,7 +1579,7 @@ export default function RestaurantDetail() {
             onRefresh={handleRefresh}
             tintColor="#FF9933"
             colors={["#FF9933"]}
-            progressBackgroundColor="#18181b"
+            progressBackgroundColor={isDark ? "#18181b" : colors.card}
             progressViewOffset={
               Platform.OS === "ios" ? insets.top + 110 : insets.top + 64
             }
@@ -1566,12 +1604,21 @@ export default function RestaurantDetail() {
               resizeMode="cover"
             />
             <LinearGradient
-              colors={[
-                "rgba(15,15,15,0.5)",
-                "transparent",
-                "rgba(15,15,15,0.7)",
-                "rgba(15,15,15,1)",
-              ]}
+              colors={
+                isDark
+                  ? [
+                      "rgba(15,15,15,0.5)",
+                      "transparent",
+                      "rgba(15,15,15,0.7)",
+                      "rgba(15,15,15,1)",
+                    ]
+                  : [
+                      "rgba(255,255,255,0.35)",
+                      "transparent",
+                      "rgba(250,250,250,0.82)",
+                      colors.background,
+                    ]
+              }
               locations={[0, 0.3, 0.7, 1]}
               style={{
                 position: "absolute",
@@ -1593,17 +1640,17 @@ export default function RestaurantDetail() {
                     router.back();
                   }}
                   style={{
-                    backgroundColor: "rgba(15, 15, 15, 0.6)",
+                    backgroundColor: isDark ? "rgba(15, 15, 15, 0.6)" : "rgba(255, 255, 255, 0.92)",
                     width: 44,
                     height: 44,
                     borderRadius: 22,
                     alignItems: "center",
                     justifyContent: "center",
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.08)",
+                    borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
                   }}
                 >
-                  <ArrowLeft size={22} color="#f5f5f5" />
+                  <ArrowLeft size={22} color={colors.text} />
                 </Pressable>
                 <View className="flex-row">
                   {canManage && (
@@ -1614,7 +1661,7 @@ export default function RestaurantDetail() {
                         setShowEditModal(true);
                       }}
                       style={{
-                        backgroundColor: "rgba(15, 15, 15, 0.6)",
+                        backgroundColor: isDark ? "rgba(15, 15, 15, 0.6)" : "rgba(255, 255, 255, 0.92)",
                         width: 44,
                         height: 44,
                         borderRadius: 22,
@@ -1631,36 +1678,36 @@ export default function RestaurantDetail() {
                     className="mr-2"
                     onPress={handleToggleFavorite}
                     style={{
-                      backgroundColor: "rgba(15, 15, 15, 0.6)",
+                      backgroundColor: isDark ? "rgba(15, 15, 15, 0.6)" : "rgba(255, 255, 255, 0.92)",
                       width: 44,
                       height: 44,
                       borderRadius: 22,
                       alignItems: "center",
                       justifyContent: "center",
                       borderWidth: 1,
-                      borderColor: "rgba(255,255,255,0.08)",
+                      borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
                     }}
                   >
                     <Heart
                       size={20}
-                      color={isFavorited ? "#EF4444" : "#f5f5f5"}
+                      color={isFavorited ? "#EF4444" : colors.text}
                       fill={isFavorited ? "#EF4444" : "transparent"}
                     />
                   </Pressable>
                   <Pressable
                     onPress={handleShare}
                     style={{
-                      backgroundColor: "rgba(15, 15, 15, 0.6)",
+                      backgroundColor: isDark ? "rgba(15, 15, 15, 0.6)" : "rgba(255, 255, 255, 0.92)",
                       width: 44,
                       height: 44,
                       borderRadius: 22,
                       alignItems: "center",
                       justifyContent: "center",
                       borderWidth: 1,
-                      borderColor: "rgba(255,255,255,0.08)",
+                      borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
                     }}
                   >
-                    <Share2 size={20} color="#f5f5f5" />
+                    <Share2 size={20} color={colors.text} />
                   </Pressable>
                 </View>
               </View>
@@ -1676,15 +1723,13 @@ export default function RestaurantDetail() {
                     key={tag}
                     className="rounded-full px-2.5 py-0.5 mr-2"
                     style={{
-                      backgroundColor: "rgba(255, 153, 51, 0.35)",
-                      borderWidth: 1,
-                      borderColor: "rgba(255, 153, 51, 0.5)",
+                      backgroundColor: "rgba(255, 153, 51, 0.85)",
                     }}
                   >
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: "rgba(255,153,51,0.95)",
+                        color: "#ffffff",
                         fontSize: 11,
                       }}
                     >
@@ -1696,7 +1741,7 @@ export default function RestaurantDetail() {
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_800ExtraBold",
-                  color: "#f5f5f5",
+                  color: isDark ? "#f5f5f5" : colors.text,
                   fontSize: 40,
                   lineHeight: 44,
                   letterSpacing: -0.5,
@@ -1717,10 +1762,10 @@ export default function RestaurantDetail() {
                     alignItems: "center",
                     alignSelf: "flex-start",
                     marginTop: 10,
-                    backgroundColor: "rgba(15,15,15,0.72)",
+                    backgroundColor: isDark ? "rgba(15,15,15,0.72)" : "rgba(255,255,255,0.94)",
                     borderRadius: 20,
                     borderWidth: 1,
-                    borderColor: "rgba(255,153,51,0.45)",
+                    borderColor: "rgba(255,153,51,0.35)",
                     paddingHorizontal: 12,
                     paddingVertical: 7,
                     gap: 6,
@@ -1731,7 +1776,7 @@ export default function RestaurantDetail() {
                     numberOfLines={1}
                     style={{
                       fontFamily: "Manrope_600SemiBold",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 12,
                       maxWidth: 200,
                     }}
@@ -1760,7 +1805,7 @@ export default function RestaurantDetail() {
                 flex: 1,
                 alignItems: "center",
                 paddingVertical: 14,
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderRadius: 16,
                 borderWidth: 2,
                 borderColor: "rgba(255, 153, 51, 0.55)",
@@ -1771,7 +1816,7 @@ export default function RestaurantDetail() {
                 <Text
                   style={{
                     fontFamily: "JetBrainsMono_600SemiBold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 16,
                     marginLeft: 4,
                   }}
@@ -1804,20 +1849,20 @@ export default function RestaurantDetail() {
                 alignItems: "center",
                 justifyContent: "center",
                 paddingVertical: 14,
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
               {isClosed || waitlistClosed ? (
                 <>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-                    <Clock size={13} color="#999999" />
+                    <Clock size={13} color={colors.textMuted} />
                     <Text
                       style={{
                         fontFamily: "JetBrainsMono_600SemiBold",
-                        color: "#999999",
+                        color: colors.textMuted,
                         fontSize: 16,
                         marginLeft: 4,
                       }}
@@ -1825,7 +1870,7 @@ export default function RestaurantDetail() {
                       —
                     </Text>
                   </View>
-                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 11, marginTop: 3 }}>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginTop: 3 }}>
                     closed
                   </Text>
                 </>
@@ -1850,7 +1895,7 @@ export default function RestaurantDetail() {
                   <Text
                     style={{
                       fontFamily: "Manrope_500Medium",
-                      color: "#999999",
+                      color: colors.textMuted,
                       fontSize: 11,
                       marginTop: 3,
                       textAlign: "center",
@@ -1868,10 +1913,10 @@ export default function RestaurantDetail() {
                 flex: 1,
                 alignItems: "center",
                 paddingVertical: 14,
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -1879,7 +1924,7 @@ export default function RestaurantDetail() {
                 <Text
                   style={{
                     fontFamily: "JetBrainsMono_600SemiBold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 16,
                     marginLeft: 4,
                   }}
@@ -1890,7 +1935,7 @@ export default function RestaurantDetail() {
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 11,
                   marginTop: 3,
                 }}
@@ -1915,11 +1960,11 @@ export default function RestaurantDetail() {
               }
             }}
           >
-            <MapPin size={13} color="#999999" />
+            <MapPin size={13} color={colors.textMuted} />
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: colors.textMuted,
                 fontSize: 13,
                 marginLeft: 4,
                 textDecorationLine: "underline",
@@ -2103,7 +2148,7 @@ export default function RestaurantDetail() {
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#777777",
+              color: colors.textSecondary,
               fontSize: 15,
               lineHeight: 23,
               marginTop: 12,
@@ -2128,7 +2173,7 @@ export default function RestaurantDetail() {
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 24,
               }}
             >
@@ -2137,7 +2182,7 @@ export default function RestaurantDetail() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: colors.textMuted,
                 fontSize: 14,
                 marginTop: 2,
               }}
@@ -2163,10 +2208,10 @@ export default function RestaurantDetail() {
                 setShowTagFilterMenu((v) => !v);
               }}
               style={{
-                backgroundColor: "#161616",
+                backgroundColor: colors.backgroundElevated,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: "rgba(255,153,51,0.25)",
+                borderColor: isDark ? "rgba(255,153,51,0.25)" : colors.cardBorder,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 flexDirection: "row",
@@ -2176,11 +2221,15 @@ export default function RestaurantDetail() {
             >
               <Text
                 numberOfLines={1}
-                style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 13, flex: 1, marginRight: 10 }}
+                style={{ color: colors.text, fontFamily: "Manrope_700Bold", fontSize: 13, flex: 1, marginRight: 10 }}
               >
                 {dropdownLabel}
               </Text>
-              {showTagFilterMenu ? <ChevronUp size={15} color="#FF9933" /> : <ChevronDown size={15} color="#FF9933" />}
+              {showTagFilterMenu ? (
+                <ChevronUp size={15} color={isDark ? "#FF9933" : colors.textSecondary} />
+              ) : (
+                <ChevronDown size={15} color={isDark ? "#FF9933" : colors.textSecondary} />
+              )}
             </Pressable>
               );
             })()}
@@ -2189,10 +2238,10 @@ export default function RestaurantDetail() {
               <View
                 style={{
                   marginTop: 8,
-                  backgroundColor: "#141414",
+                  backgroundColor: colors.card,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                   padding: 10,
                   gap: 8,
                 }}
@@ -2204,12 +2253,24 @@ export default function RestaurantDetail() {
                     paddingHorizontal: 12,
                     paddingVertical: 8,
                     alignSelf: "flex-start",
-                    backgroundColor: selectedMenuFilters.length === 0 ? "rgba(255,153,51,0.14)" : "#1b1b1b",
+                    backgroundColor:
+                      selectedMenuFilters.length === 0
+                        ? (isDark ? "rgba(255,153,51,0.14)" : "rgba(255,153,51,0.12)")
+                        : colors.pressableBg,
                     borderWidth: 1,
-                    borderColor: selectedMenuFilters.length === 0 ? "rgba(255,153,51,0.35)" : "#2a2a2a",
+                    borderColor:
+                      selectedMenuFilters.length === 0
+                        ? (isDark ? "rgba(255,153,51,0.35)" : "rgba(255,153,51,0.3)")
+                        : colors.cardBorder,
                   }}
                 >
-                  <Text style={{ color: selectedMenuFilters.length === 0 ? "#FF9933" : "#9a9a9a", fontFamily: "Manrope_700Bold", fontSize: 12 }}>
+                  <Text
+                    style={{
+                      color: selectedMenuFilters.length === 0 ? (isDark ? "#FF9933" : "#b45309") : colors.textMuted,
+                      fontFamily: "Manrope_700Bold",
+                      fontSize: 12,
+                    }}
+                  >
                     All Menu Items
                   </Text>
                 </Pressable>
@@ -2232,14 +2293,20 @@ export default function RestaurantDetail() {
                           style={{
                             borderRadius: 999,
                             borderWidth: 1,
-                            borderColor: disabled ? "#242424" : (isActive ? tag.border : "#2f2f2f"),
-                            backgroundColor: disabled ? "#151515" : (isActive ? tag.bg : "#121212"),
+                            borderColor: disabled ? colors.cardBorder : (isActive ? tag.border : colors.cardBorder),
+                            backgroundColor: disabled ? colors.backgroundElevated : (isActive ? tag.bg : colors.pressableBg),
                             paddingHorizontal: 11,
                             paddingVertical: 8,
                             opacity: disabled ? 0.5 : 1,
                           }}
                         >
-                          <Text style={{ fontFamily: isActive ? "Manrope_700Bold" : "Manrope_600SemiBold", color: disabled ? "#575757" : (isActive ? tag.color : "#999"), fontSize: 12 }}>
+                          <Text
+                            style={{
+                              fontFamily: isActive ? "Manrope_700Bold" : "Manrope_600SemiBold",
+                              color: disabled ? colors.textMuted : (isActive ? tag.color : colors.textMuted),
+                              fontSize: 12,
+                            }}
+                          >
                             {tag.label}
                           </Text>
                         </Pressable>
@@ -2274,9 +2341,9 @@ export default function RestaurantDetail() {
       <View
         className="absolute bottom-0 left-0 right-0"
         style={{
-          backgroundColor: "rgba(15, 15, 15, 0.97)",
+          backgroundColor: isDark ? "rgba(15, 15, 15, 0.97)" : "rgba(250, 250, 250, 0.97)",
           borderTopWidth: 1,
-          borderTopColor: "#222222",
+          borderTopColor: colors.cardBorder,
         }}
       >
         <SafeAreaView edges={["bottom"]}>
@@ -2291,18 +2358,18 @@ export default function RestaurantDetail() {
                 }}
                 className="mr-3"
                 style={{
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.card,
                   width: 52,
                   height: 52,
                   borderRadius: 26,
                   alignItems: "center",
                   justifyContent: "center",
                   borderWidth: 1,
-                  borderColor: "#333333",
+                  borderColor: colors.cardBorder,
                   position: "relative",
                 }}
               >
-                <ShoppingBag size={22} color="#f5f5f5" />
+                <ShoppingBag size={22} color={colors.text} />
                 <View
                   style={{
                     position: "absolute",
@@ -2315,13 +2382,13 @@ export default function RestaurantDetail() {
                     alignItems: "center",
                     justifyContent: "center",
                     borderWidth: 2,
-                    borderColor: "#0f0f0f",
+                    borderColor: isDark ? "#0f0f0f" : colors.background,
                   }}
                 >
                   <Text
                     style={{
                       fontFamily: "JetBrainsMono_600SemiBold",
-                      color: "#0f0f0f",
+                      color: isDark ? "#0f0f0f" : "#ffffff",
                       fontSize: 10,
                     }}
                   >
@@ -2385,15 +2452,19 @@ export default function RestaurantDetail() {
                     className="rounded-2xl py-4 items-center flex-row justify-center"
                     style={{
                       backgroundColor: !ownerRoleResolved
-                        ? "#333333"
+                        ? colors.pressableBg
                         : footerPrimaryDisabled
-                          ? "#333333"
-                          : "#FF9933",
+                          ? colors.pressableBg
+                          : isDark
+                            ? "#FF9933"
+                            : "#c2410c",
                       shadowColor: !ownerRoleResolved
                         ? "transparent"
                         : footerPrimaryDisabled
                           ? "transparent"
-                          : "#FF9933",
+                          : isDark
+                            ? "#FF9933"
+                            : "#c2410c",
                       shadowOffset: { width: 0, height: 4 },
                       shadowOpacity: !ownerRoleResolved
                         ? 0
@@ -2412,21 +2483,35 @@ export default function RestaurantDetail() {
                       <ShoppingBag
                         size={18}
                         color={
-                          !ownerRoleResolved || footerPrimaryDisabled ? "#999999" : "#0f0f0f"
+                          !ownerRoleResolved || footerPrimaryDisabled
+                            ? colors.textMuted
+                            : isDark
+                              ? "#0f0f0f"
+                              : "#ffffff"
                         }
                         strokeWidth={2.5}
                       />
                     ) : showCheckWaitlistStatus ? (
                       <Users
                         size={18}
-                        color={!ownerRoleResolved || footerPrimaryDisabled ? "#999999" : "#0f0f0f"}
+                        color={
+                          !ownerRoleResolved || footerPrimaryDisabled
+                            ? colors.textMuted
+                            : isDark
+                              ? "#0f0f0f"
+                              : "#ffffff"
+                        }
                         strokeWidth={2.5}
                       />
                     ) : (
                       <Clock
                         size={18}
                         color={
-                          !ownerRoleResolved || footerClosedForWaitlistFlow || waitlistClosed ? "#999999" : "#0f0f0f"
+                          !ownerRoleResolved || footerClosedForWaitlistFlow || waitlistClosed
+                            ? colors.textMuted
+                            : isDark
+                              ? "#0f0f0f"
+                              : "#ffffff"
                         }
                         strokeWidth={2.5}
                       />
@@ -2435,10 +2520,12 @@ export default function RestaurantDetail() {
                       style={{
                         fontFamily: "BricolageGrotesque_700Bold",
                         color: !ownerRoleResolved
-                          ? "#999999"
+                          ? colors.textMuted
                           : footerPrimaryDisabled
-                            ? "#999999"
-                            : "#0f0f0f",
+                            ? colors.textMuted
+                            : isDark
+                              ? "#0f0f0f"
+                              : "#ffffff",
                         fontSize: 17,
                         marginLeft: 8,
                       }}
@@ -2614,7 +2701,7 @@ export default function RestaurantDetail() {
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.6)",
+              backgroundColor: isDark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.45)",
             }}
           >
             <Pressable style={{ flex: 1 }} onPress={() => setShowOrderTypePicker(false)} />
@@ -2626,19 +2713,19 @@ export default function RestaurantDetail() {
             entering={FadeIn.duration(200)}
             exiting={FadeOut.duration(150)}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: isDark ? "#1a1a1a" : colors.card,
               borderTopLeftRadius: 28,
               borderTopRightRadius: 28,
               padding: 28,
               paddingBottom: Platform.OS === "ios" ? 44 : 28,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
             }}
           >
-            <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 24, marginBottom: 6 }}>
+            <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 24, marginBottom: 6 }}>
               How would you like to order?
             </Text>
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 14, marginBottom: 28 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14, marginBottom: 28 }}>
               at {restaurant?.name}
             </Text>
 
@@ -2683,8 +2770,8 @@ export default function RestaurantDetail() {
                 <UtensilsCrossed size={22} color="#FF9933" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>Dine In</Text>
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 18 }}>Dine In</Text>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
                   {walkInPreorderMode
                     ? "Pre-order now — walk right in"
                     : `Join the waitlist · ${restaurant?.waitTime != null && restaurant.waitTime > 0 ? `${restaurant.waitTime} min wait` : "No wait"}`}
@@ -2724,8 +2811,8 @@ export default function RestaurantDetail() {
                 <Truck size={22} color="#14B8A6" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>Takeout</Text>
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 18 }}>Takeout</Text>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
                   Pick up your order when ready
                 </Text>
               </View>
@@ -2761,22 +2848,22 @@ export default function RestaurantDetail() {
                 router.push(`/host_party?restaurantId=${restaurant?.id}` as any);
               }}
               style={{
-                backgroundColor: groupDisabled ? "#141414" : "rgba(139,92,246,0.08)",
+                backgroundColor: groupDisabled ? (isDark ? "#141414" : colors.pressableBg) : "rgba(139,92,246,0.08)",
                 borderRadius: 18,
                 padding: 20,
                 flexDirection: "row",
                 alignItems: "center",
                 borderWidth: 1.5,
-                borderColor: groupDisabled ? "#1e1e1e" : "rgba(139,92,246,0.25)",
+                borderColor: groupDisabled ? (isDark ? "#1e1e1e" : colors.cardBorder) : "rgba(139,92,246,0.25)",
                 opacity: groupDisabled ? 0.55 : 1,
               }}
             >
-              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: groupDisabled ? "#1a1a1a" : "rgba(139,92,246,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
-                <Users size={22} color={groupDisabled ? "#555" : "#8B5CF6"} />
+              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: groupDisabled ? (isDark ? "#1a1a1a" : colors.backgroundElevated) : "rgba(139,92,246,0.12)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
+                <Users size={22} color={groupDisabled ? colors.iconMuted : "#8B5CF6"} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: groupDisabled ? "#666" : "#f5f5f5", fontSize: 18 }}>Group Order</Text>
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: groupDisabled ? colors.textMuted : colors.text, fontSize: 18 }}>Group Order</Text>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
                   {groupSubtitle}
                 </Text>
               </View>
@@ -2790,21 +2877,21 @@ export default function RestaurantDetail() {
       {/* Party Size Picker */}
       <Modal visible={showPartySizePicker} transparent animationType="fade" onRequestClose={() => setShowPartySizePicker(false)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}>
+          <View style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
             <Pressable style={{ flex: 1 }} onPress={() => setShowPartySizePicker(false)} />
             <View style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: isDark ? "#1a1a1a" : colors.card,
               borderTopLeftRadius: 28,
               borderTopRightRadius: 28,
               padding: 28,
               paddingBottom: Platform.OS === "ios" ? 44 : 28,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
             }}>
-              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 22, marginBottom: 6 }}>
+              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 22, marginBottom: 6 }}>
                 Party Size
               </Text>
-              <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 14, marginBottom: 24 }}>
+              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14, marginBottom: 24 }}>
                 How many guests are in your party?
               </Text>
 
@@ -2822,12 +2909,12 @@ export default function RestaurantDetail() {
                         borderRadius: 16,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: selected ? "#FF9933" : "#0f0f0f",
+                        backgroundColor: selected ? colors.saffron : (isDark ? "#0f0f0f" : colors.pressableBg),
                         borderWidth: 1.5,
-                        borderColor: selected ? "#FF9933" : "#2a2a2a",
+                        borderColor: selected ? colors.saffron : colors.cardBorder,
                       }}
                     >
-                      <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: selected ? "#0f0f0f" : "#f5f5f5", fontSize: 22 }}>
+                      <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: selected ? (isDark ? "#0f0f0f" : "#ffffff") : colors.text, fontSize: 22 }}>
                         {n}
                       </Text>
                     </Pressable>
@@ -2842,16 +2929,16 @@ export default function RestaurantDetail() {
                   onChangeText={(v) => setCustomParty(v.replace(/[^0-9]/g, ""))}
                   keyboardType="number-pad"
                   placeholder="Larger party? Enter number…"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   style={{
                     flex: 1,
-                    backgroundColor: "#0f0f0f",
+                    backgroundColor: isDark ? "#0f0f0f" : colors.pressableBg,
                     borderRadius: 12,
                     borderWidth: 1.5,
-                    borderColor: customParty !== "" ? "#FF9933" : "#2a2a2a",
+                    borderColor: customParty !== "" ? colors.saffron : colors.cardBorder,
                     paddingHorizontal: 14,
                     paddingVertical: 13,
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontFamily: "JetBrainsMono_600SemiBold",
                     fontSize: 16,
                   }}
@@ -2863,7 +2950,7 @@ export default function RestaurantDetail() {
                 onPress={handleConfirmJoin}
                 disabled={joining}
                 style={{
-                  backgroundColor: "#FF9933",
+                  backgroundColor: isDark ? colors.saffron : "#b45309",
                   borderRadius: 16,
                   padding: 18,
                   alignItems: "center",
@@ -2871,9 +2958,9 @@ export default function RestaurantDetail() {
                 }}
               >
                 {joining ? (
-                  <ActivityIndicator color="#0f0f0f" />
+                  <ActivityIndicator color={isDark ? "#0f0f0f" : "#ffffff"} />
                 ) : (
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 18 }}>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isDark ? "#0f0f0f" : "#ffffff", fontSize: 18 }}>
                     Join Waitlist · {customParty !== "" ? (parseInt(customParty) || "?") : partySize} {(customParty !== "" ? (parseInt(customParty) || 1) : partySize) === 1 ? "guest" : "guests"}
                   </Text>
                 )}
@@ -2896,7 +2983,7 @@ export default function RestaurantDetail() {
         <View
           style={{
             flex: 1,
-            backgroundColor: "rgba(0,0,0,0.65)",
+            backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.45)",
             justifyContent: "flex-end",
           }}
         >
@@ -2907,13 +2994,13 @@ export default function RestaurantDetail() {
           />
           <View
             style={{
-              backgroundColor: "#141414",
+              backgroundColor: isDark ? "#141414" : colors.card,
               borderTopLeftRadius: 28,
               borderTopRightRadius: 28,
               padding: 24,
               paddingBottom: Platform.OS === "ios" ? 40 : 24,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               gap: 14,
             }}
           >
@@ -2922,7 +3009,7 @@ export default function RestaurantDetail() {
                 width: 40,
                 height: 4,
                 borderRadius: 2,
-                backgroundColor: "#333",
+                backgroundColor: isDark ? "#333" : colors.cardBorder,
                 alignSelf: "center",
                 marginBottom: 4,
               }}
@@ -2952,7 +3039,7 @@ export default function RestaurantDetail() {
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 20,
                   flex: 1,
                 }}
@@ -2963,7 +3050,7 @@ export default function RestaurantDetail() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#b5b5b5",
+                color: colors.textMuted,
                 fontSize: 14,
                 lineHeight: 20,
               }}
@@ -2980,7 +3067,9 @@ export default function RestaurantDetail() {
                 );
               }}
               style={({ pressed }) => ({
-                backgroundColor: pressed ? "#e88829" : "#FF9933",
+                backgroundColor: pressed
+                  ? (isDark ? "#e88829" : "#9a3412")
+                  : (isDark ? colors.saffron : "#b45309"),
                 borderRadius: 14,
                 paddingVertical: 14,
                 alignItems: "center",
@@ -2990,7 +3079,7 @@ export default function RestaurantDetail() {
               <Text
                 style={{
                   fontFamily: "Manrope_800ExtraBold",
-                  color: "#0f0f0f",
+                  color: isDark ? "#0f0f0f" : "#ffffff",
                   fontSize: 15,
                   letterSpacing: 0.3,
                 }}
@@ -3008,14 +3097,14 @@ export default function RestaurantDetail() {
                 paddingVertical: 14,
                 alignItems: "center",
                 borderWidth: 1,
-                borderColor: pressed ? "#444" : "#2a2a2a",
-                backgroundColor: pressed ? "#222" : "#1a1a1a",
+                borderColor: pressed ? colors.textMuted : colors.cardBorder,
+                backgroundColor: pressed ? colors.pressableBg : (isDark ? "#1a1a1a" : colors.backgroundElevated),
               })}
             >
               <Text
                 style={{
                   fontFamily: "Manrope_700Bold",
-                  color: "#e5e5e5",
+                  color: colors.text,
                   fontSize: 15,
                 }}
               >
@@ -3102,28 +3191,28 @@ export default function RestaurantDetail() {
           onRequestClose={() => setShowLocationPicker(false)}
         >
           <Pressable
-            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}
+            style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
             onPress={() => setShowLocationPicker(false)}
           >
             <Pressable onPress={(e) => e.stopPropagation?.()}>
               <View
                 style={{
-                  backgroundColor: "#141414",
+                  backgroundColor: isDark ? "#141414" : colors.card,
                   borderTopLeftRadius: 28,
                   borderTopRightRadius: 28,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                   paddingBottom: insets.bottom + 16,
                 }}
               >
                 {/* Handle */}
                 <View style={{ alignItems: "center", paddingTop: 14, paddingBottom: 4 }}>
-                  <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: "#333" }} />
+                  <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: isDark ? "#333" : colors.cardBorder }} />
                 </View>
 
                 {/* Header */}
                 <View style={{ paddingHorizontal: 20, paddingVertical: 12 }}>
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20, letterSpacing: -0.3 }}>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 20, letterSpacing: -0.3 }}>
                     {restaurant.name
                       .toLowerCase()
                       .replace(/[-–—(|,].*/g, "")
@@ -3131,12 +3220,12 @@ export default function RestaurantDetail() {
                       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
                       .join(" ")} Locations
                   </Text>
-                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 3 }}>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 3 }}>
                     {chainLocations.length} locations · sorted by distance
                   </Text>
                 </View>
 
-                <View style={{ height: 1, backgroundColor: "#222", marginHorizontal: 20, marginBottom: 8 }} />
+                <View style={{ height: 1, backgroundColor: isDark ? "#222" : colors.cardBorder, marginHorizontal: 20, marginBottom: 8 }} />
 
                 {/* Location list */}
                 {chainLocations.map((loc) => {
@@ -3158,40 +3247,40 @@ export default function RestaurantDetail() {
                         marginBottom: 8,
                         padding: 14,
                         borderRadius: 16,
-                        backgroundColor: isCurrent ? "rgba(255,153,51,0.1)" : "#1a1a1a",
+                        backgroundColor: isCurrent ? "rgba(255,153,51,0.1)" : (isDark ? "#1a1a1a" : colors.pressableBg),
                         borderWidth: 1.5,
-                        borderColor: isCurrent ? "rgba(255,153,51,0.45)" : "#242424",
+                        borderColor: isCurrent ? "rgba(255,153,51,0.45)" : (isDark ? "#242424" : colors.cardBorder),
                       }}
                     >
                       <Image
                         source={{ uri: loc.image }}
-                        style={{ width: 52, height: 52, borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a" }}
+                        style={{ width: 52, height: 52, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder }}
                         resizeMode="cover"
                       />
                       <View style={{ flex: 1, marginLeft: 14 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
                           {isCurrent && (
                             <View style={{ backgroundColor: "rgba(255,153,51,0.2)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginRight: 8 }}>
-                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 9 }}>CURRENT</Text>
+                              <Text style={{ fontFamily: "Manrope_700Bold", color: colors.saffron, fontSize: 9 }}>CURRENT</Text>
                             </View>
                           )}
-                          <Text numberOfLines={1} style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 15, flex: 1, letterSpacing: -0.2 }}>
+                          <Text numberOfLines={1} style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 15, flex: 1, letterSpacing: -0.2 }}>
                             {loc.name}
                           </Text>
                         </View>
                         <View style={{ flexDirection: "row", alignItems: "center" }}>
-                          <MapPin size={11} color="#888" />
-                          <Text numberOfLines={1} style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginLeft: 5, flex: 1 }}>
+                          <MapPin size={11} color={colors.iconMuted} />
+                          <Text numberOfLines={1} style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginLeft: 5, flex: 1 }}>
                             {loc.address}
                           </Text>
                         </View>
                       </View>
                       <View style={{ alignItems: "flex-end", marginLeft: 10 }}>
-                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#aaa", fontSize: 12 }}>
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 12 }}>
                           {loc.distance}
                         </Text>
                         {!isCurrent && (
-                          <ChevronDown size={14} color="#555" style={{ marginTop: 4, transform: [{ rotate: "-90deg" }] }} />
+                          <ChevronDown size={14} color={colors.iconMuted} style={{ marginTop: 4, transform: [{ rotate: "-90deg" }] }} />
                         )}
                       </View>
                     </Pressable>

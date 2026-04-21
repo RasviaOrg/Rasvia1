@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { authGateFlags } from "@/lib/auth-gate-flags";
 import { friendlyAuthError } from "@/lib/friendly-auth-error";
+import { useAppTheme } from "@/lib/app-theme";
 
 interface ResetPasswordModalProps {
   visible: boolean;
@@ -29,6 +30,116 @@ type ResetStep = "enter-email" | "sending" | "enter-code" | "verifying-code" | "
 const RESET_CODE_LENGTH = 7;
 
 export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSuccess }: ResetPasswordModalProps) {
+  const { colors, isDark } = useAppTheme();
+  const keyboardAppearance = isDark ? "dark" : "light";
+  const t = useMemo(() => {
+    const scrim = isDark ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.45)";
+    const modalCard = {
+      backgroundColor: colors.card,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      overflow: "hidden" as const,
+    };
+    const topBar = {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 20,
+      paddingTop: 20,
+      paddingBottom: 4,
+    };
+    const body = { paddingHorizontal: 24, paddingBottom: 28, paddingTop: 8 };
+    const headerWrap = { alignItems: "center" as const, marginBottom: 20 };
+    const heading = {
+      fontFamily: "BricolageGrotesque_700Bold",
+      color: colors.text,
+      fontSize: 22,
+      textAlign: "center" as const,
+      marginBottom: 8,
+    };
+    const subtext = {
+      fontFamily: "Manrope_500Medium",
+      color: colors.textMuted,
+      fontSize: 14,
+      textAlign: "center" as const,
+      lineHeight: 20,
+    };
+    const iconCircle = (c: string) => ({
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: `${c}18`,
+      borderWidth: 1,
+      borderColor: `${c}40`,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      marginBottom: 16,
+    });
+    const inputRow = (err: boolean) => ({
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      backgroundColor: colors.backgroundElevated,
+      borderRadius: 16,
+      borderWidth: 1.5,
+      borderColor: err ? "#EF4444" : colors.cardBorder,
+      paddingHorizontal: 16,
+      height: 56,
+      marginBottom: 12,
+    });
+    const inputField = {
+      flex: 1,
+      color: colors.text,
+      fontFamily: "Manrope_500Medium",
+      fontSize: 15,
+      marginLeft: 12,
+    };
+    const hiddenCodeInput = {
+      position: "absolute" as const,
+      opacity: 0,
+      width: 1,
+      height: 1,
+    };
+    const primaryBtn = {
+      borderRadius: 16,
+      height: 52,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      shadowColor: "#FF9933",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.25 : 0.18,
+      shadowRadius: 12,
+    };
+    const btnText = { fontFamily: "BricolageGrotesque_700Bold", fontSize: 16 };
+    const successCircle = {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: "rgba(34,197,94,0.15)",
+      borderWidth: 1.5,
+      borderColor: "rgba(34,197,94,0.35)",
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      marginBottom: 20,
+    };
+    return {
+      scrim,
+      modalCard,
+      topBar,
+      body,
+      headerWrap,
+      heading,
+      subtext,
+      iconCircle,
+      inputRow,
+      inputField,
+      hiddenCodeInput,
+      primaryBtn,
+      btnText,
+      successCircle,
+    };
+  }, [colors, isDark]);
+
   const [step, setStep] = useState<ResetStep>("enter-email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
@@ -234,12 +345,12 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", padding: 20 }}
+        style={{ flex: 1, backgroundColor: t.scrim, justifyContent: "center", padding: 20 }}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <Animated.View entering={FadeIn.duration(300)} style={modalCard}>
+          <Animated.View entering={FadeIn.duration(300)} style={t.modalCard}>
             {/* Top bar */}
-            <View style={topBar}>
+            <View style={t.topBar}>
               {(step === "enter-code" || step === "new-password") ? (
                 <Pressable
                   onPress={() => {
@@ -255,34 +366,34 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                 </Pressable>
               ) : <View />}
               <Pressable onPress={handleClose} hitSlop={10}>
-                <X size={20} color="#888" />
+                <X size={20} color={colors.iconMuted} />
               </Pressable>
             </View>
 
-            <View style={body}>
+            <View style={t.body}>
 
               {/* ─── Step: Enter Email ─── */}
               {(step === "enter-email" || step === "sending") && (
                 <Animated.View entering={FadeInDown.duration(400)}>
-                  <View style={headerWrap}>
-                    <View style={iconCircle("#FF9933")}><Lock size={28} color="#FF9933" /></View>
-                    <Text style={heading}>Reset Password</Text>
-                    <Text style={subtext}>Enter your email and we'll send you a verification code</Text>
+                  <View style={t.headerWrap}>
+                    <View style={t.iconCircle("#FF9933")}><Lock size={28} color="#FF9933" /></View>
+                    <Text style={t.heading}>Reset Password</Text>
+                    <Text style={t.subtext}>Enter your email and we'll send you a verification code</Text>
                   </View>
 
                   {renderStatus()}
 
-                  <View style={inputRow(!!error)}>
-                    <Mail size={18} color="#666" />
+                  <View style={t.inputRow(!!error)}>
+                    <Mail size={18} color={colors.textMuted} />
                     <TextInput
-                      style={inputField}
+                      style={t.inputField}
                       placeholder="Email address"
-                      placeholderTextColor="#555"
+                      placeholderTextColor={colors.textMuted}
                       value={email}
-                      onChangeText={(t) => { setEmail(t); setError(""); }}
+                      onChangeText={(txt) => { setEmail(txt); setError(""); }}
                       autoCapitalize="none"
                       keyboardType="email-address"
-                      keyboardAppearance="dark"
+                      keyboardAppearance={keyboardAppearance}
                       autoFocus={!initialEmail}
                       onSubmitEditing={handleSendCode}
                     />
@@ -293,12 +404,12 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                   <Pressable
                     onPress={handleSendCode}
                     disabled={step === "sending"}
-                    style={{ ...primaryBtn, backgroundColor: "#FF9933", opacity: step === "sending" ? 0.7 : 1 }}
+                    style={{ ...t.primaryBtn, backgroundColor: "#FF9933", opacity: step === "sending" ? 0.7 : 1 }}
                   >
                     {step === "sending" ? (
                       <ActivityIndicator color="#0f0f0f" />
                     ) : (
-                      <Text style={{ ...btnText, color: "#0f0f0f" }}>Send Reset Code</Text>
+                      <Text style={{ ...t.btnText, color: "#0f0f0f" }}>Send Reset Code</Text>
                     )}
                   </Pressable>
                 </Animated.View>
@@ -307,10 +418,10 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
               {/* ─── Step: Enter Code ─── */}
               {(step === "enter-code" || step === "verifying-code") && (
                 <Animated.View entering={FadeInDown.duration(400)}>
-                  <View style={headerWrap}>
-                    <View style={iconCircle("#60A5FA")}><ShieldCheck size={28} color="#60A5FA" /></View>
-                    <Text style={heading}>Enter Code</Text>
-                    <Text style={subtext}>We sent a code to</Text>
+                  <View style={t.headerWrap}>
+                    <View style={t.iconCircle("#60A5FA")}><ShieldCheck size={28} color="#60A5FA" /></View>
+                    <Text style={t.heading}>Enter Code</Text>
+                    <Text style={t.subtext}>We sent a code to</Text>
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#60A5FA", fontSize: 15, marginTop: 4 }}>{email}</Text>
                   </View>
 
@@ -332,13 +443,13 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                               height: 56,
                               borderRadius: 14,
                               borderWidth: 1.5,
-                              borderColor: error ? "#EF4444" : isFocused ? "#FF9933" : "#2a2a2a",
-                              backgroundColor: "#1a1a1a",
+                              borderColor: error ? "#EF4444" : isFocused ? "#FF9933" : colors.cardBorder,
+                              backgroundColor: colors.backgroundElevated,
                               alignItems: "center",
                               justifyContent: "center",
                             }}
                           >
-                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 22 }}>
+                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 22 }}>
                               {digit || " "}
                             </Text>
                           </View>
@@ -349,11 +460,11 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                       ref={codeInputRef}
                       value={code}
                       onChangeText={(text) => { setCode(text.replace(/\D/g, "").slice(0, RESET_CODE_LENGTH)); setError(""); setStatusMsg(""); }}
-                      style={hiddenCodeInput}
+                      style={t.hiddenCodeInput}
                       keyboardType="number-pad"
                       maxLength={RESET_CODE_LENGTH}
                       autoFocus
-                      keyboardAppearance="dark"
+                      keyboardAppearance={keyboardAppearance}
                       textContentType="oneTimeCode"
                       autoComplete="sms-otp"
                       caretHidden
@@ -365,7 +476,7 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
 
                   <View style={{ alignItems: "center", marginBottom: 16 }}>
                     {resendCooldown > 0 ? (
-                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 13 }}>
+                      <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
                         Resend in {resendCooldown}s
                       </Text>
                     ) : (
@@ -379,12 +490,18 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                   <Pressable
                     onPress={handleVerifyCode}
                     disabled={code.length < RESET_CODE_LENGTH || step === "verifying-code"}
-                    style={{ ...primaryBtn, backgroundColor: code.length >= RESET_CODE_LENGTH ? "#FF9933" : "#333", opacity: step === "verifying-code" ? 0.7 : 1 }}
+                    style={{
+                      ...t.primaryBtn,
+                      backgroundColor: code.length >= RESET_CODE_LENGTH ? "#FF9933" : colors.switchTrackOff,
+                      opacity: step === "verifying-code" ? 0.7 : 1,
+                    }}
                   >
                     {step === "verifying-code" ? (
                       <ActivityIndicator color="#0f0f0f" />
                     ) : (
-                      <Text style={{ ...btnText, color: code.length >= RESET_CODE_LENGTH ? "#0f0f0f" : "#888" }}>Verify Code</Text>
+                      <Text style={{ ...t.btnText, color: code.length >= RESET_CODE_LENGTH ? "#0f0f0f" : colors.textMuted }}>
+                        Verify Code
+                      </Text>
                     )}
                   </Pressable>
                 </Animated.View>
@@ -393,53 +510,53 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
               {/* ─── Step: New Password ─── */}
               {(step === "new-password" || step === "updating") && (
                 <Animated.View entering={FadeInDown.duration(400)}>
-                  <View style={headerWrap}>
-                    <View style={iconCircle("#22C55E")}><Lock size={28} color="#22C55E" /></View>
-                    <Text style={heading}>New Password</Text>
-                    <Text style={subtext}>Choose a strong password for your account</Text>
+                  <View style={t.headerWrap}>
+                    <View style={t.iconCircle("#22C55E")}><Lock size={28} color="#22C55E" /></View>
+                    <Text style={t.heading}>New Password</Text>
+                    <Text style={t.subtext}>Choose a strong password for your account</Text>
                   </View>
 
                   {renderStatus()}
 
                   {/* New Password */}
-                  <View style={inputRow(newPassword.length > 0 && !isPasswordValid)}>
-                    <Lock size={18} color="#666" />
+                  <View style={t.inputRow(newPassword.length > 0 && !isPasswordValid)}>
+                    <Lock size={18} color={colors.textMuted} />
                     <TextInput
-                      style={inputField}
+                      style={t.inputField}
                       placeholder="New password (min 6 chars)"
-                      placeholderTextColor="#555"
+                      placeholderTextColor={colors.textMuted}
                       value={newPassword}
-                      onChangeText={(t) => { setNewPassword(t); setError(""); setStatusMsg(""); }}
+                      onChangeText={(txt) => { setNewPassword(txt); setError(""); setStatusMsg(""); }}
                       secureTextEntry={!showPassword}
                       autoCapitalize="none"
                       autoCorrect={false}
                       textContentType="newPassword"
                       autoComplete="password"
                       keyboardType="ascii-capable"
-                      keyboardAppearance="dark"
+                      keyboardAppearance={keyboardAppearance}
                       autoFocus
                     />
                     <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={12}>
-                      {showPassword ? <EyeOff size={18} color="#777" /> : <Eye size={18} color="#777" />}
+                      {showPassword ? <EyeOff size={18} color={colors.iconMuted} /> : <Eye size={18} color={colors.iconMuted} />}
                     </Pressable>
                   </View>
 
                   {/* Confirm */}
-                  <View style={inputRow(confirmPassword.length > 0 && !doPasswordsMatch)}>
-                    <Lock size={18} color="#666" />
+                  <View style={t.inputRow(confirmPassword.length > 0 && !doPasswordsMatch)}>
+                    <Lock size={18} color={colors.textMuted} />
                     <TextInput
-                      style={inputField}
+                      style={t.inputField}
                       placeholder="Confirm password"
-                      placeholderTextColor="#555"
+                      placeholderTextColor={colors.textMuted}
                       value={confirmPassword}
-                      onChangeText={(t) => { setConfirmPassword(t); setError(""); setStatusMsg(""); }}
+                      onChangeText={(txt) => { setConfirmPassword(txt); setError(""); setStatusMsg(""); }}
                       secureTextEntry={!showPassword}
                       autoCapitalize="none"
                       autoCorrect={false}
                       textContentType="newPassword"
                       autoComplete="password"
                       keyboardType="ascii-capable"
-                      keyboardAppearance="dark"
+                      keyboardAppearance={keyboardAppearance}
                       onSubmitEditing={handleUpdatePassword}
                     />
                   </View>
@@ -450,15 +567,15 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
                     onPress={handleUpdatePassword}
                     disabled={step === "updating" || !isPasswordValid || !doPasswordsMatch}
                     style={{
-                      ...primaryBtn,
-                      backgroundColor: isPasswordValid && doPasswordsMatch ? "#FF9933" : "#333",
+                      ...t.primaryBtn,
+                      backgroundColor: isPasswordValid && doPasswordsMatch ? "#FF9933" : colors.switchTrackOff,
                       opacity: step === "updating" ? 0.7 : 1,
                     }}
                   >
                     {step === "updating" ? (
                       <ActivityIndicator color="#0f0f0f" />
                     ) : (
-                      <Text style={{ ...btnText, color: isPasswordValid && doPasswordsMatch ? "#0f0f0f" : "#888" }}>
+                      <Text style={{ ...t.btnText, color: isPasswordValid && doPasswordsMatch ? "#0f0f0f" : colors.textMuted }}>
                         Update Password
                       </Text>
                     )}
@@ -469,13 +586,13 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
               {/* ─── Success ─── */}
               {step === "success" && (
                 <Animated.View entering={FadeIn.duration(600)} style={{ alignItems: "center", paddingVertical: 24 }}>
-                  <View style={successCircle}>
+                  <View style={t.successCircle}>
                     <CheckCircle size={40} color="#22C55E" />
                   </View>
                   <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#22C55E", fontSize: 22, marginBottom: 8 }}>
                     Password Updated!
                   </Text>
-                  <Text style={subtext}>Sign in with your new password.</Text>
+                  <Text style={t.subtext}>Sign in with your new password.</Text>
                 </Animated.View>
               )}
             </View>
@@ -485,48 +602,3 @@ export function ResetPasswordModal({ visible, initialEmail = "", onClose, onSucc
     </Modal>
   );
 }
-
-// ─── Shared Styles ───
-
-const modalCard = { backgroundColor: "#141414", borderRadius: 24, borderWidth: 1, borderColor: "#2a2a2a", overflow: "hidden" as const };
-const topBar = { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 4 };
-const body = { paddingHorizontal: 24, paddingBottom: 28, paddingTop: 8 };
-const headerWrap = { alignItems: "center" as const, marginBottom: 20 };
-const heading = { fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 22, textAlign: "center" as const, marginBottom: 8 };
-const subtext = { fontFamily: "Manrope_500Medium", color: "#999", fontSize: 14, textAlign: "center" as const, lineHeight: 20 };
-
-const iconCircle = (c: string) => ({
-  width: 64, height: 64, borderRadius: 32,
-  backgroundColor: `${c}18`, borderWidth: 1, borderColor: `${c}40`,
-  alignItems: "center" as const, justifyContent: "center" as const, marginBottom: 16,
-});
-
-const inputRow = (err: boolean) => ({
-  flexDirection: "row" as const, alignItems: "center" as const,
-  backgroundColor: "#1a1a1a", borderRadius: 16, borderWidth: 1.5,
-  borderColor: err ? "#EF4444" : "#2a2a2a",
-  paddingHorizontal: 16, height: 56, marginBottom: 12,
-});
-
-const inputField = { flex: 1, color: "#f5f5f5", fontFamily: "Manrope_500Medium", fontSize: 15, marginLeft: 12 };
-
-const hiddenCodeInput = {
-  position: "absolute" as const,
-  opacity: 0,
-  width: 1,
-  height: 1,
-};
-
-const primaryBtn = {
-  borderRadius: 16, height: 52,
-  alignItems: "center" as const, justifyContent: "center" as const,
-  shadowColor: "#FF9933", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12,
-};
-
-const btnText = { fontFamily: "BricolageGrotesque_700Bold", fontSize: 16 };
-
-const successCircle = {
-  width: 80, height: 80, borderRadius: 40,
-  backgroundColor: "rgba(34,197,94,0.15)", borderWidth: 1.5, borderColor: "rgba(34,197,94,0.35)",
-  alignItems: "center" as const, justifyContent: "center" as const, marginBottom: 20,
-};

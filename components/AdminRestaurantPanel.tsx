@@ -13,6 +13,7 @@ import {
 import { X, MapPin } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
+import { useAppTheme } from "@/lib/app-theme";
 
 interface AdminRestaurantPanelProps {
   restaurant: {
@@ -36,6 +37,7 @@ export function AdminRestaurantPanel({
   onUpdated,
   onAdjustLocation,
 }: AdminRestaurantPanelProps) {
+  const { colors, isDark } = useAppTheme();
   const [enabledLoading, setEnabledLoading] = useState(false);
   const [isEnabled, setIsEnabled] = useState(restaurant.isEnabled);
   const [comingSoonLoading, setComingSoonLoading] = useState(false);
@@ -162,20 +164,20 @@ export function AdminRestaurantPanel({
       <View
         style={{
           flex: 1,
-          backgroundColor: "rgba(0,0,0,0.5)",
+          backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.35)",
           justifyContent: "flex-end",
         }}
       >
         <Pressable style={{ flex: 1 }} onPress={onClose} />
         <View
           style={{
-            backgroundColor: "#1a1a1a",
+            backgroundColor: colors.backgroundElevated,
             borderTopLeftRadius: 24,
             borderTopRightRadius: 24,
             padding: 24,
             paddingBottom: Platform.OS === "ios" ? 40 : 24,
             borderWidth: 1,
-            borderColor: "#2a2a2a",
+            borderColor: colors.cardBorder,
             maxHeight: "85%",
           }}
         >
@@ -191,7 +193,7 @@ export function AdminRestaurantPanel({
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 20,
                 flex: 1,
               }}
@@ -207,11 +209,11 @@ export function AdminRestaurantPanel({
               style={{
                 padding: 8,
                 marginLeft: 8,
-                backgroundColor: "#2a2a2a",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 12,
               }}
             >
-              <X color="#999999" size={22} />
+              <X color={colors.textMuted} size={22} />
             </Pressable>
           </View>
 
@@ -221,7 +223,7 @@ export function AdminRestaurantPanel({
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: 1,
@@ -237,32 +239,32 @@ export function AdminRestaurantPanel({
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  backgroundColor: "#0f0f0f",
+                  backgroundColor: colors.background,
                   borderRadius: 12,
                   padding: 16,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                   opacity: enabledLoading ? 0.7 : 1,
                 }}
               >
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 15,
                   }}
                 >
                   Show Restaurant
                 </Text>
                 {enabledLoading ? (
-                  <ActivityIndicator size="small" color="#FF9933" />
+                  <ActivityIndicator size="small" color={colors.saffron} />
                 ) : (
                   <View
                     style={{
                       width: 48,
                       height: 28,
                       borderRadius: 14,
-                      backgroundColor: isEnabled ? "#22C55E" : "#333333",
+                      backgroundColor: isEnabled ? "#22C55E" : colors.switchTrackOff,
                       padding: 2,
                       justifyContent: "center",
                     }}
@@ -272,7 +274,7 @@ export function AdminRestaurantPanel({
                         width: 24,
                         height: 24,
                         borderRadius: 12,
-                        backgroundColor: "#f5f5f5",
+                        backgroundColor: isDark ? colors.text : "#ffffff",
                         alignSelf: isEnabled ? "flex-end" : "flex-start",
                       }}
                     />
@@ -286,7 +288,7 @@ export function AdminRestaurantPanel({
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: 1,
@@ -302,11 +304,11 @@ export function AdminRestaurantPanel({
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  backgroundColor: "#0f0f0f",
+                  backgroundColor: colors.background,
                   borderRadius: 12,
                   padding: 16,
                   borderWidth: 1,
-                  borderColor: isComingSoon ? "rgba(255,153,51,0.45)" : "#2a2a2a",
+                  borderColor: isComingSoon ? "rgba(255,153,51,0.45)" : colors.cardBorder,
                   opacity: comingSoonLoading ? 0.7 : 1,
                 }}
               >
@@ -314,7 +316,7 @@ export function AdminRestaurantPanel({
                   <Text
                     style={{
                       fontFamily: "Manrope_500Medium",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 15,
                     }}
                   >
@@ -323,7 +325,7 @@ export function AdminRestaurantPanel({
                   <Text
                     style={{
                       fontFamily: "Manrope_400Regular",
-                      color: "#7a7a7a",
+                      color: colors.textMuted,
                       fontSize: 12,
                       marginTop: 4,
                     }}
@@ -332,14 +334,14 @@ export function AdminRestaurantPanel({
                   </Text>
                 </View>
                 {comingSoonLoading ? (
-                  <ActivityIndicator size="small" color="#FF9933" />
+                  <ActivityIndicator size="small" color={colors.saffron} />
                 ) : (
                   <View
                     style={{
                       width: 48,
                       height: 28,
                       borderRadius: 14,
-                      backgroundColor: isComingSoon ? "#FF9933" : "#333333",
+                      backgroundColor: isComingSoon ? colors.saffron : colors.switchTrackOff,
                       padding: 2,
                       justifyContent: "center",
                     }}
@@ -349,7 +351,7 @@ export function AdminRestaurantPanel({
                         width: 24,
                         height: 24,
                         borderRadius: 12,
-                        backgroundColor: "#f5f5f5",
+                        backgroundColor: isDark ? colors.text : "#ffffff",
                         alignSelf: isComingSoon ? "flex-end" : "flex-start",
                       }}
                     />
@@ -363,7 +365,7 @@ export function AdminRestaurantPanel({
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: 1,
@@ -406,7 +408,7 @@ export function AdminRestaurantPanel({
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: 1,
@@ -430,24 +432,24 @@ export function AdminRestaurantPanel({
                       onPress={() => handleWaitTimeOverride(mins)}
                       disabled={!!waitTimeLoading}
                       style={{
-                        backgroundColor: "#0f0f0f",
+                        backgroundColor: colors.background,
                         borderRadius: 20,
                         paddingHorizontal: 18,
                         paddingVertical: 12,
                         borderWidth: 1,
-                        borderColor: "#2a2a2a",
+                        borderColor: colors.cardBorder,
                         minWidth: 56,
                         alignItems: "center",
                         opacity: loading ? 0.7 : 1,
                       }}
                     >
                       {loading ? (
-                        <ActivityIndicator size="small" color="#FF9933" />
+                        <ActivityIndicator size="small" color={colors.saffron} />
                       ) : (
                         <Text
                           style={{
                             fontFamily: "JetBrainsMono_600SemiBold",
-                            color: "#FF9933",
+                            color: colors.saffron,
                             fontSize: 14,
                           }}
                         >
@@ -463,24 +465,24 @@ export function AdminRestaurantPanel({
                   onPress={() => handleWaitTimeOverride(-1)}
                   disabled={!!waitTimeLoading}
                   style={{
-                    backgroundColor: "#0f0f0f",
+                    backgroundColor: colors.background,
                     borderRadius: 20,
                     paddingHorizontal: 18,
                     paddingVertical: 12,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                     minWidth: 80,
                     alignItems: "center",
                     opacity: waitTimeLoading === "unknown" ? 0.7 : 1,
                   }}
                 >
                   {waitTimeLoading === "unknown" ? (
-                    <ActivityIndicator size="small" color="#999999" />
+                    <ActivityIndicator size="small" color={colors.textMuted} />
                   ) : (
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: "#999999",
+                        color: colors.textMuted,
                         fontSize: 13,
                       }}
                     >
@@ -494,24 +496,24 @@ export function AdminRestaurantPanel({
                   onPress={() => handleWaitTimeOverride(999)}
                   disabled={!!waitTimeLoading}
                   style={{
-                    backgroundColor: "#0f0f0f",
+                    backgroundColor: colors.background,
                     borderRadius: 20,
                     paddingHorizontal: 18,
                     paddingVertical: 12,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                     minWidth: 70,
                     alignItems: "center",
                     opacity: waitTimeLoading === "closed" ? 0.7 : 1,
                   }}
                 >
                   {waitTimeLoading === "closed" ? (
-                    <ActivityIndicator size="small" color="#999999" />
+                    <ActivityIndicator size="small" color={colors.textMuted} />
                   ) : (
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: "#999999",
+                        color: colors.textMuted,
                         fontSize: 13,
                       }}
                     >
@@ -535,16 +537,16 @@ export function AdminRestaurantPanel({
                   onChangeText={setCustomWaitTime}
                   keyboardType="number-pad"
                   placeholder="Custom minutes…"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   style={{
                     flex: 1,
-                    backgroundColor: "#0f0f0f",
+                    backgroundColor: colors.background,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                     paddingHorizontal: 14,
                     paddingVertical: 12,
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontFamily: "JetBrainsMono_600SemiBold",
                     fontSize: 14,
                   }}
@@ -553,7 +555,7 @@ export function AdminRestaurantPanel({
                   onPress={handleCustomWaitTime}
                   disabled={!!waitTimeLoading || customWaitTime.trim() === ""}
                   style={{
-                    backgroundColor: "#FF9933",
+                    backgroundColor: colors.saffron,
                     borderRadius: 12,
                     paddingHorizontal: 18,
                     paddingVertical: 12,
@@ -583,7 +585,7 @@ export function AdminRestaurantPanel({
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: 1,

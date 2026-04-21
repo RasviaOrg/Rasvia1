@@ -28,6 +28,7 @@ import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBo
 import { useAppTheme } from "@/lib/app-theme";
 
 function FavoritesLoadingSkeleton() {
+  const { colors } = useAppTheme();
   const pulse = useSharedValue(0.28);
   useEffect(() => {
     pulse.value = withRepeat(withTiming(0.52, { duration: 720 }), -1, true);
@@ -51,10 +52,10 @@ function FavoritesLoadingSkeleton() {
           <View
             style={{
               flexDirection: "row",
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 16,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               padding: 12,
               marginBottom: 16,
               alignItems: "center",
@@ -62,26 +63,26 @@ function FavoritesLoadingSkeleton() {
           >
             <Animated.View
               style={[
-                { width: 80, height: 80, borderRadius: 12, backgroundColor: "#262626" },
+                { width: 80, height: 80, borderRadius: 12, backgroundColor: colors.skeleton },
                 pulseStyle,
               ]}
             />
             <View style={{ flex: 1, marginLeft: 16, gap: 10 }}>
               <Animated.View
                 style={[
-                  { height: 18, width: "76%", borderRadius: 8, backgroundColor: "#262626" },
+                  { height: 18, width: "76%", borderRadius: 8, backgroundColor: colors.skeletonLine },
                   pulseStyle,
                 ]}
               />
               <Animated.View
                 style={[
-                  { height: 12, width: "92%", borderRadius: 6, backgroundColor: "#262626" },
+                  { height: 12, width: "92%", borderRadius: 6, backgroundColor: colors.skeletonLine },
                   pulseStyle,
                 ]}
               />
               <Animated.View
                 style={[
-                  { height: 12, width: "38%", borderRadius: 6, backgroundColor: "#262626" },
+                  { height: 12, width: "38%", borderRadius: 6, backgroundColor: colors.skeletonLine },
                   pulseStyle,
                 ]}
               />
@@ -185,18 +186,18 @@ export default function FavoritesScreen() {
               router.back();
             }}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.pressableBg,
               width: 44,
               height: 44,
               borderRadius: 22,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               marginRight: 16,
             }}
           >
-            <ArrowLeft size={22} color="#f5f5f5" />
+            <ArrowLeft size={22} color={colors.text} />
           </Pressable>
           <Text
             style={{
@@ -236,7 +237,7 @@ export default function FavoritesScreen() {
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 20,
                     marginBottom: 8,
                   }}
@@ -246,7 +247,7 @@ export default function FavoritesScreen() {
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999",
+                    color: colors.textMuted,
                     fontSize: 15,
                     textAlign: "center",
                   }}
@@ -294,10 +295,10 @@ export default function FavoritesScreen() {
                       onPress={() => handleRestaurantPress(restaurant.id)}
                       style={{
                         flexDirection: "row",
-                        backgroundColor: "#1a1a1a",
+                        backgroundColor: colors.card,
                         borderRadius: 16,
                         borderWidth: 1,
-                        borderColor: "#2a2a2a",
+                        borderColor: colors.cardBorder,
                         padding: 12,
                         marginBottom: 16,
                         alignItems: "center",
@@ -312,14 +313,14 @@ export default function FavoritesScreen() {
                           width: 80,
                           height: 80,
                           borderRadius: 12,
-                          backgroundColor: "#262626",
+                          backgroundColor: colors.pressableBg,
                         }}
                       />
                       <View style={{ flex: 1, marginLeft: 16 }}>
                         <Text
                           style={{
                             fontFamily: "BricolageGrotesque_700Bold",
-                            color: "#f5f5f5",
+                            color: colors.text,
                             fontSize: 16,
                             marginBottom: 4,
                           }}
@@ -328,11 +329,11 @@ export default function FavoritesScreen() {
                           {restaurant.name}
                         </Text>
                         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                          <MapPin size={12} color="#999" />
+                          <MapPin size={12} color={colors.textMuted} />
                           <Text
                             style={{
                               fontFamily: "Manrope_500Medium",
-                              color: "#999",
+                              color: colors.textMuted,
                               fontSize: 12,
                               marginLeft: 4,
                             }}

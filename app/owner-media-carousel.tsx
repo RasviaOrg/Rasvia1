@@ -6,12 +6,14 @@ import { ArrowLeft } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { Platform } from "react-native";
 import { OwnerMediaCarouselPanel } from "@/components/OwnerMediaCarouselPanel";
+import { useAppTheme } from "@/lib/app-theme";
 
 export default function OwnerMediaCarouselScreen() {
   const router = useRouter();
+  const { colors } = useAppTheme();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
       <OwnerMediaCarouselPanel
         variant="screen"
         screenHeader={
@@ -27,17 +29,17 @@ export default function OwnerMediaCarouselScreen() {
                 borderRadius: 20,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
-              <ArrowLeft size={20} color="#f5f5f5" />
+              <ArrowLeft size={20} color={colors.text} />
             </Pressable>
             <Text
               style={{
                 marginLeft: 12,
-                color: "#f5f5f5",
+                color: colors.text,
                 fontFamily: "BricolageGrotesque_800ExtraBold",
                 fontSize: 24,
               }}

@@ -7,6 +7,7 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { AccountsManagementSection } from "@/components/AccountsManagementSection";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { useAppTheme } from "@/lib/app-theme";
 
 /**
  * Standalone account-switching screen for non-admin personas (restaurant
@@ -15,11 +16,12 @@ import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBo
  */
 export default function MyAccountsScreen() {
   const router = useRouter();
+  const { colors, isDark } = useAppTheme();
   const [loggingOut, setLoggingOut] = useState(false);
 
   return (
-    <View className="flex-1 bg-rasvia-black">
-      <SafeAreaView className="flex-1" edges={["top"]}>
+    <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
         <Animated.View
           entering={FadeIn.duration(400)}
           className="flex-row items-center px-5 pt-2 pb-4"
@@ -32,23 +34,23 @@ export default function MyAccountsScreen() {
               router.back();
             }}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               width: 44,
               height: 44,
               borderRadius: 22,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               marginRight: 16,
             }}
           >
-            <ArrowLeft size={22} color="#f5f5f5" />
+            <ArrowLeft size={22} color={colors.text} />
           </Pressable>
           <Text
             style={{
               fontFamily: "BricolageGrotesque_800ExtraBold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 28,
               letterSpacing: -0.5,
             }}
@@ -78,10 +80,10 @@ export default function MyAccountsScreen() {
             bottom: 0,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: "rgba(0,0,0,0.55)",
+            backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)",
           }}
         >
-          <ActivityIndicator color="#FF9933" size="large" />
+          <ActivityIndicator color={colors.saffron} size="large" />
         </View>
       )}
     </View>

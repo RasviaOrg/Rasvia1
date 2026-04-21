@@ -19,7 +19,6 @@ import {
   Check,
   Sparkles,
   ChevronDown,
-  Utensils,
 } from "lucide-react-native";
 import Animated, {
   FadeInDown,
@@ -76,6 +75,7 @@ const DAYS = [
 ];
 
 function DiningPrefsLoadingSkeleton() {
+  const { colors } = useAppTheme();
   const pulse = useSharedValue(0.28);
   useEffect(() => {
     pulse.value = withRepeat(withTiming(0.52, { duration: 720 }), -1, true);
@@ -89,25 +89,25 @@ function DiningPrefsLoadingSkeleton() {
       <Animated.View
         entering={FadeInDown.delay(40).duration(420)}
         style={{
-          backgroundColor: "#1a1a1a",
+          backgroundColor: colors.card,
           borderRadius: 20,
           borderWidth: 1,
-          borderColor: "#2a2a2a",
+          borderColor: colors.cardBorder,
           padding: 20,
         }}
       >
         <Animated.View
           style={[
-            { height: 11, width: 72, borderRadius: 5, backgroundColor: "#333", marginBottom: 10 },
+            { height: 11, width: 72, borderRadius: 5, backgroundColor: colors.skeletonLine, marginBottom: 10 },
             pulseStyle,
           ]}
         />
         <Animated.View
-          style={[{ height: 48, borderRadius: 14, backgroundColor: "#262626", marginBottom: 22 }, pulseStyle]}
+          style={[{ height: 48, borderRadius: 14, backgroundColor: colors.skeleton, marginBottom: 22 }, pulseStyle]}
         />
         <Animated.View
           style={[
-            { height: 11, width: 96, borderRadius: 5, backgroundColor: "#333", marginBottom: 10 },
+            { height: 11, width: 96, borderRadius: 5, backgroundColor: colors.skeletonLine, marginBottom: 10 },
             pulseStyle,
           ]}
         />
@@ -117,7 +117,7 @@ function DiningPrefsLoadingSkeleton() {
               key={i}
               entering={FadeInDown.delay(80 + i * 48).duration(400)}
               style={[
-                { flex: 1, height: 44, borderRadius: 12, backgroundColor: "#262626" },
+                { flex: 1, height: 44, borderRadius: 12, backgroundColor: colors.skeleton },
                 pulseStyle,
               ]}
             />
@@ -125,7 +125,7 @@ function DiningPrefsLoadingSkeleton() {
         </View>
         <Animated.View
           style={[
-            { height: 11, width: 110, borderRadius: 5, backgroundColor: "#333", marginBottom: 10 },
+            { height: 11, width: 110, borderRadius: 5, backgroundColor: colors.skeletonLine, marginBottom: 10 },
             pulseStyle,
           ]}
         />
@@ -135,7 +135,7 @@ function DiningPrefsLoadingSkeleton() {
               key={i}
               entering={FadeInDown.delay(120 + i * 36).duration(380)}
               style={[
-                { width: 40, height: 40, borderRadius: 12, backgroundColor: "#262626" },
+                { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.skeleton },
                 pulseStyle,
               ]}
             />
@@ -147,7 +147,7 @@ function DiningPrefsLoadingSkeleton() {
 }
 
 export default function DiningPreferencesScreen() {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const router = useRouter();
   const { session } = useAuth();
   const { reloadLocationPrefs } = useLocation();
@@ -252,7 +252,8 @@ export default function DiningPreferencesScreen() {
             paddingHorizontal: 20,
             paddingVertical: 14,
             borderBottomWidth: 1,
-            borderBottomColor: "#2a2a2a",
+            borderBottomColor: colors.cardBorder,
+            backgroundColor: colors.homeHeaderBg,
           }}
         >
           <Pressable
@@ -265,35 +266,35 @@ export default function DiningPreferencesScreen() {
               width: 38,
               height: 38,
               borderRadius: 19,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.pressableBg,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               marginRight: 14,
             }}
           >
-            <ArrowLeft size={20} color="#f5f5f5" />
+            <ArrowLeft size={20} color={colors.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 20,
               }}
             >
-              Dining Preferences
+              Dining preferences
             </Text>
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999",
+                color: colors.textMuted,
                 fontSize: 12,
                 marginTop: 2,
               }}
             >
-              Location, dietary type, and veg-only days
+              Home area, how you eat, and vegetarian-only days
             </Text>
           </View>
         </View>
@@ -309,10 +310,10 @@ export default function DiningPreferencesScreen() {
           ) : (
             <View
               style={{
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderRadius: 20,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
                 padding: 20,
               }}
             >
@@ -320,14 +321,14 @@ export default function DiningPreferencesScreen() {
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#999",
+                  color: colors.textMuted,
                   fontSize: 12,
                   letterSpacing: 1,
                   textTransform: "uppercase",
                   marginBottom: 8,
                 }}
               >
-                Location
+                Home area
               </Text>
               <Pressable
                 onPress={() => setShowCityPicker((p) => !p)}
@@ -335,10 +336,10 @@ export default function DiningPreferencesScreen() {
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  backgroundColor: "#262626",
+                  backgroundColor: colors.backgroundElevated,
                   borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: "#333",
+                  borderColor: colors.cardBorder,
                   paddingHorizontal: 14,
                   height: 48,
                   marginBottom: showCityPicker ? 8 : 20,
@@ -349,7 +350,7 @@ export default function DiningPreferencesScreen() {
                   <Text
                     style={{
                       fontFamily: "Manrope_600SemiBold",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 15,
                       marginLeft: 8,
                     }}
@@ -359,7 +360,7 @@ export default function DiningPreferencesScreen() {
                 </View>
                 <ChevronDown
                   size={18}
-                  color="#999"
+                  color={colors.textMuted}
                   style={{
                     transform: [{ rotate: showCityPicker ? "180deg" : "0deg" }],
                   }}
@@ -369,10 +370,10 @@ export default function DiningPreferencesScreen() {
               {showCityPicker && (
                 <View
                   style={{
-                    backgroundColor: "#222",
+                    backgroundColor: colors.backgroundElevated,
                     borderRadius: 14,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                     maxHeight: 180,
                     marginBottom: 20,
                     overflow: "hidden",
@@ -394,14 +395,14 @@ export default function DiningPreferencesScreen() {
                           paddingHorizontal: 14,
                           paddingVertical: 12,
                           borderBottomWidth: 1,
-                          borderBottomColor: "#2a2a2a",
-                          backgroundColor: city === c ? "rgba(255,153,51,0.08)" : "transparent",
+                          borderBottomColor: colors.cardBorder,
+                          backgroundColor: city === c ? "rgba(255,153,51,0.1)" : "transparent",
                         }}
                       >
                         <Text
                           style={{
                             fontFamily: "Manrope_500Medium",
-                            color: city === c ? "#FF9933" : "#f5f5f5",
+                            color: city === c ? "#FF9933" : colors.text,
                             fontSize: 14,
                           }}
                         >
@@ -418,14 +419,14 @@ export default function DiningPreferencesScreen() {
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#999",
+                  color: colors.textMuted,
                   fontSize: 12,
                   letterSpacing: 1,
                   textTransform: "uppercase",
                   marginBottom: 10,
                 }}
               >
-                Dietary Preference
+                How you eat
               </Text>
               <View
                 style={{
@@ -448,9 +449,9 @@ export default function DiningPreferencesScreen() {
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        backgroundColor: isSelected ? "rgba(255,153,51,0.12)" : "#262626",
+                        backgroundColor: isSelected ? "rgba(255,153,51,0.12)" : colors.pressableBg,
                         borderWidth: isSelected ? 1.5 : 1,
-                        borderColor: isSelected ? "#FF9933" : "#333",
+                        borderColor: isSelected ? "#FF9933" : colors.cardBorder,
                         borderRadius: 12,
                         paddingHorizontal: 14,
                         paddingVertical: 10,
@@ -460,7 +461,7 @@ export default function DiningPreferencesScreen() {
                       <Text
                         style={{
                           fontFamily: "Manrope_600SemiBold",
-                          color: isSelected ? "#FF9933" : "#ccc",
+                          color: isSelected ? "#FF9933" : colors.textSecondary,
                           fontSize: 14,
                           marginLeft: 8,
                         }}
@@ -493,14 +494,14 @@ export default function DiningPreferencesScreen() {
                   <Text
                     style={{
                       fontFamily: "Manrope_600SemiBold",
-                      color: "#999",
+                      color: colors.textMuted,
                       fontSize: 12,
                       letterSpacing: 1,
                       textTransform: "uppercase",
                       marginBottom: 10,
                     }}
                   >
-                    Veg-Only Days
+                    Vegetarian-only days
                   </Text>
                   <View
                     style={{
@@ -531,15 +532,15 @@ export default function DiningPreferencesScreen() {
                               borderRadius: 19,
                               alignItems: "center",
                               justifyContent: "center",
-                              backgroundColor: isActive ? "#10B981" : "#262626",
+                              backgroundColor: isActive ? "#10B981" : colors.pressableBg,
                               borderWidth: isActive ? 0 : 1,
-                              borderColor: "#333",
+                              borderColor: colors.cardBorder,
                             }}
                           >
                             <Text
                               style={{
                                 fontFamily: "BricolageGrotesque_700Bold",
-                                color: isActive ? "#fff" : "#999",
+                                color: isActive ? "#fff" : colors.textMuted,
                                 fontSize: 13,
                               }}
                             >
@@ -549,7 +550,7 @@ export default function DiningPreferencesScreen() {
                           <Text
                             style={{
                               fontFamily: "Manrope_500Medium",
-                              color: isActive ? "#10B981" : "#555",
+                              color: isActive ? "#10B981" : colors.textMuted,
                               fontSize: 9,
                               marginTop: 4,
                             }}
@@ -563,14 +564,14 @@ export default function DiningPreferencesScreen() {
                   <Text
                     style={{
                       fontFamily: "Manrope_500Medium",
-                      color: "#666",
+                      color: colors.textMuted,
                       fontSize: 12,
                       marginBottom: 10,
                     }}
                   >
                     {restrictedDays.length === 0
-                      ? "No restrictions \u2014 you'll see all dishes every day."
-                      : `Vegetarian only on ${restrictedDays.join(", ")}.`}
+                      ? "No vegetarian-only days — menus won\u2019t be filtered by weekday."
+                      : `On ${restrictedDays.join(", ")}, we\u2019ll emphasize vegetarian-friendly picks.`}
                   </Text>
                 </>
               )}
@@ -588,35 +589,35 @@ export default function DiningPreferencesScreen() {
                     }}
                     disabled={savingPrefs}
                     style={{
-                      backgroundColor: "#FF9933",
+                      backgroundColor: isDark ? "#FF9933" : "#b45309",
                       borderRadius: 14,
                       height: 48,
                       alignItems: "center",
                       justifyContent: "center",
                       flexDirection: "row",
                       marginTop: 8,
-                      shadowColor: "#FF9933",
+                      shadowColor: isDark ? "#FF9933" : "#7c2d12",
                       shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.3,
+                      shadowOpacity: isDark ? 0.3 : 0.18,
                       shadowRadius: 12,
                       elevation: 8,
                       opacity: savingPrefs ? 0.7 : 1,
                     }}
                   >
                     {savingPrefs ? (
-                      <ActivityIndicator color="#0f0f0f" />
+                      <ActivityIndicator color={isDark ? "#0f0f0f" : "#ffffff"} />
                     ) : (
                       <>
-                        <Sparkles size={16} color="#0f0f0f" />
+                        <Sparkles size={16} color={isDark ? "#0f0f0f" : "#ffffff"} />
                         <Text
                           style={{
                             fontFamily: "BricolageGrotesque_700Bold",
-                            color: "#0f0f0f",
+                            color: isDark ? "#0f0f0f" : "#ffffff",
                             fontSize: 15,
                             marginLeft: 6,
                           }}
                         >
-                          Save Preferences
+                          Save preferences
                         </Text>
                       </>
                     )}

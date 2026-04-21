@@ -34,6 +34,7 @@ import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/lib/supabase";
 import { uploadReviewPhotoToStorage } from "@/lib/review-image-upload";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import type { UIMenuItem } from "@/lib/restaurant-types";
 
@@ -134,14 +135,15 @@ function StarRow({
   size?: number;
   onPress?: (r: number) => void;
 }) {
+  const { colors } = useAppTheme();
   return (
     <View style={{ flexDirection: "row", gap: 3 }}>
       {[1, 2, 3, 4, 5].map((s) => (
         <Pressable key={s} onPress={() => onPress?.(s)} hitSlop={6}>
           <Star
             size={size}
-            color="#FF9933"
-            fill={s <= rating ? "#FF9933" : "transparent"}
+            color={colors.saffron}
+            fill={s <= rating ? colors.saffron : "transparent"}
           />
         </Pressable>
       ))}
@@ -242,6 +244,7 @@ function FullscreenPhotoModal({
   startIndex: number;
   onClose: () => void;
 }) {
+  const { colors } = useAppTheme();
   const { width: sw, height: sh } = Dimensions.get("window");
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -287,7 +290,7 @@ function FullscreenPhotoModal({
           style={{ position: "absolute", top: 56, right: 20, padding: 10 }}
           hitSlop={10}
         >
-          <X size={24} color="#f5f5f5" />
+          <X size={24} color="#ffffff" />
         </Pressable>
 
         {/* Dot indicators */}
@@ -310,7 +313,8 @@ function FullscreenPhotoModal({
                   width: 8,
                   height: 8,
                   borderRadius: 4,
-                  backgroundColor: i === currentIndex ? "#FF9933" : "#555",
+                  backgroundColor:
+                    i === currentIndex ? colors.saffron : "rgba(255,255,255,0.4)",
                 }}
               />
             ))}
@@ -326,7 +330,7 @@ function FullscreenPhotoModal({
               left: 0,
               right: 0,
               textAlign: "center",
-              color: "#555",
+              color: "rgba(255,255,255,0.55)",
               fontFamily: "Manrope_400Regular",
               fontSize: 12,
             }}
@@ -358,6 +362,7 @@ function ReviewReplyThread({
   onRepliesChanged: () => void;
 }) {
   const { session } = useAuth();
+  const { colors } = useAppTheme();
   const sorted = useMemo(() => sortReplies(replies), [replies]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -408,11 +413,13 @@ function ReviewReplyThread({
   };
 
   return (
-    <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#2a2a2a" }}>
+    <View
+      style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.cardBorder }}
+    >
       {sorted.length > 0 && (
         <Text
           style={{
-            color: "#777",
+            color: colors.textMuted,
             fontFamily: "Manrope_600SemiBold",
             fontSize: 11,
             marginBottom: 8,
@@ -433,20 +440,29 @@ function ReviewReplyThread({
               marginBottom: 10,
               paddingLeft: 10,
               borderLeftWidth: 2,
-              borderLeftColor: isOwnerReply ? "rgba(255,153,51,0.55)" : "#444",
+              borderLeftColor: isOwnerReply ? "rgba(255,153,51,0.55)" : colors.cardBorder,
             }}
           >
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
               <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={{ color: isOwnerReply ? "#FFB366" : "#bbb", fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
+                <Text
+                  style={{
+                    color: isOwnerReply ? "#FFB366" : colors.textSecondary,
+                    fontFamily: "Manrope_600SemiBold",
+                    fontSize: 12,
+                  }}
+                >
                   {isOwnerReply ? "Restaurant" : rp.author_name}
                   {isOwnerReply ? (
-                    <Text style={{ color: "#888", fontFamily: "Manrope_500Medium", fontSize: 10 }}> · Owner</Text>
+                    <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 10 }}>
+                      {" "}
+                      · Owner
+                    </Text>
                   ) : null}
                 </Text>
                 <Text
                   style={{
-                    color: "#ccc",
+                    color: colors.textSecondary,
                     fontFamily: "Manrope_400Regular",
                     fontSize: 13,
                     lineHeight: 18,
@@ -457,10 +473,12 @@ function ReviewReplyThread({
                 </Text>
               </View>
               <View style={{ alignItems: "flex-end" }}>
-                <Text style={{ color: "#555", fontFamily: "Manrope_400Regular", fontSize: 10 }}>{formatDate(rp.created_at)}</Text>
+                <Text style={{ color: colors.textMuted, fontFamily: "Manrope_400Regular", fontSize: 10 }}>
+                  {formatDate(rp.created_at)}
+                </Text>
                 {isMine && (
                   <Pressable onPress={() => deleteReply(rp.id)} hitSlop={6} style={{ marginTop: 4 }}>
-                    <Trash2 size={12} color="#666" />
+                    <Trash2 size={12} color={colors.iconMuted} />
                   </Pressable>
                 )}
               </View>
@@ -474,14 +492,14 @@ function ReviewReplyThread({
             value={draft}
             onChangeText={setDraft}
             placeholder="Respond as restaurant…"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textMuted}
             multiline
             style={{
-              backgroundColor: "#141414",
+              backgroundColor: colors.card,
               borderRadius: 10,
               borderWidth: 1,
-              borderColor: "#333",
-              color: "#f5f5f5",
+              borderColor: colors.cardBorder,
+              color: colors.text,
               fontFamily: "Manrope_400Regular",
               fontSize: 13,
               padding: 10,
@@ -495,18 +513,18 @@ function ReviewReplyThread({
             style={{
               marginTop: 8,
               alignSelf: "flex-end",
-              backgroundColor: draft.trim() && !sending ? "rgba(255,153,51,0.2)" : "#2a2a2a",
+              backgroundColor: draft.trim() && !sending ? "rgba(255,153,51,0.2)" : colors.pressableBg,
               paddingHorizontal: 14,
               paddingVertical: 8,
               borderRadius: 10,
               borderWidth: 1,
-              borderColor: draft.trim() ? "rgba(255,153,51,0.4)" : "#333",
+              borderColor: draft.trim() ? "rgba(255,153,51,0.4)" : colors.cardBorder,
             }}
           >
             {sending ? (
-              <ActivityIndicator color="#FF9933" size="small" />
+              <ActivityIndicator color={colors.saffron} size="small" />
             ) : (
-              <Text style={{ color: "#FF9933", fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>Send</Text>
+              <Text style={{ color: colors.saffron, fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>Send</Text>
             )}
           </Pressable>
         </View>
@@ -539,6 +557,7 @@ function ReviewCard({
   isOwnerOfRestaurant: boolean;
   onRepliesChanged: () => void;
 }) {
+  const { colors } = useAppTheme();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Resolve menu item names from IDs
@@ -547,12 +566,12 @@ function ReviewCard({
   return (
     <View
       style={{
-        backgroundColor: "#1a1a1a",
+        backgroundColor: colors.card,
         borderRadius: 14,
         padding: 14,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: "#2a2a2a",
+        borderColor: colors.cardBorder,
       }}
     >
       {/* Top row: avatar + name/date | badges (top-right) | edit/delete */}
@@ -563,7 +582,7 @@ function ReviewCard({
             width: 34,
             height: 34,
             borderRadius: 17,
-            backgroundColor: "#2a2a2a",
+            backgroundColor: colors.pressableBg,
             alignItems: "center",
             justifyContent: "center",
             marginRight: 10,
@@ -575,7 +594,7 @@ function ReviewCard({
               style={{ width: 34, height: 34, borderRadius: 17 }}
             />
           ) : (
-            <Text style={{ color: "#999", fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>
+            <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>
               {(review.reviewer_name || "?")[0].toUpperCase()}
             </Text>
           )}
@@ -583,13 +602,13 @@ function ReviewCard({
 
         {/* Name + date */}
         <View style={{ flex: 1 }}>
-          <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 14 }}>
+          <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 14 }}>
             {review.reviewer_name}
           </Text>
-          <Text style={{ color: "#666", fontFamily: "Manrope_400Regular", fontSize: 11, marginTop: 1 }}>
+          <Text style={{ color: colors.textMuted, fontFamily: "Manrope_400Regular", fontSize: 11, marginTop: 1 }}>
             {formatDate(review.created_at)}
             {review.edited_at && (
-              <Text style={{ color: "#555", fontStyle: "italic" }}>
+              <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>
                 {" · " + formatEditedLabel(review.edited_at, review.created_at)}
               </Text>
             )}
@@ -601,13 +620,13 @@ function ReviewCard({
           {review.is_from_google && (
             <View
               style={{
-                backgroundColor: "#2a2a2a",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 8,
                 paddingHorizontal: 7,
                 paddingVertical: 3,
               }}
             >
-              <Text style={{ color: "#888", fontFamily: "Manrope_500Medium", fontSize: 10 }}>
+              <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 10 }}>
                 From Google
               </Text>
             </View>
@@ -623,7 +642,7 @@ function ReviewCard({
                 borderColor: "rgba(255,153,51,0.35)",
               }}
             >
-              <Text style={{ color: "#FF9933", fontFamily: "Manrope_600SemiBold", fontSize: 10 }}>
+              <Text style={{ color: colors.saffron, fontFamily: "Manrope_600SemiBold", fontSize: 10 }}>
                 Verified Purchase
               </Text>
             </View>
@@ -632,10 +651,10 @@ function ReviewCard({
           {isOwn && (
             <View style={{ flexDirection: "row", gap: 10, marginTop: 2 }}>
               <Pressable onPress={onEdit} hitSlop={8}>
-                <Pencil size={14} color="#888" />
+                <Pencil size={14} color={colors.iconMuted} />
               </Pressable>
               <Pressable onPress={onDelete} hitSlop={8}>
-                <Trash2 size={14} color="#666" />
+                <Trash2 size={14} color={colors.iconMuted} />
               </Pressable>
             </View>
           )}
@@ -652,15 +671,15 @@ function ReviewCard({
             <View
               key={item.id}
               style={{
-                backgroundColor: "#222",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 20,
                 paddingHorizontal: 10,
                 paddingVertical: 4,
                 borderWidth: 1,
-                borderColor: "#333",
+                borderColor: colors.cardBorder,
               }}
             >
-              <Text style={{ color: "#aaa", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+              <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
                 {item.name}
               </Text>
             </View>
@@ -668,15 +687,15 @@ function ReviewCard({
           {triedItems.length > 4 && (
             <View
               style={{
-                backgroundColor: "#222",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 20,
                 paddingHorizontal: 10,
                 paddingVertical: 4,
                 borderWidth: 1,
-                borderColor: "#333",
+                borderColor: colors.cardBorder,
               }}
             >
-              <Text style={{ color: "#666", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+              <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
                 +{triedItems.length - 4} more
               </Text>
             </View>
@@ -688,7 +707,7 @@ function ReviewCard({
       {!!review.body && (
         <Text
           style={{
-            color: "#cccccc",
+            color: colors.textSecondary,
             fontFamily: "Manrope_400Regular",
             fontSize: 13,
             lineHeight: 19,
@@ -715,7 +734,7 @@ function ReviewCard({
                 width: 110,
                 height: 80,
                 borderRadius: 8,
-                backgroundColor: "#2a2a2a",
+                backgroundColor: colors.pressableBg,
                 overflow: "hidden",
               }}
             >
@@ -773,6 +792,19 @@ function WriteReviewForm({
     { uri: string; mimeType?: string | null; uploaded?: string }[]
   >((existing?.photo_urls ?? []).map((url) => ({ uri: url, uploaded: url })));
   const [saving, setSaving] = useState(false);
+  const { colors, isDark } = useAppTheme();
+  const labelStyle = useMemo(
+    () => ({
+      color: colors.textMuted,
+      fontFamily: "Manrope_600SemiBold" as const,
+      fontSize: 12,
+      marginBottom: 10,
+      textTransform: "uppercase" as const,
+      letterSpacing: 0.6,
+    }),
+    [colors.textMuted]
+  );
+  const ctaLabelColor = isDark ? "#0f0f0f" : "#ffffff";
 
   const toggleMenuItem = (id: number) => {
     setSelectedMenuIds((prev) => {
@@ -939,13 +971,13 @@ function WriteReviewForm({
           paddingHorizontal: 20,
           paddingVertical: 14,
           borderBottomWidth: 1,
-          borderBottomColor: "#2a2a2a",
+          borderBottomColor: colors.cardBorder,
         }}
       >
         <Pressable onPress={onCancel} hitSlop={10}>
-          <X size={22} color="#f5f5f5" />
+          <X size={22} color={colors.text} />
         </Pressable>
-        <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 16 }}>
+        <Text style={{ color: colors.text, fontFamily: "Manrope_700Bold", fontSize: 16 }}>
           {existing ? "Edit Review" : "Write a Review"}
         </Text>
         <View style={{ width: 22 }} />
@@ -970,8 +1002,8 @@ function WriteReviewForm({
             >
               <Star
                 size={36}
-                color="#FF9933"
-                fill={s <= rating ? "#FF9933" : "transparent"}
+                color={colors.saffron}
+                fill={s <= rating ? colors.saffron : "transparent"}
               />
             </Pressable>
           ))}
@@ -983,15 +1015,15 @@ function WriteReviewForm({
           value={body}
           onChangeText={setBody}
           placeholder="Share your experience..."
-          placeholderTextColor="#555"
+          placeholderTextColor={colors.textMuted}
           multiline
           numberOfLines={4}
           style={{
-            backgroundColor: "#1a1a1a",
+            backgroundColor: colors.card,
             borderRadius: 12,
             borderWidth: 1,
-            borderColor: "#2a2a2a",
-            color: "#f5f5f5",
+            borderColor: colors.cardBorder,
+            color: colors.text,
             fontFamily: "Manrope_400Regular",
             fontSize: 14,
             padding: 14,
@@ -1022,19 +1054,19 @@ function WriteReviewForm({
                       paddingHorizontal: 12,
                       paddingVertical: 7,
                       borderRadius: 20,
-                      backgroundColor: selected ? "rgba(255,153,51,0.15)" : "#1a1a1a",
+                      backgroundColor: selected ? "rgba(255,153,51,0.15)" : colors.card,
                       borderWidth: 1,
-                      borderColor: selected ? "rgba(255,153,51,0.5)" : "#2a2a2a",
+                      borderColor: selected ? "rgba(255,153,51,0.5)" : colors.cardBorder,
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 5,
                       opacity: atCap ? 0.35 : 1,
                     }}
                   >
-                    {selected && <Check size={11} color="#FF9933" />}
+                    {selected && <Check size={11} color={colors.saffron} />}
                     <Text
                       style={{
-                        color: selected ? "#FF9933" : "#aaa",
+                        color: selected ? colors.saffron : colors.textSecondary,
                         fontFamily: "Manrope_500Medium",
                         fontSize: 12,
                       }}
@@ -1058,7 +1090,7 @@ function WriteReviewForm({
                   width: 90,
                   height: 70,
                   borderRadius: 10,
-                  backgroundColor: "#2a2a2a",
+                  backgroundColor: colors.pressableBg,
                   overflow: "hidden",
                 }}
               >
@@ -1074,14 +1106,14 @@ function WriteReviewForm({
                   position: "absolute",
                   top: -6,
                   right: -6,
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.card,
                   borderRadius: 10,
                   padding: 3,
                   borderWidth: 1,
-                  borderColor: "#333",
+                  borderColor: colors.cardBorder,
                 }}
               >
-                <X size={10} color="#f5f5f5" />
+                <X size={10} color={colors.text} />
               </Pressable>
             </View>
           ))}
@@ -1092,17 +1124,17 @@ function WriteReviewForm({
                 width: 90,
                 height: 70,
                 borderRadius: 10,
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
                 borderStyle: "dashed",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 4,
               }}
             >
-              <Camera size={18} color="#666" />
-              <Text style={{ color: "#666", fontFamily: "Manrope_400Regular", fontSize: 10 }}>
+              <Camera size={18} color={colors.iconMuted} />
+              <Text style={{ color: colors.textMuted, fontFamily: "Manrope_400Regular", fontSize: 10 }}>
                 Add photo
               </Text>
             </Pressable>
@@ -1117,24 +1149,24 @@ function WriteReviewForm({
           paddingBottom: Platform.OS === "ios" ? 28 : 20,
           paddingTop: 12,
           borderTopWidth: 1,
-          borderTopColor: "#2a2a2a",
-          backgroundColor: "#111",
+          borderTopColor: colors.cardBorder,
+          backgroundColor: colors.background,
         }}
       >
         <Pressable
           onPress={handleSave}
           disabled={saving}
           style={{
-            backgroundColor: saving ? "#333" : "#FF9933",
+            backgroundColor: saving ? colors.switchTrackOff : colors.saffron,
             borderRadius: 14,
             paddingVertical: 15,
             alignItems: "center",
           }}
         >
           {saving ? (
-            <ActivityIndicator color="#fff" size="small" />
+            <ActivityIndicator color={ctaLabelColor} size="small" />
           ) : (
-            <Text style={{ color: "#111", fontFamily: "Manrope_700Bold", fontSize: 15 }}>
+            <Text style={{ color: ctaLabelColor, fontFamily: "Manrope_700Bold", fontSize: 15 }}>
               {existing ? "Save Changes" : "Submit Review"}
             </Text>
           )}
@@ -1143,15 +1175,6 @@ function WriteReviewForm({
     </KeyboardAvoidingView>
   );
 }
-
-const labelStyle = {
-  color: "#999",
-  fontFamily: "Manrope_600SemiBold" as const,
-  fontSize: 12,
-  marginBottom: 10,
-  textTransform: "uppercase" as const,
-  letterSpacing: 0.6,
-};
 
 // ================================================================
 // Main ReviewsModal
@@ -1179,6 +1202,8 @@ export function ReviewsModal({
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [showWrite, setShowWrite] = useState(false);
   const [editingReview, setEditingReview] = useState<Review | null>(null);
+  const { colors, isDark } = useAppTheme();
+  const ctaLabelColor = isDark ? "#0f0f0f" : "#ffffff";
 
   // ──────────────────────────────────────────────────────────────
   // Fetch real reviews from Supabase
@@ -1319,7 +1344,7 @@ export function ReviewsModal({
   // ──────────────────────────────────────────────────────────────
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "#111" }}>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
         <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
           {showWrite ? (
             <WriteReviewForm
@@ -1343,11 +1368,11 @@ export function ReviewsModal({
                   paddingHorizontal: 20,
                   paddingVertical: 14,
                   borderBottomWidth: 1,
-                  borderBottomColor: "#2a2a2a",
+                  borderBottomColor: colors.cardBorder,
                 }}
               >
                 <View style={{ width: 22 }} />
-                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 16 }}>
+                <Text style={{ color: colors.text, fontFamily: "Manrope_700Bold", fontSize: 16 }}>
                   Reviews
                 </Text>
                 <Pressable
@@ -1357,7 +1382,7 @@ export function ReviewsModal({
                   }}
                   hitSlop={10}
                 >
-                  <X size={22} color="#f5f5f5" />
+                  <X size={22} color={colors.text} />
                 </Pressable>
               </View>
 
@@ -1367,12 +1392,12 @@ export function ReviewsModal({
                   paddingHorizontal: 20,
                   paddingVertical: 18,
                   borderBottomWidth: 1,
-                  borderBottomColor: "#2a2a2a",
+                  borderBottomColor: colors.cardBorder,
                 }}
               >
                 <Text
                   style={{
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontFamily: "Manrope_700Bold",
                     fontSize: 13,
                     marginBottom: 4,
@@ -1383,7 +1408,7 @@ export function ReviewsModal({
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <Text
                     style={{
-                      color: "#FF9933",
+                      color: colors.saffron,
                       fontFamily: "JetBrainsMono_600SemiBold",
                       fontSize: 34,
                     }}
@@ -1394,7 +1419,7 @@ export function ReviewsModal({
                     <StarRow rating={headerCount === 0 ? 0 : Math.round(headerAvg)} size={18} />
                     <Text
                       style={{
-                        color: "#666",
+                        color: colors.textMuted,
                         fontFamily: "Manrope_400Regular",
                         fontSize: 12,
                         marginTop: 3,
@@ -1412,12 +1437,12 @@ export function ReviewsModal({
                   paddingHorizontal: 20,
                   paddingVertical: 12,
                   borderBottomWidth: 1,
-                  borderBottomColor: "#2a2a2a",
+                  borderBottomColor: colors.cardBorder,
                 }}
               >
                 <Text
                   style={{
-                    color: "#888",
+                    color: colors.textMuted,
                     fontFamily: "Manrope_600SemiBold",
                     fontSize: 12,
                     marginBottom: 10,
@@ -1438,14 +1463,14 @@ export function ReviewsModal({
                           paddingHorizontal: 14,
                           paddingVertical: 8,
                           borderRadius: 20,
-                          backgroundColor: active ? "rgba(255,153,51,0.2)" : "#1a1a1a",
+                          backgroundColor: active ? "rgba(255,153,51,0.2)" : colors.card,
                           borderWidth: 1,
-                          borderColor: active ? "rgba(255,153,51,0.55)" : "#2a2a2a",
+                          borderColor: active ? "rgba(255,153,51,0.55)" : colors.cardBorder,
                         }}
                       >
                         <Text
                           style={{
-                            color: active ? "#FF9933" : "#888",
+                            color: active ? colors.saffron : colors.textMuted,
                             fontFamily: "Manrope_600SemiBold",
                             fontSize: 13,
                           }}
@@ -1464,11 +1489,11 @@ export function ReviewsModal({
                 showsVerticalScrollIndicator={false}
               >
                 {loading ? (
-                  <ActivityIndicator color="#FF9933" style={{ marginTop: 40 }} />
+                  <ActivityIndicator color={colors.saffron} style={{ marginTop: 40 }} />
                 ) : sortedReviews.length === 0 ? (
                   <Text
                     style={{
-                      color: "#555",
+                      color: colors.textMuted,
                       fontFamily: "Manrope_400Regular",
                       fontSize: 14,
                       textAlign: "center",
@@ -1510,9 +1535,9 @@ export function ReviewsModal({
                     paddingHorizontal: 20,
                     paddingBottom: Platform.OS === "ios" ? 32 : 20,
                     paddingTop: 12,
-                    backgroundColor: "#111",
+                    backgroundColor: colors.background,
                     borderTopWidth: 1,
-                    borderTopColor: "#2a2a2a",
+                    borderTopColor: colors.cardBorder,
                   }}
                 >
                   <Pressable
@@ -1522,7 +1547,7 @@ export function ReviewsModal({
                       openWrite();
                     }}
                     style={{
-                      backgroundColor: hasReviewedThisMonth ? "#2a2a2a" : "#FF9933",
+                      backgroundColor: hasReviewedThisMonth ? colors.pressableBg : colors.saffron,
                       borderRadius: 14,
                       paddingVertical: 15,
                       alignItems: "center",
@@ -1531,7 +1556,7 @@ export function ReviewsModal({
                   >
                     <Text
                       style={{
-                        color: hasReviewedThisMonth ? "#666" : "#111",
+                        color: hasReviewedThisMonth ? colors.textMuted : ctaLabelColor,
                         fontFamily: "Manrope_700Bold",
                         fontSize: 15,
                       }}
@@ -1551,14 +1576,14 @@ export function ReviewsModal({
                     paddingHorizontal: 20,
                     paddingBottom: Platform.OS === "ios" ? 32 : 20,
                     paddingTop: 12,
-                    backgroundColor: "#111",
+                    backgroundColor: colors.background,
                     borderTopWidth: 1,
-                    borderTopColor: "#2a2a2a",
+                    borderTopColor: colors.cardBorder,
                   }}
                 >
                   <Text
                     style={{
-                      color: "#666",
+                      color: colors.textMuted,
                       fontFamily: "Manrope_500Medium",
                       fontSize: 13,
                       textAlign: "center",
@@ -1579,14 +1604,14 @@ export function ReviewsModal({
                     paddingHorizontal: 20,
                     paddingBottom: Platform.OS === "ios" ? 32 : 20,
                     paddingTop: 12,
-                    backgroundColor: "#111",
+                    backgroundColor: colors.background,
                     borderTopWidth: 1,
-                    borderTopColor: "#2a2a2a",
+                    borderTopColor: colors.cardBorder,
                   }}
                 >
                   <Text
                     style={{
-                      color: "#666",
+                      color: colors.textMuted,
                       fontFamily: "Manrope_500Medium",
                       fontSize: 13,
                       textAlign: "center",

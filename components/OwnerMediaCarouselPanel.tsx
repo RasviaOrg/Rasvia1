@@ -19,6 +19,17 @@ import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { useAppTheme, type AppColors } from "@/lib/app-theme";
+
+function embeddedCardWrap(colors: AppColors) {
+  return {
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 14,
+  } as const;
+}
 
 type MenuItemOption = { id: number; name: string; image_url: string | null };
 type SlideDraft = { localId: string; imageUrl: string; menuItemId: number | null };
@@ -44,6 +55,7 @@ type Props = {
 };
 
 export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, allowEdit: allowEditProp }: Props) {
+  const { colors, isDark } = useAppTheme();
   const adminMode = useAdminMode();
   const fromDashboard =
     variant === "embedded" && restaurantId != null && String(restaurantId).length > 0 && allowEditProp === true;
@@ -253,11 +265,11 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
 
   if (variant === "screen" && !canEdit) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <Text style={{ color: "#f5f5f5", fontFamily: "BricolageGrotesque_700Bold", fontSize: 22, marginBottom: 8 }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <Text style={{ color: colors.text, fontFamily: "BricolageGrotesque_700Bold", fontSize: 22, marginBottom: 8 }}>
           Owners only
         </Text>
-        <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", textAlign: "center" }}>
+        <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", textAlign: "center" }}>
           You need owner or admin access to edit restaurant carousel media.
         </Text>
       </View>
@@ -268,17 +280,17 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
 
   const body = (
     <>
-      <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", marginBottom: 12 }}>
+      <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", marginBottom: 12 }}>
         Top item is the starting image. Add URLs, optional linked menu items, and reorder.
       </Text>
 
-      <View style={{ borderWidth: 1, borderColor: "#2a2a2a", backgroundColor: "#171717", borderRadius: 14, padding: 12, marginBottom: 10 }}>
+      <View style={{ borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.card, borderRadius: 14, padding: 12, marginBottom: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 14 }}>
+            <Text style={{ color: colors.text, fontFamily: "Manrope_700Bold", fontSize: 14 }}>
               Use regular restaurant image as slide 1
             </Text>
-            <Text style={{ color: "#8f8f8f", fontFamily: "Manrope_500Medium", fontSize: 12, marginTop: 3 }}>
+            <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 12, marginTop: 3 }}>
               {includeDefaultStarter ? "Custom slides start at Slide 2." : "Custom slides start at Slide 1."}
             </Text>
           </View>
@@ -288,16 +300,16 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
               tapHaptic();
               setIncludeDefaultStarter(v);
             }}
-            trackColor={{ false: "#3a3a3a", true: "#FF9933" }}
-            thumbColor="#f5f5f5"
+            trackColor={{ false: colors.switchTrackOff, true: colors.saffron }}
+            thumbColor={isDark ? colors.text : "#ffffff"}
           />
         </View>
       </View>
 
       {slides.map((slide, index) => (
-        <View key={slide.localId} style={{ borderWidth: 1, borderColor: "#2a2a2a", backgroundColor: "#171717", borderRadius: 14, padding: 12, marginBottom: 10 }}>
+        <View key={slide.localId} style={{ borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.card, borderRadius: 14, padding: 12, marginBottom: 10 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <Text style={{ color: index === 0 ? "#FF9933" : "#f5f5f5", fontFamily: "Manrope_700Bold" }}>
+            <Text style={{ color: index === 0 ? colors.saffron : colors.text, fontFamily: "Manrope_700Bold" }}>
               Slide {index + (includeDefaultStarter ? 2 : 1)}
               {index === 0 ? (includeDefaultStarter ? " (First custom slide)" : " (Starts first)") : ""}
             </Text>
@@ -310,7 +322,7 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
                 }}
                 style={{ padding: 6, opacity: index === 0 ? 0.35 : 1 }}
               >
-                <ChevronUp size={18} color="#f5f5f5" />
+                <ChevronUp size={18} color={colors.text} />
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -320,7 +332,7 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
                 }}
                 style={{ padding: 6, opacity: index === slides.length - 1 ? 0.35 : 1 }}
               >
-                <ChevronDown size={18} color="#f5f5f5" />
+                <ChevronDown size={18} color={colors.text} />
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -334,20 +346,20 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
             </View>
           </View>
 
-          <Text style={{ color: "#8f8f8f", fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 6 }}>
+          <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 6 }}>
             Image URL (optional if menu item selected)
           </Text>
           <TextInput
             value={slide.imageUrl}
             onChangeText={(text) => updateSlide(slide.localId, { imageUrl: text })}
             placeholder="https://..."
-            placeholderTextColor="#666"
+            placeholderTextColor={colors.textMuted}
             style={{
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               borderRadius: 10,
-              backgroundColor: "#111",
-              color: "#f5f5f5",
+              backgroundColor: colors.background,
+              color: colors.text,
               paddingHorizontal: 10,
               paddingVertical: 10,
               fontFamily: "Manrope_500Medium",
@@ -361,12 +373,12 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
 
           {!!slide.imageUrl.trim() && (
             <View style={{ marginTop: 8 }}>
-              <Text style={{ color: "#8f8f8f", fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 6 }}>
+              <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 6 }}>
                 Preview
               </Text>
               <Image
                 source={{ uri: toPublicImageUrl(slide.imageUrl) }}
-                style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: "#202020", borderWidth: 1, borderColor: "#2a2a2a" }}
+                style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: colors.pressableBg, borderWidth: 1, borderColor: colors.cardBorder }}
                 resizeMode="cover"
               />
             </View>
@@ -381,15 +393,15 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
             style={{
               marginTop: 8,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               borderRadius: 10,
-              backgroundColor: "#111",
+              backgroundColor: colors.background,
               paddingHorizontal: 10,
               paddingVertical: 10,
               opacity: uploadingSlideId === slide.localId ? 0.65 : 1,
             }}
           >
-            <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>
+            <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }}>
               {uploadingSlideId === slide.localId ? "Uploading..." : "Upload from Library"}
             </Text>
           </Pressable>
@@ -399,12 +411,12 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
               tapHaptic();
               setPickerForSlide(slide.localId);
             }}
-            style={{ marginTop: 10, borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 10, backgroundColor: "#111", paddingHorizontal: 10, paddingVertical: 10 }}
+            style={{ marginTop: 10, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 10, backgroundColor: colors.background, paddingHorizontal: 10, paddingVertical: 10 }}
           >
-            <Text style={{ color: "#8f8f8f", fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 3 }}>
+            <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 3 }}>
               Linked menu item (for top-right tag)
             </Text>
-            <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }} numberOfLines={1}>
+            <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }} numberOfLines={1}>
               {selectedMenuName(slide.menuItemId)}
             </Text>
           </Pressable>
@@ -419,9 +431,9 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
         style={{
           marginTop: 4,
           borderWidth: 1,
-          borderColor: "#3a3a3a",
+          borderColor: colors.cardBorder,
           borderRadius: 12,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: colors.card,
           paddingVertical: 12,
           alignItems: "center",
           justifyContent: "center",
@@ -429,8 +441,8 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
           gap: 8,
         }}
       >
-        <Plus size={18} color="#f5f5f5" />
-        <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold" }}>Add Slide</Text>
+        <Plus size={18} color={colors.text} />
+        <Text style={{ color: colors.text, fontFamily: "Manrope_700Bold" }}>Add Slide</Text>
       </Pressable>
 
       <Pressable
@@ -442,7 +454,7 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
         style={{
           marginTop: 12,
           borderRadius: 12,
-          backgroundColor: "#FF9933",
+          backgroundColor: colors.saffron,
           paddingVertical: 13,
           alignItems: "center",
           opacity: saving || loading ? 0.65 : 1,
@@ -455,11 +467,11 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
 
   const pickerModal = (
     <Modal visible={!!pickerSlide} transparent animationType="slide" onRequestClose={() => setPickerForSlide(null)}>
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "flex-end" }}>
-        <View style={{ maxHeight: "72%", backgroundColor: "#121212", borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, borderColor: "#2a2a2a" }}>
+      <View style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.35)", justifyContent: "flex-end" }}>
+        <View style={{ maxHeight: "72%", backgroundColor: colors.backgroundElevated, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, borderColor: colors.cardBorder }}>
           <SafeAreaView edges={["bottom"]}>
-            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#222" }}>
-              <Text style={{ color: "#f5f5f5", fontFamily: "BricolageGrotesque_700Bold", fontSize: 20 }}>Select Menu Item</Text>
+            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
+              <Text style={{ color: colors.text, fontFamily: "BricolageGrotesque_700Bold", fontSize: 20 }}>Select Menu Item</Text>
             </View>
             <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 24 }}>
               <Pressable
@@ -468,9 +480,9 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
                   if (pickerSlide) updateSlide(pickerSlide.localId, { menuItemId: null });
                   setPickerForSlide(null);
                 }}
-                style={{ borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 10, backgroundColor: "#171717", paddingHorizontal: 12, paddingVertical: 12, marginBottom: 8 }}
+                style={{ borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 10, backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 8 }}
               >
-                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>No linked menu item</Text>
+                <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }}>No linked menu item</Text>
               </Pressable>
               {menuItems.map((item) => (
                 <Pressable
@@ -480,11 +492,11 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
                     if (pickerSlide) updateSlide(pickerSlide.localId, { menuItemId: item.id });
                     setPickerForSlide(null);
                   }}
-                  style={{ borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 10, backgroundColor: "#171717", paddingHorizontal: 12, paddingVertical: 12, marginBottom: 8 }}
+                  style={{ borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 10, backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 8 }}
                 >
-                  <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>{item.name}</Text>
+                  <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }}>{item.name}</Text>
                   {!!item.image_url && (
-                    <Text style={{ color: "#8f8f8f", fontFamily: "Manrope_500Medium", fontSize: 12, marginTop: 2 }}>Has menu image</Text>
+                    <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 12, marginTop: 2 }}>Has menu image</Text>
                   )}
                 </Pressable>
               ))}
@@ -498,20 +510,20 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
   if (loading) {
     const loader = (
       <View style={{ paddingVertical: variant === "embedded" ? 24 : 40, alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#FF9933" />
-        <Text style={{ color: "#888", fontFamily: "Manrope_500Medium", marginTop: 12 }}>Loading carousel…</Text>
+        <ActivityIndicator size="large" color={colors.saffron} />
+        <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", marginTop: 12 }}>Loading carousel…</Text>
       </View>
     );
     if (variant === "embedded") {
       return (
         <>
-          <View style={{ ...CARD_WRAP }}>{loader}</View>
+          <View style={{ ...embeddedCardWrap(colors) }}>{loader}</View>
           {pickerModal}
         </>
       );
     }
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
         {screenHeader}
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad }}>{loader}</ScrollView>
         {pickerModal}
@@ -522,14 +534,14 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
   if (variant === "embedded") {
     return (
       <>
-        <View style={{ ...CARD_WRAP }}>{body}</View>
+        <View style={{ ...embeddedCardWrap(colors) }}>{body}</View>
         {pickerModal}
       </>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       {screenHeader}
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad }}>{body}</ScrollView>
       {pickerModal}
@@ -537,10 +549,3 @@ export function OwnerMediaCarouselPanel({ variant, screenHeader, restaurantId, a
   );
 }
 
-const CARD_WRAP = {
-  borderWidth: 1,
-  borderColor: "#2d2d2d",
-  backgroundColor: "#161616",
-  borderRadius: 16,
-  padding: 14,
-} as const;

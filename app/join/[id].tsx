@@ -9,7 +9,7 @@
 //
 // Host controls are gated by member.role === 'host'. Every mutation flows
 // through the shared contract in `lib/party-session.ts`.
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, createContext, useContext, type ReactElement } from 'react';
 import {
   View, Text, TextInput, FlatList, Pressable, ScrollView, Platform,
   KeyboardAvoidingView, Alert, ActivityIndicator, StyleSheet, Image, Share, Modal,
@@ -49,6 +49,165 @@ import { addActiveParty, removeActiveParty } from '../../lib/party-active';
 import { subscribeToParty } from '../../lib/party-realtime';
 import { PartyLedger, colorForMember, memberInitials } from '../../components/party/PartyLedger';
 import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from '../../lib/menu-tags';
+import { useAppTheme, type AppColors } from '../../lib/app-theme';
+
+function createJoinPartyStyles(colors: AppColors, isDark: boolean) {
+  const sheetScrim = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)';
+  const hairline = colors.cardBorder;
+  /** Solid CTAs: bright saffron reads harsh on light grey; burnt orange + white label reads cleaner. */
+  const primaryBtnBg = isDark ? '#FF9933' : '#c2410c';
+  const primaryBtnFg = '#ffffff';
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    centered: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 20, gap: 12 },
+    errorText: { color: colors.textMuted, textAlign: 'center' },
+    retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#FF9933' },
+    retryBtnText: { color: '#0f0f0f', fontWeight: '700' },
+
+    joinContainer: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 20 },
+    joinCard: { width: '100%', maxWidth: 420, backgroundColor: colors.card, borderRadius: 24, padding: 26, borderWidth: 1, borderColor: hairline },
+    joinBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.12)', marginBottom: 12 },
+    joinBadgeText: { color: '#FF9933', fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
+    joinTitle: { color: colors.text, fontSize: 26, fontWeight: '900', lineHeight: 32 },
+    joinSubtitle: { color: colors.textMuted, marginTop: 8, fontSize: 14, lineHeight: 20 },
+    nameInput: { marginTop: 18, backgroundColor: colors.backgroundElevated, borderWidth: 1, borderColor: hairline, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, color: colors.text, fontSize: 16 },
+    joinNotNowBtn: { marginTop: 10, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: hairline, backgroundColor: colors.card },
+    joinNotNowText: { color: colors.textMuted, fontWeight: '700' },
+
+    topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 54, paddingBottom: 12, gap: 8 },
+    topTitle: { color: colors.text, fontFamily: 'BricolageGrotesque_700Bold', fontSize: 18 },
+    topSubtitle: { color: colors.textMuted, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 },
+
+    membersStrip: { marginTop: 6, marginBottom: 6, height: 56, flexGrow: 0, flexShrink: 0 },
+    memberChip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: hairline },
+    memberChipText: { color: colors.text, fontSize: 13, lineHeight: 18, fontWeight: '600', maxWidth: 165 },
+    memberChipCount: { marginLeft: 2, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.15)', minWidth: 18, alignItems: 'center' },
+    memberChipCountText: { color: '#FF9933', fontSize: 10, fontWeight: '800' },
+    avatarSm: { width: 27, height: 27, borderRadius: 13.5, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+    avatarSmText: { color: '#0f0f0f', fontWeight: '800', fontSize: 11 },
+    avatarMd: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+    avatarMdText: { color: '#0f0f0f', fontWeight: '900', fontSize: 15 },
+    crownBadge: { position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.card },
+
+    searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 4, backgroundColor: colors.card, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: hairline },
+    searchInput: { flex: 1, color: colors.text, paddingVertical: Platform.OS === 'ios' ? 12 : 8 },
+
+    catChip: { minHeight: 38, paddingHorizontal: 15, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: hairline, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+    catChipActive: { backgroundColor: '#FF9933', borderColor: '#FF9933' },
+    catChipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600', lineHeight: 16 },
+    catChipTextActive: { color: '#0f0f0f' },
+
+    menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: colors.card, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: hairline },
+    menuImg: { width: 56, height: 56, borderRadius: 10 },
+    menuName: { color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 },
+    menuDesc: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+    menuPrice: { color: '#FF9933', fontWeight: '800', fontSize: 13, marginTop: 4 },
+    addBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FF9933', alignItems: 'center', justifyContent: 'center', position: 'relative' },
+    addBtnCount: { position: 'absolute', top: -6, right: -6, backgroundColor: colors.background, color: '#FF9933', fontSize: 10, paddingHorizontal: 5, borderRadius: 10, overflow: 'hidden', fontWeight: '800', borderWidth: 1, borderColor: '#FF9933' },
+
+    cartContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: 20, backgroundColor: colors.card, borderTopWidth: 1, borderColor: hairline },
+    cartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+    cartTitle: { color: colors.text, fontWeight: '700' },
+    cartTotal: { color: '#FF9933', fontWeight: '800', marginLeft: 'auto' },
+    cartRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderColor: hairline },
+    cartItemName: { color: colors.text, fontWeight: '700', fontSize: 13 },
+    cartItemMeta: { color: colors.textMuted, fontSize: 11 },
+    qtyBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.pressableBg, alignItems: 'center', justifyContent: 'center' },
+    qtyTrashBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: isDark ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.14)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(220,38,38,0.55)' : 'rgba(185,28,28,0.5)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    qtyText: { color: colors.text, fontWeight: '700', width: 22, textAlign: 'center' },
+
+    primaryBtn: { backgroundColor: primaryBtnBg, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+    primaryBtnText: { color: primaryBtnFg, fontWeight: '800', fontSize: 15 },
+    secondaryBtn: { backgroundColor: colors.card, paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderWidth: 1, borderColor: hairline },
+    secondaryBtnText: { color: colors.textMuted, fontWeight: '700' },
+    dangerBtn: { backgroundColor: 'rgba(239,68,68,0.08)', paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)' },
+    dangerBtnText: { color: '#EF4444', fontWeight: '700' },
+    dangerBtnSolid: { backgroundColor: '#EF4444', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
+    dangerBtnSolidText: { color: '#FFF', fontWeight: '800' },
+    textBtn: { paddingVertical: 12, alignItems: 'center' },
+    textBtnText: { color: colors.textMuted },
+
+    headerCard: { backgroundColor: colors.card, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: hairline },
+    summaryLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+    summaryValue: { color: colors.text, fontSize: 32, fontWeight: '900', marginTop: 4 },
+    summaryMeta: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
+
+    sectionLabel: { color: colors.text, fontWeight: '800', fontSize: 15, marginTop: 22, marginBottom: 10 },
+
+    modeCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: hairline },
+    modeCardActive: { borderColor: '#FF9933', backgroundColor: isDark ? 'rgba(255,153,51,0.08)' : 'rgba(255,153,51,0.12)' },
+    modeTitle: { color: colors.text, fontWeight: '800', fontSize: 14 },
+    modeSubtitle: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+
+    assignRow: { backgroundColor: colors.card, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: hairline },
+    assignName: { color: colors.text, fontWeight: '700', marginBottom: 8 },
+    assignPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.pressableBg, borderWidth: 1, borderColor: hairline, maxWidth: 120 },
+    assignPillActive: {
+      backgroundColor: isDark ? 'rgba(255,153,51,0.22)' : 'rgba(255,153,51,0.16)',
+      borderColor: isDark ? 'rgba(255,153,51,0.5)' : 'rgba(251,146,60,0.42)',
+    },
+    assignPillText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+    assignPillTextActive: { color: isDark ? '#FFEDD4' : '#9a3412' },
+
+    bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 14, paddingHorizontal: 14, paddingBottom: 40, backgroundColor: colors.background, borderTopWidth: 1, borderColor: hairline },
+
+    payCta: { marginTop: 16, backgroundColor: colors.card, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,153,51,0.35)' },
+    payCtaLabel: { color: colors.textMuted, fontWeight: '700' },
+    payCtaAmount: { color: '#FF9933', fontSize: 24, fontWeight: '900', marginTop: 2 },
+
+    sheetBackdrop: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: sheetScrim, justifyContent: 'flex-end' },
+    sheet: { backgroundColor: colors.card, padding: 20, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
+    cancelSheet: { backgroundColor: colors.card, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
+    neverMindBtn: { marginTop: 10, backgroundColor: colors.pressableBg, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, alignItems: 'center', alignSelf: 'center', borderWidth: 1, borderColor: hairline },
+    neverMindBtnText: { color: colors.textSecondary, fontWeight: '800', fontSize: 13 },
+    sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
+    sheetBody: { color: colors.textMuted, marginTop: 8 },
+
+    memberSheet: { backgroundColor: colors.card, padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 32, borderTopWidth: 1, borderColor: hairline },
+    memberSheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+    memberSheetTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+    memberSheetSubtitle: { color: colors.textMuted, fontSize: 12, marginTop: 2, fontWeight: '600' },
+    memberSheetClose: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.iconTileBg },
+    memberSheetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderColor: hairline },
+    memberSheetItemName: { color: colors.text, fontSize: 14, fontWeight: '700' },
+    memberSheetNote: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+    memberSheetPrice: { color: '#FF9933', fontSize: 14, fontWeight: '800' },
+
+    successBadgeWrapper: { width: 72, height: 72, marginBottom: 14, alignItems: 'center', justifyContent: 'center' },
+    successBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,153,51,0.12)', alignItems: 'center', justifyContent: 'center' },
+    cancelledBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(239,68,68,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+    pulseRing: { position: 'absolute', width: 72, height: 72, borderRadius: 36, borderWidth: 2, borderColor: 'rgba(255,153,51,0.6)' },
+    successTitle: { color: colors.text, fontWeight: '900', fontSize: 24 },
+    successSubtitle: { color: colors.textMuted, textAlign: 'center', marginTop: 6 },
+    receiptCard: { marginTop: 16, backgroundColor: colors.card, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: hairline },
+    receiptLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+    receiptName: { color: colors.text, fontSize: 18, fontWeight: '800', marginTop: 4 },
+    receiptAmount: { color: '#FF9933', fontWeight: '800', marginTop: 4 },
+    itemDetailsSheet: { backgroundColor: colors.card, padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: hairline },
+    itemDetailsTitle: { color: colors.text, fontWeight: '800', fontSize: 18 },
+    itemDetailsImage: { width: '100%', height: 180, borderRadius: 14, backgroundColor: colors.pressableBg },
+    itemDetailsName: { color: colors.text, fontWeight: '800', fontSize: 20, marginTop: 12 },
+    itemDetailsDesc: { color: colors.textMuted, fontSize: 13, marginTop: 6, lineHeight: 19 },
+    itemDetailsPrice: { color: '#FF9933', fontSize: 24, fontWeight: '900' },
+  });
+}
+
+const JoinPartyStylesContext = createContext<ReturnType<typeof createJoinPartyStyles> | null>(null);
+
+function useJoinS() {
+  const v = useContext(JoinPartyStylesContext);
+  if (!v) throw new Error('useJoinS must be used within JoinPartyScreen');
+  return v;
+}
 
 type MenuItem = {
   id: number;
@@ -161,6 +320,12 @@ export default function JoinPartyScreen() {
       return m.name.toLowerCase().includes(q) || (m.description ?? '').toLowerCase().includes(q);
     });
   }, [menu, search, categoryFilter, itemMatchesTag]);
+
+  const { colors, isDark } = useAppTheme();
+  const joinS = useMemo(() => createJoinPartyStyles(colors, isDark), [colors, isDark]);
+  const wrapJoin = (ui: ReactElement) => (
+    <JoinPartyStylesContext.Provider value={joinS}>{ui}</JoinPartyStylesContext.Provider>
+  );
 
   // Derived view based on session status
   useEffect(() => {
@@ -525,9 +690,9 @@ export default function JoinPartyScreen() {
 
   // ── Loading / error early returns ───────────────────────────────────────
   if (!sessionId) {
-    return (
-      <View style={s.centered}>
-        <Text style={s.errorText}>Missing session id.</Text>
+    return wrapJoin(
+      <View style={joinS.centered}>
+        <Text style={joinS.errorText}>Missing session id.</Text>
       </View>
     );
   }
@@ -536,41 +701,41 @@ export default function JoinPartyScreen() {
   // guest sees a brief flicker of the name prompt before being switched to
   // the browse view once creds resolve.
   if (loading || !credsLoaded) {
-    return (
-      <View style={s.centered}>
+    return wrapJoin(
+      <View style={joinS.centered}>
         <ActivityIndicator color="#FF9933" />
       </View>
     );
   }
   if (errorMsg) {
-    return (
-      <View style={s.centered}>
+    return wrapJoin(
+      <View style={joinS.centered}>
         <AlertCircle size={32} color="#EF4444" />
-        <Text style={s.errorText}>{errorMsg}</Text>
-        <Pressable onPress={() => { setErrorMsg(null); loadAll(); }} style={s.retryBtn}>
-          <Text style={s.retryBtnText}>Retry</Text>
+        <Text style={joinS.errorText}>{errorMsg}</Text>
+        <Pressable onPress={() => { setErrorMsg(null); loadAll(); }} style={joinS.retryBtn}>
+          <Text style={joinS.retryBtnText}>Retry</Text>
         </Pressable>
       </View>
     );
   }
   if (!session) {
-    return (
-      <View style={s.centered}>
-        <Text style={s.errorText}>Group order not found.</Text>
+    return wrapJoin(
+      <View style={joinS.centered}>
+        <Text style={joinS.errorText}>Group order not found.</Text>
       </View>
     );
   }
 
   // ── Cancelled session kicks everyone out ────────────────────────────────
   if (session.status === 'cancelled') {
-    return (
+    return wrapJoin(
       <>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={s.centered}>
+        <View style={joinS.centered}>
           <Animated.View entering={FadeIn} style={{ alignItems: 'center', gap: 10, maxWidth: 340 }}>
-            <View style={s.cancelledBadge}><X size={32} color="#EF4444" strokeWidth={3} /></View>
-            <Text style={s.successTitle}>Group order ended</Text>
-            <Text style={s.successSubtitle}>
+            <View style={joinS.cancelledBadge}><X size={32} color="#EF4444" strokeWidth={3} /></View>
+            <Text style={joinS.successTitle}>Group order ended</Text>
+            <Text style={joinS.successSubtitle}>
               {restaurant?.name ? `The host cancelled the group order at ${restaurant.name}.` : 'The host cancelled this group order.'}
               {' '}Any paid shares have been refunded.
             </Text>
@@ -581,9 +746,9 @@ export default function JoinPartyScreen() {
                 await clearHomeActiveGroupOrderCache(authSession?.user?.id, sessionId);
                 router.replace('/');
               }}
-              style={[s.primaryBtn, { marginTop: 10, alignSelf: 'stretch' }]}
+              style={[joinS.primaryBtn, { marginTop: 10, alignSelf: 'stretch' }]}
             >
-              <Text style={s.primaryBtnText}>Back to home</Text>
+              <Text style={joinS.primaryBtnText}>Back to home</Text>
             </Pressable>
           </Animated.View>
         </View>
@@ -594,21 +759,21 @@ export default function JoinPartyScreen() {
   // ── Name entry ──────────────────────────────────────────────────────────
   if (!creds || !me) {
     const hasPrefill = nameInput.trim().length > 0;
-    return (
+    return wrapJoin(
       <>
         <Stack.Screen options={{ headerShown: false }} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.joinContainer}>
-          <Animated.View entering={FadeIn} style={s.joinCard}>
-            <View style={s.joinBadge}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={joinS.joinContainer}>
+          <Animated.View entering={FadeIn} style={joinS.joinCard}>
+            <View style={joinS.joinBadge}>
               <Users size={14} color="#FF9933" />
-              <Text style={s.joinBadgeText}>Group order</Text>
+              <Text style={joinS.joinBadgeText}>Group order</Text>
             </View>
-            <Text style={s.joinTitle}>Join at {restaurant?.name ?? 'this restaurant'}</Text>
-            <Text style={s.joinSubtitle}>Your name shows up on the order so everyone knows who added what.</Text>
+            <Text style={joinS.joinTitle}>Join at {restaurant?.name ?? 'this restaurant'}</Text>
+            <Text style={joinS.joinSubtitle}>Your name shows up on the order so everyone knows who added what.</Text>
             <TextInput
               placeholder="Your name"
-              placeholderTextColor="#71717A"
-              style={s.nameInput}
+              placeholderTextColor={colors.textMuted}
+              style={joinS.nameInput}
               value={nameInput}
               onChangeText={setNameInput}
               autoFocus={!hasPrefill}
@@ -617,15 +782,15 @@ export default function JoinPartyScreen() {
               returnKeyType="go"
               onSubmitEditing={handleJoin}
             />
-            <Pressable onPress={handleJoin} disabled={joining} style={[s.primaryBtn, joining && { opacity: 0.6 }]}>
+            <Pressable onPress={handleJoin} disabled={joining} style={[joinS.primaryBtn, joining && { opacity: 0.6 }]}>
               {joining ? (
-                <ActivityIndicator color="#0f0f0f" />
+                <ActivityIndicator color="#ffffff" />
               ) : (
-                <Text style={s.primaryBtnText}>{hasPrefill ? `Continue as ${nameInput.trim()}` : 'Join'}</Text>
+                <Text style={joinS.primaryBtnText}>{hasPrefill ? `Continue as ${nameInput.trim()}` : 'Join'}</Text>
               )}
             </Pressable>
-            <Pressable onPress={() => { hapticTap(); router.back(); }} style={s.joinNotNowBtn}>
-              <Text style={s.joinNotNowText}>Not now</Text>
+            <Pressable onPress={() => { hapticTap(); router.back(); }} style={joinS.joinNotNowBtn}>
+              <Text style={joinS.joinNotNowText}>Not now</Text>
             </Pressable>
           </Animated.View>
         </KeyboardAvoidingView>
@@ -635,7 +800,7 @@ export default function JoinPartyScreen() {
 
   // ── Success stage ───────────────────────────────────────────────────────
   if (view === 'success' && (session.status === 'submitted' || session.status === 'completed')) {
-    return (
+    return wrapJoin(
       <SuccessScreen
         snapshot={snapshot!}
         restaurant={restaurant}
@@ -652,22 +817,22 @@ export default function JoinPartyScreen() {
 
   // ── Pay & Wait stage ────────────────────────────────────────────────────
   if (view === 'pay' && (session.status === 'locked' || session.status === 'paying')) {
-    return (
+    return wrapJoin(
       <>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={s.container}>
+        <View style={joinS.container}>
           <TopBar
             title={restaurant?.name ?? 'Group order'}
             subtitle={session.status === 'paying' ? 'Collecting payments' : 'Ready to pay'}
             onBack={() => router.back()}
           />
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
-            <Animated.View entering={FadeInDown} style={s.headerCard}>
-              <Text style={s.summaryLabel}>Group total</Text>
-              <Text style={s.summaryValue}>{formatCents(session.total_cents)}</Text>
+            <Animated.View entering={FadeInDown} style={joinS.headerCard}>
+              <Text style={joinS.summaryLabel}>Group total</Text>
+              <Text style={joinS.summaryValue}>{formatCents(session.total_cents)}</Text>
               <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Lock size={12} color="#A1A1AA" />
-                <Text style={s.summaryMeta}>{members.length} {members.length === 1 ? 'member' : 'members'} · {items.length} {items.length === 1 ? 'item' : 'items'}</Text>
+                <Lock size={12} color={colors.textMuted} />
+                <Text style={joinS.summaryMeta}>{members.length} {members.length === 1 ? 'member' : 'members'} · {items.length} {items.length === 1 ? 'item' : 'items'}</Text>
               </View>
             </Animated.View>
 
@@ -687,23 +852,23 @@ export default function JoinPartyScreen() {
             </View>
 
             {myPayment && myPayment.amount_cents > 0 && myPayment.status !== 'paid' && myPayment.status !== 'covered' ? (
-              <Animated.View entering={FadeInDown.delay(150)} style={s.payCta}>
-                <Text style={s.payCtaLabel}>Your share</Text>
-                <Text style={s.payCtaAmount}>{formatCents(myPayment.amount_cents)}</Text>
-                <Pressable onPress={handlePayMyShare} disabled={busy} style={[s.primaryBtn, { marginTop: 8 }, busy && { opacity: 0.6 }]}>
-                  {busy ? <ActivityIndicator color="#0f0f0f" /> : (
+              <Animated.View entering={FadeInDown.delay(150)} style={joinS.payCta}>
+                <Text style={joinS.payCtaLabel}>Your share</Text>
+                <Text style={joinS.payCtaAmount}>{formatCents(myPayment.amount_cents)}</Text>
+                <Pressable onPress={handlePayMyShare} disabled={busy} style={[joinS.primaryBtn, { marginTop: 8 }, busy && { opacity: 0.6 }]}>
+                  {busy ? <ActivityIndicator color="#ffffff" /> : (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <CreditCard size={18} color="#0f0f0f" />
-                      <Text style={s.primaryBtnText}>Pay now</Text>
+                      <CreditCard size={18} color="#ffffff" />
+                      <Text style={joinS.primaryBtnText}>Pay now</Text>
                     </View>
                   )}
                 </Pressable>
               </Animated.View>
             ) : myPayment && (myPayment.status === 'paid' || myPayment.status === 'covered') ? (
-              <Animated.View entering={FadeInDown.delay(150)} style={[s.payCta, { borderColor: 'rgba(34,197,94,0.35)' }]}>
+              <Animated.View entering={FadeInDown.delay(150)} style={[joinS.payCta, { borderColor: 'rgba(34,197,94,0.35)' }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Check size={18} color="#22C55E" />
-                  <Text style={[s.payCtaLabel, { color: '#22C55E' }]}>Your share is paid</Text>
+                  <Text style={[joinS.payCtaLabel, { color: '#22C55E' }]}>Your share is paid</Text>
                 </View>
               </Animated.View>
             ) : null}
@@ -711,14 +876,14 @@ export default function JoinPartyScreen() {
             {isHost ? (
               <View style={{ marginTop: 20, gap: 8 }}>
                 {session.status === 'locked' && !payments.some((p) => p.status === 'paid' || p.status === 'covered') ? (
-                  <Pressable onPress={handleUnlock} disabled={busy} style={s.secondaryBtn}>
-                    <Unlock size={16} color="#A1A1AA" />
-                    <Text style={s.secondaryBtnText}>Back to editing</Text>
+                  <Pressable onPress={handleUnlock} disabled={busy} style={joinS.secondaryBtn}>
+                    <Unlock size={16} color={colors.textMuted} />
+                    <Text style={joinS.secondaryBtnText}>Back to editing</Text>
                   </Pressable>
                 ) : null}
-                <Pressable onPress={() => { hapticTap(); setShowCancelConfirm(true); }} disabled={busy} style={s.dangerBtn}>
+                <Pressable onPress={() => { hapticTap(); setShowCancelConfirm(true); }} disabled={busy} style={joinS.dangerBtn}>
                   <X size={16} color="#EF4444" />
-                  <Text style={s.dangerBtnText}>Cancel group order</Text>
+                  <Text style={joinS.dangerBtnText}>Cancel group order</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -741,7 +906,7 @@ export default function JoinPartyScreen() {
 
   // ── Review & Split stage (host-only overlay on top of browse) ───────────
   if (view === 'review' && session.status === 'open') {
-    return (
+    return wrapJoin(
       <ReviewStage
         snapshot={snapshot!}
         restaurant={restaurant}
@@ -763,10 +928,10 @@ export default function JoinPartyScreen() {
   }
 
   // ── Browse & Add stage (default) ────────────────────────────────────────
-  return (
+  return wrapJoin(
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={s.container}>
+      <View style={joinS.container}>
         <TopBar
           title={restaurant?.name ?? 'Group order'}
           subtitle={`${members.length} member${members.length === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`}
@@ -776,7 +941,7 @@ export default function JoinPartyScreen() {
         />
 
         {/* Members strip — tap a member to see what they've ordered */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.membersStrip} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 6, gap: 10, alignItems: 'center' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={joinS.membersStrip} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 6, gap: 10, alignItems: 'center' }}>
           {members.map((m, idx) => (
             <MemberChip
               key={m.id}
@@ -790,12 +955,12 @@ export default function JoinPartyScreen() {
         </ScrollView>
 
         {/* Search bar */}
-        <View style={s.searchBar}>
-          <Search size={16} color="#71717A" />
+        <View style={joinS.searchBar}>
+          <Search size={16} color={colors.textMuted} />
           <TextInput
             placeholder="Search menu"
-            placeholderTextColor="#71717A"
-            style={s.searchInput}
+            placeholderTextColor={colors.textMuted}
+            style={joinS.searchInput}
             value={search}
             onChangeText={setSearch}
           />
@@ -823,9 +988,9 @@ export default function JoinPartyScreen() {
           )}
           ListEmptyComponent={
             <View style={{ alignItems: 'center', paddingVertical: 56, gap: 6 }}>
-              <Search size={24} color="#3F3F46" />
-              <Text style={{ color: '#A1A1AA', fontWeight: '600', fontSize: 13 }}>Nothing matches that filter.</Text>
-              <Text style={{ color: '#52525B', fontSize: 11 }}>Try clearing the search or category.</Text>
+              <Search size={24} color={colors.iconMuted} />
+              <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 13 }}>Nothing matches that filter.</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 11 }}>Try clearing the search or category.</Text>
             </View>
           }
         />
@@ -867,6 +1032,8 @@ export default function JoinPartyScreen() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TopBar({ title, subtitle, onBack, rightIcon, onRight }: { title: string; subtitle?: string; onBack?: () => void; rightIcon?: 'share' | 'close'; onRight?: () => void }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   return (
     <View style={s.topBar}>
       <Pressable
@@ -876,7 +1043,7 @@ function TopBar({ title, subtitle, onBack, rightIcon, onRight }: { title: string
         }}
         hitSlop={12}
       >
-        <ArrowLeft size={22} color="#F4F4F5" />
+        <ArrowLeft size={22} color={colors.text} />
       </Pressable>
       <View style={{ flex: 1, marginLeft: 8 }}>
         <Text style={s.topTitle} numberOfLines={1}>{title}</Text>
@@ -890,7 +1057,7 @@ function TopBar({ title, subtitle, onBack, rightIcon, onRight }: { title: string
           }}
           hitSlop={12}
         >
-          <Share2 size={20} color="#F4F4F5" />
+          <Share2 size={20} color={colors.text} />
         </Pressable>
       ) : null}
     </View>
@@ -902,6 +1069,8 @@ function MemberChip({
 }: {
   member: PartyMember; index: number; isSelf: boolean; itemCount?: number; onPress?: () => void;
 }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   const color = colorForMember(member.id, []);
   const fallback = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'][index % 8];
   return (
@@ -909,7 +1078,7 @@ function MemberChip({
       if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onPress?.();
     }} style={[s.memberChip, isSelf && { borderColor: '#FF9933' }]}>
-      <View style={[s.avatarSm, { backgroundColor: member.avatar_url ? '#1f1f1f' : color || fallback, overflow: 'hidden' }]}>
+      <View style={[s.avatarSm, { backgroundColor: member.avatar_url ? colors.pressableBg : color || fallback, overflow: 'hidden' }]}>
         {member.avatar_url ? (
           <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
         ) : (
@@ -930,6 +1099,7 @@ function MemberChip({
 }
 
 function CategoryChips({ tags, active, onChange }: { tags: MenuTagConfig[]; active: string | null; onChange: (v: string | null) => void }) {
+  const s = useJoinS();
   const enabledTags = tags.filter((t) => t.enabled);
   if (enabledTags.length === 0) return null;
   return (
@@ -967,14 +1137,16 @@ function CategoryChips({ tags, active, onChange }: { tags: MenuTagConfig[]; acti
 }
 
 function MenuRow({ item, inCartCount, onAdd, onOpenDetails }: { item: MenuItem; inCartCount: number; onAdd: () => void; onOpenDetails: () => void }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   return (
     <Animated.View entering={FadeInDown} style={s.menuRow}>
       <Pressable onPress={onOpenDetails} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         {item.image_url ? (
           <Image source={{ uri: item.image_url }} style={s.menuImg} />
         ) : (
-          <View style={[s.menuImg, { backgroundColor: '#27272A', alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: '#52525B' }}>—</Text>
+          <View style={[s.menuImg, { backgroundColor: colors.pressableBg, alignItems: 'center', justifyContent: 'center' }]}>
+            <Text style={{ color: colors.textMuted }}>—</Text>
           </View>
         )}
         <View style={{ flex: 1 }}>
@@ -988,7 +1160,7 @@ function MenuRow({ item, inCartCount, onAdd, onOpenDetails }: { item: MenuItem; 
         </View>
       </Pressable>
       <Pressable onPress={onAdd} style={s.addBtn}>
-        <Plus size={16} color="#0f0f0f" strokeWidth={3} />
+        <Plus size={16} color="#ffffff" strokeWidth={3} />
         {inCartCount > 0 ? <Text style={s.addBtnCount}>{inCartCount}</Text> : null}
       </Pressable>
     </Animated.View>
@@ -1006,6 +1178,8 @@ function MenuItemDetailsModal({
   onAdd: () => void;
   menuTags: MenuTagConfig[];
 }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   if (!item) return null;
   const tags = normalizeMenuItemTags(item.meal_times ?? [], menuTags.filter((t) => t.enabled));
   const tagMap = new Map(menuTags.map((t) => [t.key, t]));
@@ -1017,14 +1191,14 @@ function MenuItemDetailsModal({
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Text style={s.itemDetailsTitle}>Item details</Text>
             <Pressable onPress={onClose} style={s.memberSheetClose}>
-              <X size={18} color="#A1A1AA" />
+              <X size={18} color={colors.iconMuted} />
             </Pressable>
           </View>
           {item.image_url ? (
             <Image source={{ uri: item.image_url }} style={s.itemDetailsImage} />
           ) : (
-            <View style={[s.itemDetailsImage, { backgroundColor: '#232326', alignItems: 'center', justifyContent: 'center' }]}>
-              <Text style={{ color: '#52525B' }}>No image</Text>
+            <View style={[s.itemDetailsImage, { backgroundColor: colors.pressableBg, alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={{ color: colors.textMuted }}>No image</Text>
             </View>
           )}
           <Text style={s.itemDetailsName}>{item.name}</Text>
@@ -1063,6 +1237,8 @@ function CartSummary(props: {
   onChangeQty: (item: PartyItem, delta: number) => void;
   onLeave: () => void;
 }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
   const total = totalCartCents(props.items);
   const confirmRemove = useCallback((it: PartyItem) => {
@@ -1091,12 +1267,12 @@ function CartSummary(props: {
           <Text style={s.cartTitle}>{props.items.length} item{props.items.length === 1 ? '' : 's'}</Text>
           <Text style={s.cartTotal}>{formatCents(total)}</Text>
         </View>
-        <ChevronRight size={18} color="#A1A1AA" style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
+        <ChevronRight size={18} color={colors.iconMuted} style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
       </Pressable>
       {open ? (
         <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 10 }}>
           {props.items.length === 0 ? (
-            <Text style={{ color: '#71717A', paddingVertical: 14 }}>No items yet. Add something from the menu above.</Text>
+            <Text style={{ color: colors.textMuted, paddingVertical: 14 }}>No items yet. Add something from the menu above.</Text>
           ) : (
             props.items.map((it) => (
               <CartRow
@@ -1142,8 +1318,8 @@ function CartSummary(props: {
             </Pressable>
           );
         })() : (
-          <View style={[s.primaryBtn, { flex: 2, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
-            <Text style={[s.primaryBtnText, { color: '#A1A1AA' }]}>Waiting on host…</Text>
+          <View style={[s.primaryBtn, { flex: 2, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }]}>
+            <Text style={[s.primaryBtnText, { color: colors.textMuted }]}>Waiting on host…</Text>
           </View>
         )}
       </View>
@@ -1155,13 +1331,15 @@ function CartRow({ item, members, canEdit, onRemove, onChangeQty }: {
   item: PartyItem; members: PartyMember[]; canEdit: boolean;
   onRemove: () => void; onChangeQty: (delta: number) => void;
 }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   const owner = memberById(members, item.added_by_member_id);
   return (
     <View style={s.cartRow}>
       <View style={{ flex: 1 }}>
         <Text style={s.cartItemName} numberOfLines={1}>{item.menu_item?.name ?? 'Item'}</Text>
         <Text style={s.cartItemMeta} numberOfLines={1}>
-          added by <Text style={{ color: '#F4F4F5' }}>{owner?.display_name ?? item.added_by_name ?? 'Guest'}</Text>
+          added by <Text style={{ color: colors.text }}>{owner?.display_name ?? item.added_by_name ?? 'Guest'}</Text>
           {item.quantity > 1 ? ` · x${item.quantity}` : ''}
         </Text>
       </View>
@@ -1174,7 +1352,7 @@ function CartRow({ item, members, canEdit, onRemove, onChangeQty }: {
             }}
             style={s.qtyBtn}
           >
-            <Minus size={14} color="#F4F4F5" />
+            <Minus size={14} color={colors.text} />
           </Pressable>
           <Text style={s.qtyText}>{item.quantity}</Text>
           <Pressable
@@ -1184,7 +1362,7 @@ function CartRow({ item, members, canEdit, onRemove, onChangeQty }: {
             }}
             style={s.qtyBtn}
           >
-            <Plus size={14} color="#F4F4F5" />
+            <Plus size={14} color={colors.text} />
           </Pressable>
           <Pressable
             onPress={() => {
@@ -1193,11 +1371,11 @@ function CartRow({ item, members, canEdit, onRemove, onChangeQty }: {
             }}
             style={s.qtyTrashBtn}
           >
-            <Trash2 size={14} color="#fca5a5" />
+            <Trash2 size={14} color="#dc2626" />
           </Pressable>
         </View>
       ) : (
-        <Text style={{ color: '#A1A1AA', fontSize: 12 }}>x{item.quantity}</Text>
+        <Text style={{ color: colors.textMuted, fontSize: 12 }}>x{item.quantity}</Text>
       )}
     </View>
   );
@@ -1212,6 +1390,8 @@ function ReviewStage({
   onSetMode: (mode: PaymentMode) => Promise<void>;
   onLock: () => Promise<void>; busy: boolean;
 }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   const modeFromSnapshot = (snapshot.session.payment_mode === 'split' ? 'per_person'
     : snapshot.session.payment_mode === 'assign' ? 'assigned'
     : snapshot.session.payment_mode) as PaymentMode;
@@ -1270,7 +1450,7 @@ function ReviewStage({
           {mode === 'per_person' ? (
             <>
               <Text style={[s.sectionLabel, { marginTop: 22 }]}>Fine-tune who pays for what</Text>
-              <Text style={{ color: '#71717A', fontSize: 12, marginBottom: 10 }}>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 10 }}>
                 By default each person pays for the items they added. Tap names below to share an item between multiple people.
               </Text>
               {snapshot.items.map((it) => (
@@ -1282,9 +1462,9 @@ function ReviewStage({
 
         <View style={s.bottomBar}>
           <Pressable onPress={onLock} disabled={busy} style={[s.primaryBtn, { flex: 1 }, busy && { opacity: 0.6 }]}>
-            {busy ? <ActivityIndicator color="#0f0f0f" /> : (
+            {busy ? <ActivityIndicator color="#ffffff" /> : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Lock size={16} color="#0f0f0f" />
+                <Lock size={16} color="#ffffff" />
                 <Text style={s.primaryBtnText}>Lock cart &amp; start collecting</Text>
               </View>
             )}
@@ -1296,6 +1476,7 @@ function ReviewStage({
 }
 
 function AssignItemRow({ item, members, onAssign }: { item: PartyItem; members: PartyMember[]; onAssign: (payerId: string) => Promise<void> }) {
+  const s = useJoinS();
   const serverCurrentId = (memberById(members, item.assigned_payer_id) ?? memberById(members, item.added_by_member_id))?.id ?? null;
   // Optimistic selection so the tapped chip highlights immediately. Clears
   // once the realtime snapshot catches up with the pending value.
@@ -1323,7 +1504,7 @@ function AssignItemRow({ item, members, onAssign }: { item: PartyItem; members: 
             }}
             style={[s.assignPill, currentId === m.id && s.assignPillActive]}
           >
-            <Text style={[s.assignPillText, currentId === m.id && { color: '#0f0f0f' }]} numberOfLines={1}>
+            <Text style={[s.assignPillText, currentId === m.id && s.assignPillTextActive]} numberOfLines={1}>
               {m.display_name.split(' ')[0]}
             </Text>
           </Pressable>
@@ -1334,6 +1515,7 @@ function AssignItemRow({ item, members, onAssign }: { item: PartyItem; members: 
 }
 
 function SplitItemRow({ item, members, onSetSplit }: { item: PartyItem; members: PartyMember[]; onSetSplit: (ids: string[]) => Promise<void> }) {
+  const s = useJoinS();
   const serverIds = useMemo(() => item.split_member_ids ?? [], [item.split_member_ids]);
   // Optimistic overlay so tapping a chip flips it instantly; the overlay is
   // cleared once the server snapshot matches.
@@ -1366,7 +1548,7 @@ function SplitItemRow({ item, members, onSetSplit }: { item: PartyItem; members:
           const selected = currentIds.includes(m.id);
           return (
             <Pressable key={m.id} onPress={() => toggleId(m.id)} style={[s.assignPill, selected && s.assignPillActive]}>
-              <Text style={[s.assignPillText, selected && { color: '#0f0f0f' }]} numberOfLines={1}>
+              <Text style={[s.assignPillText, selected && s.assignPillTextActive]} numberOfLines={1}>
                 {m.display_name.split(' ')[0]}
               </Text>
             </Pressable>
@@ -1378,6 +1560,7 @@ function SplitItemRow({ item, members, onSetSplit }: { item: PartyItem; members:
 }
 
 function CancelSheet({ visible, onCancel, onConfirm, busy }: { visible: boolean; onCancel: () => void; onConfirm: () => void; busy: boolean }) {
+  const s = useJoinS();
   if (!visible) return null;
   const tap = () => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1408,6 +1591,8 @@ function MemberItemsSheet({
   isSelf: boolean;
   onClose: () => void;
 }) {
+  const s = useJoinS();
+  const { colors } = useAppTheme();
   if (!visible || !member) return null;
   const color = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'][memberIndex % 8];
   const totalCents = items.reduce((sum, it) => {
@@ -1420,7 +1605,7 @@ function MemberItemsSheet({
       <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
       <Animated.View entering={FadeInDown.duration(180)} style={s.memberSheet}>
         <View style={s.memberSheetHeader}>
-          <View style={[s.avatarMd, { backgroundColor: member.avatar_url ? '#1f1f1f' : color, overflow: 'hidden' }]}>
+          <View style={[s.avatarMd, { backgroundColor: member.avatar_url ? colors.pressableBg : color, overflow: 'hidden' }]}>
             {member.avatar_url ? (
               <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
             ) : (
@@ -1439,14 +1624,14 @@ function MemberItemsSheet({
             </Text>
           </View>
           <Pressable onPress={onClose} hitSlop={12} style={s.memberSheetClose}>
-            <X size={18} color="#A1A1AA" />
+            <X size={18} color={colors.iconMuted} />
           </Pressable>
         </View>
 
         {items.length === 0 ? (
           <View style={{ paddingVertical: 28, alignItems: 'center' }}>
-            <ShoppingCart size={22} color="#3F3F46" />
-            <Text style={{ color: '#71717A', marginTop: 8, fontSize: 13 }}>
+            <ShoppingCart size={22} color={colors.iconMuted} />
+            <Text style={{ color: colors.textMuted, marginTop: 8, fontSize: 13 }}>
               {isSelf ? "You haven't added anything yet." : `${member.display_name.split(' ')[0]} hasn't added anything yet.`}
             </Text>
           </View>
@@ -1476,6 +1661,7 @@ function MemberItemsSheet({
 }
 
 function PulseRing() {
+  const s = useJoinS();
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.8);
   useEffect(() => {
@@ -1493,6 +1679,7 @@ function PulseRing() {
 }
 
 function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: PartySnapshot; restaurant: Restaurant | null; creds: PartyCreds; onDone: () => void }) {
+  const s = useJoinS();
   const me = snapshot.members.find((m) => m.id === creds.memberId);
   const myPayment = paymentForMember(snapshot.payments, creds.memberId);
   return (
@@ -1557,139 +1744,3 @@ function cartCountFor(items: PartyItem[], menuItemId: number): number {
   return items.filter((i) => i.menu_item_id === menuItemId).reduce((sum, i) => sum + (i.quantity ?? 1), 0);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Styles
-// ─────────────────────────────────────────────────────────────────────────────
-
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
-  centered: { flex: 1, backgroundColor: '#0f0f0f', alignItems: 'center', justifyContent: 'center', padding: 20, gap: 12 },
-  errorText: { color: '#A1A1AA', textAlign: 'center' },
-  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#FF9933' },
-  retryBtnText: { color: '#0f0f0f', fontWeight: '700' },
-
-  joinContainer: { flex: 1, backgroundColor: '#0f0f0f', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  joinCard: { width: '100%', maxWidth: 420, backgroundColor: '#151515', borderRadius: 24, padding: 26, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  joinBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.12)', marginBottom: 12 },
-  joinBadgeText: { color: '#FF9933', fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
-  joinTitle: { color: '#F4F4F5', fontSize: 26, fontWeight: '900', lineHeight: 32 },
-  joinSubtitle: { color: '#A1A1AA', marginTop: 8, fontSize: 14, lineHeight: 20 },
-  nameInput: { marginTop: 18, backgroundColor: '#0f0f0f', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, color: '#F4F4F5', fontSize: 16 },
-  joinNotNowBtn: { marginTop: 10, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(161,161,170,0.35)', backgroundColor: '#1a1a1a' },
-  joinNotNowText: { color: '#A1A1AA', fontWeight: '700' },
-
-  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 54, paddingBottom: 12, gap: 8 },
-  topTitle: { color: '#F4F4F5', fontFamily: 'BricolageGrotesque_700Bold', fontSize: 18 },
-  topSubtitle: { color: '#A1A1AA', fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 },
-
-  // Horizontal ScrollViews don't know their intrinsic height, so without
-  // an explicit cap they greedily fill the column — which is what was
-  // pushing the search bar / category chips way down the screen.
-  membersStrip: { marginTop: 6, marginBottom: 6, height: 56, flexGrow: 0, flexShrink: 0 },
-  memberChip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  memberChipText: { color: '#F4F4F5', fontSize: 13, lineHeight: 18, fontWeight: '600', maxWidth: 165 },
-  memberChipCount: { marginLeft: 2, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(255,153,51,0.15)', minWidth: 18, alignItems: 'center' },
-  memberChipCountText: { color: '#FF9933', fontSize: 10, fontWeight: '800' },
-  avatarSm: { width: 27, height: 27, borderRadius: 13.5, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  avatarSmText: { color: '#0f0f0f', fontWeight: '800', fontSize: 11 },
-  avatarMd: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  avatarMdText: { color: '#0f0f0f', fontWeight: '900', fontSize: 15 },
-  crownBadge: { position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#151515' },
-
-  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 4, backgroundColor: '#151515', borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  searchInput: { flex: 1, color: '#F4F4F5', paddingVertical: Platform.OS === 'ios' ? 12 : 8 },
-
-  catChip: { minHeight: 38, paddingHorizontal: 15, borderRadius: 999, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
-  catChipActive: { backgroundColor: '#FF9933', borderColor: '#FF9933' },
-  catChipText: { color: '#A1A1AA', fontSize: 13, fontWeight: '600', lineHeight: 16 },
-  catChipTextActive: { color: '#0f0f0f' },
-
-  menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: '#151515', borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
-  menuImg: { width: 56, height: 56, borderRadius: 10 },
-  menuName: { color: '#F4F4F5', fontWeight: '700', fontSize: 14, flex: 1 },
-  menuDesc: { color: '#71717A', fontSize: 12, marginTop: 2 },
-  menuPrice: { color: '#FF9933', fontWeight: '800', fontSize: 13, marginTop: 4 },
-  addBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FF9933', alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  addBtnCount: { position: 'absolute', top: -6, right: -6, backgroundColor: '#0f0f0f', color: '#FF9933', fontSize: 10, paddingHorizontal: 5, borderRadius: 10, overflow: 'hidden', fontWeight: '800', borderWidth: 1, borderColor: '#FF9933' },
-
-  cartContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: 20, backgroundColor: '#151515', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  cartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
-  cartTitle: { color: '#F4F4F5', fontWeight: '700' },
-  cartTotal: { color: '#FF9933', fontWeight: '800', marginLeft: 'auto' },
-  cartRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
-  cartItemName: { color: '#F4F4F5', fontWeight: '700', fontSize: 13 },
-  cartItemMeta: { color: '#71717A', fontSize: 11 },
-  qtyBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#27272A', alignItems: 'center', justifyContent: 'center' },
-  qtyTrashBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)', alignItems: 'center', justifyContent: 'center' },
-  qtyText: { color: '#F4F4F5', fontWeight: '700', width: 22, textAlign: 'center' },
-
-  primaryBtn: { backgroundColor: '#FF9933', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  primaryBtnText: { color: '#0f0f0f', fontWeight: '800', fontSize: 15 },
-  secondaryBtn: { backgroundColor: '#151515', paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  secondaryBtnText: { color: '#A1A1AA', fontWeight: '700' },
-  dangerBtn: { backgroundColor: 'rgba(239,68,68,0.08)', paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)' },
-  dangerBtnText: { color: '#EF4444', fontWeight: '700' },
-  dangerBtnSolid: { backgroundColor: '#EF4444', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
-  dangerBtnSolidText: { color: '#FFF', fontWeight: '800' },
-  textBtn: { paddingVertical: 12, alignItems: 'center' },
-  textBtnText: { color: '#71717A' },
-
-  headerCard: { backgroundColor: '#151515', borderRadius: 16, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  summaryLabel: { color: '#71717A', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
-  summaryValue: { color: '#F4F4F5', fontSize: 32, fontWeight: '900', marginTop: 4 },
-  summaryMeta: { color: '#71717A', fontSize: 12, marginTop: 4 },
-
-  sectionLabel: { color: '#F4F4F5', fontWeight: '800', fontSize: 15, marginTop: 22, marginBottom: 10 },
-
-  modeCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 14, backgroundColor: '#151515', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  modeCardActive: { borderColor: '#FF9933', backgroundColor: 'rgba(255,153,51,0.08)' },
-  modeTitle: { color: '#F4F4F5', fontWeight: '800', fontSize: 14 },
-  modeSubtitle: { color: '#71717A', fontSize: 12, marginTop: 2 },
-
-  assignRow: { backgroundColor: '#151515', borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
-  assignName: { color: '#F4F4F5', fontWeight: '700', marginBottom: 8 },
-  assignPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#27272A', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', maxWidth: 120 },
-  assignPillActive: { backgroundColor: '#FF9933', borderColor: '#FF9933' },
-  assignPillText: { color: '#A1A1AA', fontSize: 12, fontWeight: '700' },
-
-  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 14, paddingHorizontal: 14, paddingBottom: 40, backgroundColor: '#0f0f0f', borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-
-  payCta: { marginTop: 16, backgroundColor: '#151515', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,153,51,0.35)' },
-  payCtaLabel: { color: '#A1A1AA', fontWeight: '700' },
-  payCtaAmount: { color: '#FF9933', fontSize: 24, fontWeight: '900', marginTop: 2 },
-
-  sheetBackdrop: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#151515', padding: 20, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
-  cancelSheet: { backgroundColor: '#151515', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
-  neverMindBtn: { marginTop: 10, backgroundColor: '#262626', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, alignItems: 'center', alignSelf: 'center', borderWidth: 1, borderColor: '#2f2f2f' },
-  neverMindBtnText: { color: '#D4D4D8', fontWeight: '800', fontSize: 13 },
-  sheetTitle: { color: '#F4F4F5', fontSize: 18, fontWeight: '800' },
-  sheetBody: { color: '#A1A1AA', marginTop: 8 },
-
-  memberSheet: { backgroundColor: '#151515', padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 32, borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  memberSheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
-  memberSheetTitle: { color: '#F4F4F5', fontSize: 16, fontWeight: '800' },
-  memberSheetSubtitle: { color: '#A1A1AA', fontSize: 12, marginTop: 2, fontWeight: '600' },
-  memberSheetClose: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.04)' },
-  memberSheetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
-  memberSheetItemName: { color: '#F4F4F5', fontSize: 14, fontWeight: '700' },
-  memberSheetNote: { color: '#71717A', fontSize: 12, marginTop: 2 },
-  memberSheetPrice: { color: '#FF9933', fontSize: 14, fontWeight: '800' },
-
-  successBadgeWrapper: { width: 72, height: 72, marginBottom: 14, alignItems: 'center', justifyContent: 'center' },
-  successBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,153,51,0.12)', alignItems: 'center', justifyContent: 'center' },
-  cancelledBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(239,68,68,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  pulseRing: { position: 'absolute', width: 72, height: 72, borderRadius: 36, borderWidth: 2, borderColor: 'rgba(255,153,51,0.6)' },
-  successTitle: { color: '#F4F4F5', fontWeight: '900', fontSize: 24 },
-  successSubtitle: { color: '#A1A1AA', textAlign: 'center', marginTop: 6 },
-  receiptCard: { marginTop: 16, backgroundColor: '#151515', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  receiptLabel: { color: '#71717A', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
-  receiptName: { color: '#F4F4F5', fontSize: 18, fontWeight: '800', marginTop: 4 },
-  receiptAmount: { color: '#FF9933', fontWeight: '800', marginTop: 4 },
-  itemDetailsSheet: { backgroundColor: '#151515', padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  itemDetailsTitle: { color: '#F4F4F5', fontWeight: '800', fontSize: 18 },
-  itemDetailsImage: { width: '100%', height: 180, borderRadius: 14, backgroundColor: '#27272A' },
-  itemDetailsName: { color: '#F4F4F5', fontWeight: '800', fontSize: 20, marginTop: 12 },
-  itemDetailsDesc: { color: '#A1A1AA', fontSize: 13, marginTop: 6, lineHeight: 19 },
-  itemDetailsPrice: { color: '#FF9933', fontSize: 24, fontWeight: '900' },
-});

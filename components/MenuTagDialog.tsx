@@ -6,6 +6,7 @@
 // previously baked into `MenuEditor`). Keep in sync with the web dialog's
 // affordances — shared props: name, color swatch, position, enabled.
 import React, { useEffect, useMemo, useState } from "react";
+import { useAppTheme } from "@/lib/app-theme";
 import {
   View,
   Text,
@@ -47,6 +48,7 @@ export interface MenuTagDialogProps {
 export function MenuTagDialog({
   visible, mode, tags, editingTag, onClose, onSubmit,
 }: MenuTagDialogProps) {
+  const { colors, isDark } = useAppTheme();
   const [label, setLabel] = useState("");
   const [colorIdx, setColorIdx] = useState(0);
   const [position, setPosition] = useState(1);
@@ -82,6 +84,22 @@ export function MenuTagDialog({
   const maxPos = mode === "create" ? tags.length + 1 : Math.max(tags.length, 1);
 
   const positionLabel = useMemo(() => `${minPos}–${maxPos}`, [minPos, maxPos]);
+
+  const labelStyle = useMemo(
+    () => [styles.label, { color: colors.textMuted }],
+    [colors.textMuted],
+  );
+  const inputStyle = useMemo(
+    () => [
+      styles.input,
+      {
+        backgroundColor: isDark ? "#0f0f0f" : colors.pressableBg,
+        color: colors.text,
+        borderColor: colors.cardBorder,
+      },
+    ],
+    [isDark, colors.pressableBg, colors.text, colors.cardBorder],
+  );
 
   const handleSubmit = async () => {
     const trimmed = label.trim();
@@ -156,41 +174,41 @@ export function MenuTagDialog({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => { if (!busy) onClose(); }}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "center", alignItems: "center", padding: 20 }}>
+        <View style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: 20 }}>
           <Pressable style={{ position: "absolute", inset: 0 }} onPress={() => { if (!busy) onClose(); }} />
           <View
             style={{
               width: "100%",
               maxWidth: 420,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: isDark ? "#1a1a1a" : colors.card,
               borderRadius: 20,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               padding: 20,
               maxHeight: "90%",
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>
+              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 18 }}>
                 {mode === "create" ? "Add Menu Tag" : "Edit Menu Tag"}
               </Text>
               <Pressable onPress={() => { if (!busy) onClose(); }} hitSlop={8} style={{ padding: 4 }}>
-                <X size={20} color="#999" />
+                <X size={20} color={colors.textMuted} />
               </Pressable>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.label}>Name</Text>
+              <Text style={labelStyle}>Name</Text>
               <TextInput
                 value={label}
                 onChangeText={(v) => { setLabel(v); if (error) setError(null); }}
                 placeholder="e.g. Gluten-Free"
-                placeholderTextColor="#666"
-                style={styles.input}
+                placeholderTextColor={colors.textMuted}
+                style={inputStyle}
                 autoFocus={mode === "create"}
               />
 
-              <Text style={styles.label}>Color</Text>
+              <Text style={labelStyle}>Color</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                 {TAG_COLOR_PRESETS.map((preset, idx) => (
                   <Pressable
@@ -205,13 +223,13 @@ export function MenuTagDialog({
                       borderRadius: 999,
                       backgroundColor: preset.color,
                       borderWidth: 2,
-                      borderColor: colorIdx === idx ? "#f5f5f5" : "#222",
+                      borderColor: colorIdx === idx ? colors.text : colors.cardBorder,
                     }}
                   />
                 ))}
               </View>
 
-              <Text style={styles.label}>Position ({positionLabel})</Text>
+              <Text style={labelStyle}>Position ({positionLabel})</Text>
               <TextInput
                 value={String(position)}
                 onChangeText={(v) => {
@@ -220,8 +238,8 @@ export function MenuTagDialog({
                 }}
                 keyboardType="number-pad"
                 placeholder={positionLabel}
-                placeholderTextColor="#666"
-                style={styles.input}
+                placeholderTextColor={colors.textMuted}
+                style={inputStyle}
               />
 
               {tags.length > 0 && (
@@ -230,8 +248,8 @@ export function MenuTagDialog({
                     marginTop: 4,
                     marginBottom: 12,
                     borderWidth: 1,
-                    borderColor: "#242424",
-                    backgroundColor: "#0d0d0d",
+                    borderColor: isDark ? "#242424" : colors.cardBorder,
+                    backgroundColor: isDark ? "#0d0d0d" : colors.backgroundElevated,
                     borderRadius: 10,
                     padding: 10,
                     maxHeight: 140,
@@ -240,7 +258,7 @@ export function MenuTagDialog({
                   <ScrollView>
                     {tags.map((t, i) => (
                       <View key={t.key} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 3 }}>
-                        <Text style={{ width: 22, color: "#666", fontFamily: "Manrope_600SemiBold", fontSize: 11, fontVariant: ["tabular-nums"] }}>
+                        <Text style={{ width: 22, color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 11, fontVariant: ["tabular-nums"] }}>
                           {i + 1}.
                         </Text>
                         <Text
@@ -250,7 +268,7 @@ export function MenuTagDialog({
                           {t.label}
                         </Text>
                         {mode === "edit" && editingTag?.key === t.key && (
-                          <Text style={{ color: "#555", fontFamily: "Manrope_500Medium", fontSize: 10 }}>(editing)</Text>
+                          <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 10 }}>(editing)</Text>
                         )}
                       </View>
                     ))}
@@ -270,8 +288,8 @@ export function MenuTagDialog({
                     gap: 10,
                     padding: 10,
                     borderWidth: 1,
-                    borderColor: enabled ? "rgba(255,153,51,0.4)" : "#2a2a2a",
-                    backgroundColor: enabled ? "rgba(255,153,51,0.08)" : "#0f0f0f",
+                    borderColor: enabled ? "rgba(255,153,51,0.4)" : colors.cardBorder,
+                    backgroundColor: enabled ? "rgba(255,153,51,0.08)" : (isDark ? "#0f0f0f" : colors.pressableBg),
                     borderRadius: 10,
                     marginBottom: 12,
                   }}
@@ -282,15 +300,15 @@ export function MenuTagDialog({
                       height: 18,
                       borderRadius: 4,
                       borderWidth: 1.5,
-                      borderColor: enabled ? "#FF9933" : "#555",
-                      backgroundColor: enabled ? "#FF9933" : "transparent",
+                      borderColor: enabled ? colors.saffron : colors.iconMuted,
+                      backgroundColor: enabled ? colors.saffron : "transparent",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    {enabled && <Text style={{ color: "#0f0f0f", fontWeight: "900", fontSize: 12, lineHeight: 14 }}>✓</Text>}
+                    {enabled && <Text style={{ color: isDark ? "#0f0f0f" : "#ffffff", fontWeight: "900", fontSize: 12, lineHeight: 14 }}>✓</Text>}
                   </View>
-                  <Text style={{ color: enabled ? "#FF9933" : "#aaa", fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>
+                  <Text style={{ color: enabled ? colors.saffron : colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>
                     Enabled (shown in filters)
                   </Text>
                 </Pressable>
@@ -309,23 +327,23 @@ export function MenuTagDialog({
                 onPress={() => { if (!busy) onClose(); }}
                 style={{
                   borderWidth: 1,
-                  borderColor: "#2f2f2f",
-                  backgroundColor: "#141414",
+                  borderColor: colors.cardBorder,
+                  backgroundColor: isDark ? "#141414" : colors.pressableBg,
                   borderRadius: 10,
                   paddingHorizontal: 14,
                   paddingVertical: 10,
                   opacity: busy ? 0.6 : 1,
                 }}
               >
-                <Text style={{ color: "#ddd", fontFamily: "Manrope_700Bold", fontSize: 13 }}>Cancel</Text>
+                <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_700Bold", fontSize: 13 }}>Cancel</Text>
               </Pressable>
               <Pressable
                 disabled={busy}
                 onPress={() => void handleSubmit()}
                 style={{
                   borderWidth: 1,
-                  borderColor: "rgba(255,153,51,0.45)",
-                  backgroundColor: "rgba(255,153,51,0.14)",
+                  borderColor: isDark ? "rgba(255,153,51,0.45)" : "#b45309",
+                  backgroundColor: isDark ? "rgba(255,153,51,0.14)" : "#b45309",
                   borderRadius: 10,
                   paddingHorizontal: 14,
                   paddingVertical: 10,
@@ -335,8 +353,8 @@ export function MenuTagDialog({
                   opacity: busy ? 0.7 : 1,
                 }}
               >
-                {busy && <ActivityIndicator color="#FF9933" size="small" />}
-                <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 13 }}>
+                {busy && <ActivityIndicator color={isDark ? colors.saffron : "#ffffff"} size="small" />}
+                <Text style={{ color: isDark ? colors.saffron : "#ffffff", fontFamily: "Manrope_700Bold", fontSize: 13 }}>
                   {mode === "create" ? "Add Tag" : "Save"}
                 </Text>
               </Pressable>
@@ -351,7 +369,6 @@ export function MenuTagDialog({
 const styles = {
   label: {
     fontFamily: "Manrope_600SemiBold" as const,
-    color: "#999",
     fontSize: 11,
     textTransform: "uppercase" as const,
     letterSpacing: 1,
@@ -359,10 +376,7 @@ const styles = {
     marginTop: 6,
   },
   input: {
-    backgroundColor: "#0f0f0f",
-    color: "#f5f5f5",
     borderWidth: 1,
-    borderColor: "#2a2a2a",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,

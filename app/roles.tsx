@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { useAppTheme } from "@/lib/app-theme";
 
 type StaffMember = {
     id: string;
@@ -68,6 +69,7 @@ function formatSupabaseError(err: unknown): string {
 
 export default function RolesScreen() {
     const router = useRouter();
+    const { colors } = useAppTheme();
     const { ownedRestaurantId } = useAdminMode();
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
@@ -128,7 +130,7 @@ export default function RolesScreen() {
     useEffect(() => { fetchStaff(); }, [fetchStaff]);
 
     return (
-        <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
             <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
                 {/* Header */}
                 <Animated.View
@@ -154,18 +156,18 @@ export default function RolesScreen() {
                             borderRadius: 20,
                             alignItems: "center",
                             justifyContent: "center",
-                            backgroundColor: "#1a1a1a",
+                            backgroundColor: colors.card,
                             borderWidth: 1,
-                            borderColor: "#2a2a2a",
+                            borderColor: colors.cardBorder,
                             opacity: pressed ? 0.6 : 1,
                         })}
                     >
-                        <ArrowLeft size={18} color="#f5f5f5" />
+                        <ArrowLeft size={18} color={colors.text} />
                     </Pressable>
 
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <ShieldCheck size={18} color="#A78BFA" />
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text }}>
                             Staff & Roles
                         </Text>
                     </View>
@@ -182,7 +184,7 @@ export default function RolesScreen() {
                     }}
                 >
                     <Text style={{
-                        fontFamily: "Manrope_500Medium", fontSize: 12, color: "#555",
+                        fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted,
                         marginBottom: 16, lineHeight: 18,
                     }}>
                         Manage roles and permissions from the partner portal on the web.
@@ -196,22 +198,22 @@ export default function RolesScreen() {
                         </View>
                     ) : staff.length === 0 ? (
                         <View style={{ alignItems: "center", marginTop: 60, gap: 12 }}>
-                            <ShieldCheck size={40} color="#333" />
-                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#555" }}>
+                            <ShieldCheck size={40} color={colors.iconMuted} />
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.textSecondary }}>
                                 No staff yet
                             </Text>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#444", textAlign: "center" }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: colors.textMuted, textAlign: "center" }}>
                                 Add staff members from the partner portal to see them here.
                             </Text>
                         </View>
                     ) : (
                         <View style={{
-                            backgroundColor: "#1a1a1a", borderRadius: 16,
-                            borderWidth: 1, borderColor: "#2a2a2a", overflow: "hidden",
+                            backgroundColor: colors.card, borderRadius: 16,
+                            borderWidth: 1, borderColor: colors.cardBorder, overflow: "hidden",
                         }}>
                             {staff.map((member, index) => (
                                 <View key={member.id}>
-                                    {index > 0 && <View style={{ height: 1, backgroundColor: "#252525" }} />}
+                                    {index > 0 && <View style={{ height: 1, backgroundColor: colors.cardBorder }} />}
                                     <View style={{
                                         flexDirection: "row", alignItems: "center",
                                         paddingVertical: 14, paddingHorizontal: 16, gap: 12,
@@ -227,20 +229,20 @@ export default function RolesScreen() {
 
                                         <View style={{ flex: 1 }}>
                                             <Text style={{
-                                                fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5",
+                                                fontFamily: "Manrope_600SemiBold", fontSize: 14, color: colors.text,
                                             }}>
                                                 {member.full_name ?? member.email ?? "Unknown user"}
                                             </Text>
                                             {member.full_name && member.email ? (
                                                 <Text style={{
-                                                    fontFamily: "Manrope_500Medium", fontSize: 12, color: "#555", marginTop: 1,
+                                                    fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginTop: 1,
                                                 }}>
                                                     {member.email}
                                                 </Text>
                                             ) : null}
                                             {member.role_name ? (
                                                 <Text style={{
-                                                    fontFamily: "Manrope_500Medium", fontSize: 11, color: "#444", marginTop: 1,
+                                                    fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 1,
                                                 }}>
                                                     {member.role_name}
                                                 </Text>

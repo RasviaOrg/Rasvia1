@@ -49,6 +49,9 @@ import {
   Plus,
   Mail,
   Moon,
+  Monitor,
+  Sun,
+  ChevronDown,
 } from "lucide-react-native";
 import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
 import { TabScreenEntrance } from "@/components/TabScreenEntrance";
@@ -100,7 +103,7 @@ function formatDebugDisplay(iso: string | null): string {
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { colors, isDark, setAppearance } = useAppTheme();
+  const { colors, isDark, appearance, setAppearance } = useAppTheme();
   const { session, profile: bootProfile } = useAuth();
   const { isAdmin, isRestaurantOwner } = useAdminMode();
   const userEmail = session?.user?.email ?? "";
@@ -118,6 +121,7 @@ export default function ProfileSettingsScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
+  const [appearanceMenuOpen, setAppearanceMenuOpen] = useState(false);
 
   // Tab state. Admins get a 3-tab strip (preferences / debug / accounts); owners and
   // switched-in users get no strip and use the Settings list + /my-accounts.
@@ -647,13 +651,17 @@ export default function ProfileSettingsScreen() {
                             ? 'rgba(245,158,11,0.35)'
                             : activeSaffron
                               ? 'rgba(255,153,51,0.32)'
-                              : '#333333',
+                              : isDark
+                                ? '#333333'
+                                : colors.pressableBg,
                           borderWidth: 1,
                           borderColor: activeDebug
                             ? '#F59E0B'
                             : activeSaffron
                               ? '#FF9933'
-                              : '#525252',
+                              : isDark
+                                ? '#525252'
+                                : colors.cardBorder,
                           ...(Platform.OS === 'ios'
                             ? {
                                 shadowColor: '#000',
@@ -670,7 +678,13 @@ export default function ProfileSettingsScreen() {
                             fontFamily: isActive ? 'BricolageGrotesque_700Bold' : 'Manrope_600SemiBold',
                             fontSize: 11,
                             lineHeight: 15,
-                            color: isActive ? '#fafafa' : '#e5e5e5',
+                            color: isActive
+                              ? isDark
+                                ? '#fafafa'
+                                : colors.text
+                              : isDark
+                                ? '#e5e5e5'
+                                : colors.textSecondary,
                             textAlign: 'center',
                           }}
                         >
@@ -711,14 +725,14 @@ export default function ProfileSettingsScreen() {
                 width: 32,
                 height: 32,
                 borderRadius: 16,
-                backgroundColor: "#262626",
+                backgroundColor: colors.pressableBg,
                 borderWidth: 1,
-                borderColor: "#333333",
+                borderColor: colors.cardBorder,
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Edit2 size={14} color="#FF9933" />
+              <Edit2 size={14} color={isDark ? "#FF9933" : colors.text} />
             </Pressable>
             {/* Avatar circle — tappable to change photo */}
             <Pressable
@@ -727,7 +741,7 @@ export default function ProfileSettingsScreen() {
                 width: 80,
                 height: 80,
                 borderRadius: 40,
-                backgroundColor: "#262626",
+                backgroundColor: colors.iconTileBg,
                 borderWidth: 2,
                 borderColor: "#FF9933",
                 alignItems: "center",
@@ -748,7 +762,7 @@ export default function ProfileSettingsScreen() {
                   }}
                 />
               ) : (
-                <User size={36} color="#FF9933" />
+                <User size={36} color={colors.iconMuted} />
               )}
               {/* Camera overlay */}
               {!uploadingAvatar && (
@@ -771,7 +785,7 @@ export default function ProfileSettingsScreen() {
             <Text
               style={{
                 fontFamily: "Manrope_600SemiBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 16,
                 marginBottom: 4,
               }}
@@ -948,7 +962,11 @@ export default function ProfileSettingsScreen() {
                 entering={FadeInDown.delay(222).duration(450).springify()}
                 layout={LinearTransition.springify().damping(18).stiffness(200)}
               >
-                <View
+                <Pressable
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    setAppearanceMenuOpen(true);
+                  }}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -967,7 +985,13 @@ export default function ProfileSettingsScreen() {
                       marginRight: 14,
                     }}
                   >
-                    <Moon size={20} color={colors.iconMuted} />
+                    {appearance === "system" ? (
+                      <Monitor size={20} color={colors.iconMuted} />
+                    ) : appearance === "dark" ? (
+                      <Moon size={20} color={colors.iconMuted} />
+                    ) : (
+                      <Sun size={20} color={colors.iconMuted} />
+                    )}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text
@@ -977,7 +1001,7 @@ export default function ProfileSettingsScreen() {
                         fontSize: 15,
                       }}
                     >
-                      Dark mode
+                      Appearance
                     </Text>
                     <Text
                       style={{
@@ -987,19 +1011,15 @@ export default function ProfileSettingsScreen() {
                         marginTop: 2,
                       }}
                     >
-                      {isDark ? "On" : "Off"}
+                      {appearance === "system"
+                        ? "Match system"
+                        : appearance === "dark"
+                          ? "Dark"
+                          : "Light"}
                     </Text>
                   </View>
-                  <Switch
-                    value={isDark}
-                    onValueChange={(val) => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      setAppearance(val ? "dark" : "light");
-                    }}
-                    trackColor={{ false: colors.switchTrackOff, true: "rgba(255,153,51,0.4)" }}
-                    thumbColor={isDark ? colors.saffron : "#666666"}
-                  />
-                </View>
+                  <ChevronDown size={18} color={colors.textMuted} />
+                </Pressable>
               </Animated.View>
               <Divider />
               {/* Dedicated accounts screen for non-admin personas
@@ -1088,7 +1108,7 @@ export default function ProfileSettingsScreen() {
                       }
                     }}
                     trackColor={{ false: colors.switchTrackOff, true: "rgba(255,153,51,0.4)" }}
-                    thumbColor={notificationsEnabled ? colors.saffron : "#666666"}
+                    thumbColor={notificationsEnabled ? colors.saffron : colors.iconMuted}
                   />
                 </View>
               </Animated.View>
@@ -1112,7 +1132,7 @@ export default function ProfileSettingsScreen() {
                 <Bug size={18} color="#F59E0B" />
                 <Text style={{
                   fontFamily: 'BricolageGrotesque_700Bold',
-                  color: '#f5f5f5',
+                  color: colors.text,
                   fontSize: 18,
                   marginLeft: 8,
                 }}>Debug Tools</Text>
@@ -1144,21 +1164,21 @@ export default function ProfileSettingsScreen() {
 
               {/* Current override display */}
               <View style={{
-                backgroundColor: '#1a1a1a',
+                backgroundColor: colors.card,
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: '#2a2a2a',
+                borderColor: colors.cardBorder,
                 padding: 16,
                 marginBottom: 16,
               }}>
-                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: colors.textMuted, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>
                   Active App Time (CST)
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Clock size={15} color={activeDebugTime ? '#F59E0B' : '#666'} />
+                  <Clock size={15} color={activeDebugTime ? '#F59E0B' : colors.iconMuted} />
                   <Text style={{
                     fontFamily: 'Manrope_600SemiBold',
-                    color: activeDebugTime ? '#F59E0B' : '#888',
+                    color: activeDebugTime ? '#F59E0B' : colors.textMuted,
                     fontSize: 14,
                   }}>
                     {formatDebugDisplay(activeDebugTime)}
@@ -1168,15 +1188,15 @@ export default function ProfileSettingsScreen() {
 
               {/* Picker Card */}
               <View style={{
-                backgroundColor: '#1a1a1a',
+                backgroundColor: colors.card,
                 borderRadius: 20,
                 borderWidth: 1,
-                borderColor: '#2a2a2a',
+                borderColor: colors.cardBorder,
                 padding: 20,
                 marginBottom: 14,
               }}>
                 {/* Day Picker */}
-                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: colors.textMuted, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
                   Day of Week
                 </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }} contentContainerStyle={{ gap: 8 }}>
@@ -1190,22 +1210,22 @@ export default function ProfileSettingsScreen() {
                         borderRadius: 22,
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: debugDay === i ? 'rgba(245,158,11,0.18)' : '#262626',
+                        backgroundColor: debugDay === i ? 'rgba(245,158,11,0.18)' : colors.pressableBg,
                         borderWidth: debugDay === i ? 1.5 : 1,
-                        borderColor: debugDay === i ? '#F59E0B' : '#333',
+                        borderColor: debugDay === i ? '#F59E0B' : colors.cardBorder,
                       }}
                     >
                       <Text style={{
                         fontFamily: 'BricolageGrotesque_700Bold',
                         fontSize: 11,
-                        color: debugDay === i ? '#F59E0B' : '#888',
+                        color: debugDay === i ? '#F59E0B' : colors.textMuted,
                       }}>{d}</Text>
                     </Pressable>
                   ))}
                 </ScrollView>
 
                 {/* Hour Picker (1–12) */}
-                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: colors.textMuted, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
                   Hour
                 </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ marginBottom: 10 }}>
@@ -1220,15 +1240,15 @@ export default function ProfileSettingsScreen() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         paddingHorizontal: 8,
-                        backgroundColor: debugHour === h ? 'rgba(245,158,11,0.18)' : '#262626',
+                        backgroundColor: debugHour === h ? 'rgba(245,158,11,0.18)' : colors.pressableBg,
                         borderWidth: debugHour === h ? 1.5 : 1,
-                        borderColor: debugHour === h ? '#F59E0B' : '#333',
+                        borderColor: debugHour === h ? '#F59E0B' : colors.cardBorder,
                       }}
                     >
                       <Text style={{
                         fontFamily: 'JetBrainsMono_600SemiBold',
                         fontSize: 13,
-                        color: debugHour === h ? '#F59E0B' : '#888',
+                        color: debugHour === h ? '#F59E0B' : colors.textMuted,
                       }}>{h}</Text>
                     </Pressable>
                   ))}
@@ -1245,22 +1265,22 @@ export default function ProfileSettingsScreen() {
                         borderRadius: 12,
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: debugAmPm === period ? 'rgba(245,158,11,0.18)' : '#262626',
+                        backgroundColor: debugAmPm === period ? 'rgba(245,158,11,0.18)' : colors.pressableBg,
                         borderWidth: debugAmPm === period ? 1.5 : 1,
-                        borderColor: debugAmPm === period ? '#F59E0B' : '#333',
+                        borderColor: debugAmPm === period ? '#F59E0B' : colors.cardBorder,
                       }}
                     >
                       <Text style={{
                         fontFamily: 'JetBrainsMono_600SemiBold',
                         fontSize: 14,
-                        color: debugAmPm === period ? '#F59E0B' : '#888',
+                        color: debugAmPm === period ? '#F59E0B' : colors.textMuted,
                       }}>{period}</Text>
                     </Pressable>
                   ))}
                 </View>
 
                 {/* Minute Picker */}
-                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: colors.textMuted, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
                   Minute
                 </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
@@ -1275,15 +1295,15 @@ export default function ProfileSettingsScreen() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         paddingHorizontal: 8,
-                        backgroundColor: debugMinute === m ? 'rgba(245,158,11,0.18)' : '#262626',
+                        backgroundColor: debugMinute === m ? 'rgba(245,158,11,0.18)' : colors.pressableBg,
                         borderWidth: debugMinute === m ? 1.5 : 1,
-                        borderColor: debugMinute === m ? '#F59E0B' : '#333',
+                        borderColor: debugMinute === m ? '#F59E0B' : colors.cardBorder,
                       }}
                     >
                       <Text style={{
                         fontFamily: 'JetBrainsMono_600SemiBold',
                         fontSize: 12,
-                        color: debugMinute === m ? '#F59E0B' : '#888',
+                        color: debugMinute === m ? '#F59E0B' : colors.textMuted,
                       }}>:{String(m).padStart(2, '0')}</Text>
                     </Pressable>
                   ))}
@@ -1324,11 +1344,11 @@ export default function ProfileSettingsScreen() {
                   justifyContent: 'center',
                   flexDirection: 'row',
                   borderWidth: 1,
-                  borderColor: '#333',
+                  borderColor: colors.cardBorder,
                 }}
               >
-                <RefreshCw size={15} color="#999" />
-                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#999', fontSize: 15, marginLeft: 8 }}>
+                <RefreshCw size={15} color={colors.textMuted} />
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: colors.textMuted, fontSize: 15, marginLeft: 8 }}>
                   Reset to Real Time
                 </Text>
               </Pressable>
@@ -1484,7 +1504,7 @@ export default function ProfileSettingsScreen() {
             <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setEditingProfile(false); }}>
               <View style={{
                 flex: 1,
-                backgroundColor: "rgba(0, 0, 0, 0.75)",
+                backgroundColor: isDark ? "rgba(0, 0, 0, 0.75)" : "rgba(0, 0, 0, 0.45)",
                 alignItems: "center",
                 justifyContent: "center",
                 paddingHorizontal: 24,
@@ -1492,10 +1512,10 @@ export default function ProfileSettingsScreen() {
                 <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
                   <View
                     style={{
-                      backgroundColor: "#1a1a1a",
+                      backgroundColor: colors.card,
                       borderRadius: 20,
                       borderWidth: 1,
-                      borderColor: "#2a2a2a",
+                      borderColor: colors.cardBorder,
                       padding: 24,
                       width: "100%",
                       maxWidth: 420,
@@ -1505,59 +1525,59 @@ export default function ProfileSettingsScreen() {
                     <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20 }}>
                       <View style={{
                         width: 36, height: 36, borderRadius: 18,
-                        backgroundColor: "rgba(255,153,51,0.15)",
+                        backgroundColor: isDark ? "rgba(255,153,51,0.15)" : "rgba(255,153,51,0.2)",
                         alignItems: "center", justifyContent: "center",
                         marginRight: 12,
                       }}>
-                        <Edit2 size={16} color="#FF9933" />
+                        <Edit2 size={16} color={colors.saffron} />
                       </View>
-                      <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>
+                      <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 20 }}>
                         {profileNeedsContact ? "Finish your profile" : "Edit Profile"}
                       </Text>
                     </View>
 
                     {/* Name fields */}
-                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
                       Display Name
                     </Text>
                     <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 11, marginBottom: 6 }}>First Name</Text>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginBottom: 6 }}>First Name</Text>
                         <TextInput
                           value={tempFirstName}
                           onChangeText={setTempFirstName}
                           style={{
-                            backgroundColor: "#262626",
+                            backgroundColor: colors.pressableBg,
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: tempFirstName ? "#FF9933" : "#333",
+                            borderColor: tempFirstName ? colors.saffron : colors.cardBorder,
                             paddingHorizontal: 14,
                             height: 48,
-                            color: "#f5f5f5",
+                            color: colors.text,
                             fontFamily: "Manrope_500Medium",
                             fontSize: 15,
                           }}
-                          placeholderTextColor="#666"
+                          placeholderTextColor={colors.textMuted}
                           autoCapitalize="words"
                         />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 11, marginBottom: 6 }}>Last Name</Text>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginBottom: 6 }}>Last Name</Text>
                         <TextInput
                           value={tempLastName}
                           onChangeText={setTempLastName}
                           style={{
-                            backgroundColor: "#262626",
+                            backgroundColor: colors.pressableBg,
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: tempLastName ? "#FF9933" : "#333",
+                            borderColor: tempLastName ? colors.saffron : colors.cardBorder,
                             paddingHorizontal: 14,
                             height: 48,
-                            color: "#f5f5f5",
+                            color: colors.text,
                             fontFamily: "Manrope_500Medium",
                             fontSize: 15,
                           }}
-                          placeholderTextColor="#666"
+                          placeholderTextColor={colors.textMuted}
                           placeholder="Full last name"
                           autoCapitalize="words"
                         />
@@ -1565,56 +1585,56 @@ export default function ProfileSettingsScreen() {
                     </View>
 
                     {/* Email — read-only */}
-                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
                       Email
                     </Text>
                     <View style={{
-                      backgroundColor: "#1e1e1e",
+                      backgroundColor: colors.pressableBg,
                       borderRadius: 12,
                       borderWidth: 1,
-                      borderColor: "#2a2a2a",
+                      borderColor: colors.cardBorder,
                       paddingHorizontal: 14,
                       height: 48,
                       justifyContent: "center",
                       marginBottom: 16,
                     }}>
-                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 14 }}>
+                      <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14 }}>
                         {userEmail || "—"}
                       </Text>
                     </View>
-                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11, marginTop: -10, marginBottom: 16 }}>
+                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginTop: -10, marginBottom: 16 }}>
                       {hasEmailOnAccount
                         ? "Email cannot be changed here"
                         : "No email on file. If you signed in with phone only, email isn’t added to your account yet."}
                     </Text>
 
                     {/* Phone Number */}
-                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
                       Phone Number
                     </Text>
                     <View style={{
                       flexDirection: "row",
                       alignItems: "center",
-                      backgroundColor: "#262626",
+                      backgroundColor: colors.pressableBg,
                       borderRadius: 12,
                       borderWidth: 1,
-                      borderColor: tempPhone ? "#FF9933" : "#333",
+                      borderColor: tempPhone ? colors.saffron : colors.cardBorder,
                       paddingHorizontal: 14,
                       height: 48,
                       marginBottom: 24,
                     }}>
-                      <Phone size={16} color="#999999" />
+                      <Phone size={16} color={colors.iconMuted} />
                       <TextInput
                         value={tempPhone}
                         onChangeText={(v) => setTempPhone(formatPhoneNumber(v))}
                         style={{
                           flex: 1,
-                          color: "#f5f5f5",
+                          color: colors.text,
                           fontFamily: "Manrope_500Medium",
                           fontSize: 15,
                           marginLeft: 10,
                         }}
-                        placeholderTextColor="#666"
+                        placeholderTextColor={colors.textMuted}
                         placeholder="(972) 555-1234"
                         keyboardType="phone-pad"
                       />
@@ -1631,29 +1651,29 @@ export default function ProfileSettingsScreen() {
                         }}
                         style={{
                           flex: 1,
-                          backgroundColor: "#262626",
+                          backgroundColor: colors.pressableBg,
                           borderRadius: 12,
                           height: 48,
                           alignItems: "center",
                           justifyContent: "center",
                           borderWidth: 1,
-                          borderColor: "#333",
+                          borderColor: colors.cardBorder,
                         }}
                       >
-                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 15 }}>Cancel</Text>
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textSecondary, fontSize: 15 }}>Cancel</Text>
                       </Pressable>
                       <Pressable
                         onPress={handleSaveProfile}
                         style={{
                           flex: 1,
-                          backgroundColor: "#FF9933",
+                          backgroundColor: isDark ? colors.saffron : "#b45309",
                           borderRadius: 12,
                           height: 48,
                           alignItems: "center",
                           justifyContent: "center",
                         }}
                       >
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 15 }}>Save</Text>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isDark ? "#0f0f0f" : "#ffffff", fontSize: 15 }}>Save</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -1661,6 +1681,94 @@ export default function ProfileSettingsScreen() {
               </View>
             </TouchableWithoutFeedback>
           </KeyboardAvoidingView>
+        </Modal>
+
+        <Modal
+          visible={appearanceMenuOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setAppearanceMenuOpen(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.45)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <Pressable style={{ flex: 1 }} onPress={() => setAppearanceMenuOpen(false)} />
+            <View
+                style={{
+                  backgroundColor: colors.card,
+                  borderTopLeftRadius: 20,
+                  borderTopRightRadius: 20,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  paddingBottom: 24,
+                  paddingTop: 8,
+                }}
+              >
+                <View style={{ alignItems: "center", paddingVertical: 8 }}>
+                  <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.cardBorder }} />
+                </View>
+                <Text
+                  style={{
+                    fontFamily: "BricolageGrotesque_700Bold",
+                    color: colors.text,
+                    fontSize: 18,
+                    paddingHorizontal: 20,
+                    marginBottom: 12,
+                  }}
+                >
+                  Appearance
+                </Text>
+                {(
+                  [
+                    { mode: "system" as const, label: "System default", Icon: Monitor, hint: "Match device light/dark" },
+                    { mode: "light" as const, label: "Light", Icon: Sun, hint: "Always light" },
+                    { mode: "dark" as const, label: "Dark", Icon: Moon, hint: "Always dark" },
+                  ] as const
+                ).map(({ mode, label, Icon, hint }) => {
+                  const selected = appearance === mode;
+                  return (
+                    <Pressable
+                      key={mode}
+                      onPress={() => {
+                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                        setAppearance(mode);
+                        setAppearanceMenuOpen(false);
+                      }}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        paddingHorizontal: 20,
+                        paddingVertical: 14,
+                        backgroundColor: selected ? colors.pressableBg : "transparent",
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 12,
+                          backgroundColor: colors.iconTileBg,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginRight: 12,
+                        }}
+                      >
+                        <Icon size={20} color={selected ? colors.saffron : colors.iconMuted} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 15 }}>{label}</Text>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 2 }}>{hint}</Text>
+                      </View>
+                      {selected ? <Check size={20} color={colors.saffron} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+          </View>
         </Modal>
 
         </View>

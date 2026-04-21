@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 import {
   View,
@@ -43,6 +43,71 @@ import {
   type MenuTagConfig,
 } from "@/lib/menu-tags";
 import { MenuTagDialog } from "./MenuTagDialog";
+import { useAppTheme } from "@/lib/app-theme";
+
+function useMenuEditorFormStyles() {
+  const { colors, isDark } = useAppTheme();
+  return useMemo(
+    () => ({
+      labelStyle: {
+        fontFamily: "Manrope_600SemiBold",
+        color: colors.textMuted,
+        fontSize: 12,
+        textTransform: "uppercase" as const,
+        letterSpacing: 1,
+        marginBottom: 8,
+        marginTop: 6,
+      },
+      helperText: {
+        fontFamily: "Manrope_500Medium",
+        color: colors.textMuted,
+        fontSize: 11,
+        marginTop: 8,
+        marginBottom: 10,
+      },
+      inputStyle: {
+        backgroundColor: isDark ? "#0f0f0f" : colors.backgroundElevated,
+        color: colors.text,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        marginBottom: 12,
+        fontFamily: "Manrope_500Medium",
+        fontSize: 14,
+      },
+      smallActionButton: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+        borderRadius: 10,
+        backgroundColor: isDark ? "#111111" : colors.pressableBg,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+      },
+      smallActionText: {
+        fontFamily: "Manrope_600SemiBold" as const,
+        color: colors.text,
+        fontSize: 12,
+      },
+      modalSheet: {
+        backgroundColor: colors.card,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+      },
+      modalFooterBar: {
+        borderTopColor: colors.cardBorder,
+        backgroundColor: colors.card,
+      },
+    }),
+    [colors, isDark]
+  );
+}
 
 function formatMealTimesForDb(values: string[]): string[] {
   return Array.from(new Set(values.map((v) => slugifyTag(v)).filter(Boolean)));
@@ -90,6 +155,7 @@ function MealTimesSelector({
   onChange: (next: string[]) => void;
   tags: MenuTagConfig[];
 }) {
+  const { colors, isDark } = useAppTheme();
   const defs = tags.filter((t) => t.enabled !== false);
 
   return (
@@ -110,8 +176,8 @@ function MealTimesSelector({
             style={{
               borderRadius: 999,
               borderWidth: 1,
-              borderColor: active ? def.border : "#2f2f2f",
-              backgroundColor: active ? def.bg : "#121212",
+              borderColor: active ? def.border : colors.cardBorder,
+              backgroundColor: active ? def.bg : (isDark ? "#121212" : colors.pressableBg),
               paddingHorizontal: 12,
               paddingVertical: 8,
             }}
@@ -119,7 +185,7 @@ function MealTimesSelector({
             <Text
               style={{
                 fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
-                color: active ? def.color : "#888",
+                color: active ? def.color : colors.textMuted,
                 fontSize: 12,
               }}
             >
@@ -139,6 +205,7 @@ function SpiceSelector({
   level: number;
   onChange: (next: number) => void;
 }) {
+  const { colors, isDark } = useAppTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       {[0, 1, 2, 3].map((n) => (
@@ -153,21 +220,21 @@ function SpiceSelector({
             height: 38,
             borderRadius: 19,
             borderWidth: 1,
-            borderColor: n === level ? "rgba(239,68,68,0.45)" : "#2f2f2f",
-            backgroundColor: n === level ? "rgba(239,68,68,0.12)" : "#121212",
+            borderColor: n === level ? "rgba(239,68,68,0.45)" : colors.cardBorder,
+            backgroundColor: n === level ? "rgba(239,68,68,0.12)" : (isDark ? "#121212" : colors.pressableBg),
             alignItems: "center",
             justifyContent: "center",
           }}
         >
           {n === 0 ? (
-            <Text style={{ fontFamily: "Manrope_700Bold", color: n === level ? "#EF4444" : "#777", fontSize: 12 }}>0</Text>
+            <Text style={{ fontFamily: "Manrope_700Bold", color: n === level ? "#EF4444" : colors.textMuted, fontSize: 12 }}>0</Text>
           ) : (
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
               {Array.from({ length: n }).map((_, idx) => (
                 <Flame
                   key={idx}
                   size={12}
-                  color={n === level ? "#EF4444" : "#777"}
+                  color={n === level ? "#EF4444" : colors.textMuted}
                   fill={n === level ? "#EF4444" : "transparent"}
                 />
               ))}
@@ -202,6 +269,8 @@ function EditableMenuItem({
   onContributeImage?: (item: UIMenuItem) => void;
   menuTags: MenuTagConfig[];
 }) {
+  const formStyles = useMenuEditorFormStyles();
+  const { colors, isDark } = useAppTheme();
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -361,15 +430,11 @@ function EditableMenuItem({
 
       <Modal visible={showSettings} transparent animationType="slide" onRequestClose={() => setShowSettings(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "flex-end" }}>
+          <View style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
             <Pressable style={{ flex: 1 }} onPress={() => setShowSettings(false)} />
             <View
               style={{
-                backgroundColor: "#1a1a1a",
-                borderTopLeftRadius: 24,
-                borderTopRightRadius: 24,
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
+                ...formStyles.modalSheet,
                 padding: 20,
                 paddingBottom: Platform.OS === "ios" ? 10 : 8,
                 maxHeight: "92%",
@@ -377,9 +442,9 @@ function EditableMenuItem({
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>Item Settings</Text>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 20 }}>Item Settings</Text>
                 <Pressable onPress={() => setShowSettings(false)} style={{ padding: 6 }}>
-                  <X size={22} color="#999" />
+                  <X size={22} color={colors.textMuted} />
                 </Pressable>
               </View>
 
@@ -389,56 +454,56 @@ function EditableMenuItem({
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 12 }}
               >
-                <Text style={labelStyle}>Image</Text>
+                <Text style={formStyles.labelStyle}>Image</Text>
                 <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-                  <Pressable onPress={() => updateImage(pickImageFromCamera)} style={smallActionButton}>
+                  <Pressable onPress={() => updateImage(pickImageFromCamera)} style={formStyles.smallActionButton}>
                     <Camera size={14} color="#22C55E" />
-                    <Text style={smallActionText}>Take Photo</Text>
+                    <Text style={formStyles.smallActionText}>Take Photo</Text>
                   </Pressable>
-                  <Pressable onPress={() => updateImage(pickImageFromLibrary)} style={smallActionButton}>
+                  <Pressable onPress={() => updateImage(pickImageFromLibrary)} style={formStyles.smallActionButton}>
                     <ImageIcon size={14} color="#FF9933" />
-                    <Text style={smallActionText}>Camera Roll</Text>
+                    <Text style={formStyles.smallActionText}>Camera Roll</Text>
                   </Pressable>
-                  <Pressable onPress={deleteItem} style={[smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
+                  <Pressable onPress={deleteItem} style={[formStyles.smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
                     <Trash2 size={14} color="#EF4444" />
-                    <Text style={[smallActionText, { color: "#EF4444" }]}>Delete</Text>
+                    <Text style={[formStyles.smallActionText, { color: "#EF4444" }]}>Delete</Text>
                   </Pressable>
                 </View>
                 {!!item.image?.trim() && (
                   <Image
                     source={{ uri: item.image }}
-                    style={{ width: "100%", height: 140, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: "#2f2f2f" }}
+                    style={{ width: "100%", height: 140, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: colors.cardBorder }}
                     resizeMode="cover"
                   />
                 )}
 
-                <Text style={labelStyle}>Name</Text>
-                <TextInput style={inputStyle} value={name} onChangeText={setName} placeholder="Item name" placeholderTextColor="#666" />
+                <Text style={formStyles.labelStyle}>Name</Text>
+                <TextInput style={formStyles.inputStyle} value={name} onChangeText={setName} placeholder="Item name" placeholderTextColor={colors.textMuted} />
 
-                <Text style={labelStyle}>Price</Text>
-                <TextInput style={inputStyle} value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="Price" placeholderTextColor="#666" />
+                <Text style={formStyles.labelStyle}>Price</Text>
+                <TextInput style={formStyles.inputStyle} value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="Price" placeholderTextColor={colors.textMuted} />
 
-                <Text style={labelStyle}>Description</Text>
+                <Text style={formStyles.labelStyle}>Description</Text>
                 <TextInput
-                  style={[inputStyle, { minHeight: 82, textAlignVertical: "top" }]}
+                  style={[formStyles.inputStyle, { minHeight: 82, textAlignVertical: "top" }]}
                   value={description}
                   onChangeText={setDescription}
                   multiline
                   placeholder="Description"
-                  placeholderTextColor="#666"
+                  placeholderTextColor={colors.textMuted}
                 />
 
-                <Text style={labelStyle}>Category</Text>
-                <TextInput style={inputStyle} value={category} onChangeText={setCategory} placeholder="Category" placeholderTextColor="#666" />
+                <Text style={formStyles.labelStyle}>Category</Text>
+                <TextInput style={formStyles.inputStyle} value={category} onChangeText={setCategory} placeholder="Category" placeholderTextColor={colors.textMuted} />
 
-                <Text style={labelStyle}>Meal Identifiers *</Text>
+                <Text style={formStyles.labelStyle}>Meal Identifiers *</Text>
                 <MealTimesSelector value={mealTimes} onChange={setMealTimes} tags={menuTags} />
-                <Text style={helperText}>Choose one or more tags for this item.</Text>
+                <Text style={formStyles.helperText}>Choose one or more tags for this item.</Text>
 
-                <Text style={labelStyle}>Spice Level</Text>
+                <Text style={formStyles.labelStyle}>Spice Level</Text>
                 <SpiceSelector level={spiceLevel} onChange={setSpiceLevel} />
 
-                <Text style={labelStyle}>Dietary</Text>
+                <Text style={formStyles.labelStyle}>Dietary</Text>
                 {/* Split row: Vegetarian (left) + Halal (right). Both are
                     independently toggleable so an item can be marked as one,
                     both, or neither. Mirrors the web ItemFormDialog. */}
@@ -453,12 +518,12 @@ function EditableMenuItem({
                       borderWidth: 1,
                       borderRadius: 10,
                       paddingVertical: 12,
-                      borderColor: isVegetarian ? "rgba(34,197,94,0.45)" : "#333",
-                      backgroundColor: isVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
+                      borderColor: isVegetarian ? "rgba(34,197,94,0.45)" : colors.cardBorder,
+                      backgroundColor: isVegetarian ? "rgba(34,197,94,0.12)" : (isDark ? "#0f0f0f" : colors.pressableBg),
                     }}
                   >
-                    <Leaf size={14} color={isVegetarian ? "#22C55E" : "#777"} />
-                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isVegetarian ? "#22C55E" : "#777" }}>
+                    <Leaf size={14} color={isVegetarian ? "#22C55E" : colors.textMuted} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isVegetarian ? "#22C55E" : colors.textMuted }}>
                       Vegetarian
                     </Text>
                   </Pressable>
@@ -472,12 +537,12 @@ function EditableMenuItem({
                       borderWidth: 1,
                       borderRadius: 10,
                       paddingVertical: 12,
-                      borderColor: isHalal ? "rgba(56,189,248,0.45)" : "#333",
-                      backgroundColor: isHalal ? "rgba(56,189,248,0.12)" : "#0f0f0f",
+                      borderColor: isHalal ? "rgba(56,189,248,0.45)" : colors.cardBorder,
+                      backgroundColor: isHalal ? "rgba(56,189,248,0.12)" : (isDark ? "#0f0f0f" : colors.pressableBg),
                     }}
                   >
-                    <Moon size={14} color={isHalal ? "#38BDF8" : "#777"} />
-                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isHalal ? "#38BDF8" : "#777" }}>
+                    <Moon size={14} color={isHalal ? "#38BDF8" : colors.textMuted} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: isHalal ? "#38BDF8" : colors.textMuted }}>
                       Halal
                     </Text>
                   </Pressable>
@@ -488,13 +553,12 @@ function EditableMenuItem({
               <View
                 style={{
                   borderTopWidth: 1,
-                  borderTopColor: "#2a2a2a",
+                  ...formStyles.modalFooterBar,
                   marginHorizontal: -20,
                   marginTop: 6,
                   paddingTop: 12,
                   paddingHorizontal: 20,
                   paddingBottom: Platform.OS === "ios" ? 18 : 10,
-                  backgroundColor: "#1a1a1a",
                 }}
               >
                 <Pressable
@@ -544,6 +608,8 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   // staff/owner phone. Tie quick-add to `!canEdit` so owners still get to
   // order from venues they don't manage.
   const canOrder = !canEdit;
+  const formStyles = useMenuEditorFormStyles();
+  const { colors, isDark } = useAppTheme();
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");
@@ -796,15 +862,15 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#22C55E", fontSize: 12, marginLeft: 4 }}>Add Item</Text>
             </Pressable>
           </View>
-          <View style={{ backgroundColor: "#121212", borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a", padding: 10 }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder, padding: 10 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: tagsCollapsed ? 0 : 8 }}>
               <Pressable
                 onPress={toggleTagsCollapsed}
                 hitSlop={6}
                 style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}
               >
-                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 13 }}>Menu Tags</Text>
-                <Text style={{ color: "#555", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                <Text style={{ color: colors.text, fontFamily: "Manrope_700Bold", fontSize: 13 }}>Menu Tags</Text>
+                <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
                   {tagsCollapsed ? `(${menuTags.length})` : ""}
                 </Text>
               </Pressable>
@@ -842,22 +908,22 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                     height: 28,
                     borderRadius: 8,
                     borderWidth: 1,
-                    borderColor: "#2f2f2f",
-                    backgroundColor: "#141414",
+                    borderColor: colors.cardBorder,
+                    backgroundColor: colors.pressableBg,
                     alignItems: "center",
                     justifyContent: "center",
                   }}
                 >
                   {tagsCollapsed ? (
-                    <ChevronDown size={14} color="#aaa" />
+                    <ChevronDown size={14} color={colors.textMuted} />
                   ) : (
-                    <ChevronUp size={14} color="#aaa" />
+                    <ChevronUp size={14} color={colors.textMuted} />
                   )}
                 </Pressable>
               </View>
             </View>
             {!tagsCollapsed && (
-              <Text style={{ color: "#777", fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 10 }}>
+              <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 11, marginBottom: 10 }}>
                 Ordered top to bottom for display priority.
               </Text>
             )}
@@ -872,13 +938,13 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                     borderRadius: 12,
                     borderWidth: 1,
                     borderColor: tag.border,
-                    backgroundColor: "#0f0f0f",
+                    backgroundColor: isDark ? "#0f0f0f" : colors.backgroundElevated,
                     paddingHorizontal: 10,
                     paddingVertical: 10,
                   }}
                 >
-                  <View style={{ width: 22, height: 22, borderRadius: 999, borderWidth: 1, borderColor: "#303030", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
-                    <Text style={{ color: "#aaa", fontFamily: "Manrope_700Bold", fontSize: 11 }}>{idx + 1}</Text>
+                  <View style={{ width: 22, height: 22, borderRadius: 999, borderWidth: 1, borderColor: colors.cardBorder, alignItems: "center", justifyContent: "center", marginRight: 8 }}>
+                    <Text style={{ color: colors.textMuted, fontFamily: "Manrope_700Bold", fontSize: 11 }}>{idx + 1}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: tag.color, fontFamily: "Manrope_700Bold", fontSize: 15 }}>{tag.label}</Text>
@@ -899,9 +965,9 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                         next[idx] = temp;
                         void persistTags(next);
                       }}
-                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: "#2f2f2f", backgroundColor: "#141414", alignItems: "center", justifyContent: "center" }}
+                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.pressableBg, alignItems: "center", justifyContent: "center" }}
                     >
-                      <ChevronUp size={14} color="#aaa" />
+                      <ChevronUp size={14} color={colors.textMuted} />
                     </Pressable>
                     <Pressable
                       onPress={() => {
@@ -912,9 +978,9 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                         next[idx] = temp;
                         void persistTags(next);
                       }}
-                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: "#2f2f2f", backgroundColor: "#141414", alignItems: "center", justifyContent: "center" }}
+                      style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.pressableBg, alignItems: "center", justifyContent: "center" }}
                     >
-                      <ChevronDown size={14} color="#aaa" />
+                      <ChevronDown size={14} color={colors.textMuted} />
                     </Pressable>
                     <Pressable
                       onPress={() => {
@@ -992,15 +1058,11 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
 
       <Modal visible={showAddItem} transparent animationType="slide" onRequestClose={() => setShowAddItem(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "flex-end" }}>
+          <View style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
             <Pressable style={{ flex: 1 }} onPress={() => setShowAddItem(false)} />
             <View
               style={{
-                backgroundColor: "#1a1a1a",
-                borderTopLeftRadius: 24,
-                borderTopRightRadius: 24,
-                borderWidth: 1,
-                borderColor: "#2a2a2a",
+                ...formStyles.modalSheet,
                 padding: 20,
                 paddingBottom: Platform.OS === "ios" ? 10 : 8,
                 maxHeight: "92%",
@@ -1010,7 +1072,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#22C55E", fontSize: 20 }}>Add Menu Item</Text>
                 <Pressable onPress={() => setShowAddItem(false)} style={{ padding: 6 }}>
-                  <X size={22} color="#999" />
+                  <X size={22} color={colors.textMuted} />
                 </Pressable>
               </View>
 
@@ -1020,54 +1082,54 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 12 }}
               >
-                <Text style={labelStyle}>Image (Optional)</Text>
+                <Text style={formStyles.labelStyle}>Image (Optional)</Text>
                 <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-                  <Pressable onPress={pickAddImage} style={smallActionButton}>
+                  <Pressable onPress={pickAddImage} style={formStyles.smallActionButton}>
                     <ImageIcon size={14} color="#FF9933" />
-                    <Text style={smallActionText}>Select Image</Text>
+                    <Text style={formStyles.smallActionText}>Select Image</Text>
                   </Pressable>
                   {newImageAsset && (
-                    <Pressable onPress={() => setNewImageAsset(null)} style={[smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
+                    <Pressable onPress={() => setNewImageAsset(null)} style={[formStyles.smallActionButton, { borderColor: "rgba(239,68,68,0.4)" }]}>
                       <Trash2 size={14} color="#EF4444" />
-                      <Text style={[smallActionText, { color: "#EF4444" }]}>Clear</Text>
+                      <Text style={[formStyles.smallActionText, { color: "#EF4444" }]}>Clear</Text>
                     </Pressable>
                   )}
                 </View>
                 {newImageAsset && (
                   <Image
                     source={{ uri: newImageAsset.uri }}
-                    style={{ width: "100%", height: 140, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: "#2f2f2f" }}
+                    style={{ width: "100%", height: 140, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: colors.cardBorder }}
                     resizeMode="cover"
                   />
                 )}
 
-                <Text style={labelStyle}>Name *</Text>
-                <TextInput style={inputStyle} placeholder="Item name" placeholderTextColor="#666" value={newItemName} onChangeText={setNewItemName} />
+                <Text style={formStyles.labelStyle}>Name *</Text>
+                <TextInput style={formStyles.inputStyle} placeholder="Item name" placeholderTextColor={colors.textMuted} value={newItemName} onChangeText={setNewItemName} />
 
-                <Text style={labelStyle}>Price *</Text>
-                <TextInput style={inputStyle} placeholder="Price" placeholderTextColor="#666" value={newItemPrice} onChangeText={setNewItemPrice} keyboardType="decimal-pad" />
+                <Text style={formStyles.labelStyle}>Price *</Text>
+                <TextInput style={formStyles.inputStyle} placeholder="Price" placeholderTextColor={colors.textMuted} value={newItemPrice} onChangeText={setNewItemPrice} keyboardType="decimal-pad" />
 
-                <Text style={labelStyle}>Description</Text>
+                <Text style={formStyles.labelStyle}>Description</Text>
                 <TextInput
-                  style={[inputStyle, { minHeight: 82, textAlignVertical: "top" }]}
+                  style={[formStyles.inputStyle, { minHeight: 82, textAlignVertical: "top" }]}
                   placeholder="Description (optional)"
-                  placeholderTextColor="#666"
+                  placeholderTextColor={colors.textMuted}
                   value={newItemDesc}
                   onChangeText={setNewItemDesc}
                   multiline
                 />
 
-                <Text style={labelStyle}>Category</Text>
-                <TextInput style={inputStyle} placeholder="Category (optional)" placeholderTextColor="#666" value={newItemCategory} onChangeText={setNewItemCategory} />
+                <Text style={formStyles.labelStyle}>Category</Text>
+                <TextInput style={formStyles.inputStyle} placeholder="Category (optional)" placeholderTextColor={colors.textMuted} value={newItemCategory} onChangeText={setNewItemCategory} />
 
-                <Text style={labelStyle}>Meal Identifiers *</Text>
+                <Text style={formStyles.labelStyle}>Meal Identifiers *</Text>
                 <MealTimesSelector value={newMealTimes} onChange={setNewMealTimes} tags={menuTags} />
-                <Text style={helperText}>Required. Choose at least one period.</Text>
+                <Text style={formStyles.helperText}>Required. Choose at least one period.</Text>
 
-                <Text style={labelStyle}>Spice Level</Text>
+                <Text style={formStyles.labelStyle}>Spice Level</Text>
                 <SpiceSelector level={newSpiceLevel} onChange={setNewSpiceLevel} />
 
-                <Text style={labelStyle}>Dietary</Text>
+                <Text style={formStyles.labelStyle}>Dietary</Text>
                 {/* Split row: Vegetarian (left) + Halal (right). Matches
                     the item settings modal + web ItemFormDialog so both
                     flags are set at creation time. */}
@@ -1082,12 +1144,12 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                       borderWidth: 1,
                       borderRadius: 10,
                       paddingVertical: 12,
-                      borderColor: newIsVegetarian ? "rgba(34,197,94,0.45)" : "#333",
-                      backgroundColor: newIsVegetarian ? "rgba(34,197,94,0.12)" : "#0f0f0f",
+                      borderColor: newIsVegetarian ? "rgba(34,197,94,0.45)" : colors.cardBorder,
+                      backgroundColor: newIsVegetarian ? "rgba(34,197,94,0.12)" : (isDark ? "#0f0f0f" : colors.pressableBg),
                     }}
                   >
-                    <Leaf size={14} color={newIsVegetarian ? "#22C55E" : "#777"} />
-                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsVegetarian ? "#22C55E" : "#777" }}>
+                    <Leaf size={14} color={newIsVegetarian ? "#22C55E" : colors.textMuted} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsVegetarian ? "#22C55E" : colors.textMuted }}>
                       Vegetarian
                     </Text>
                   </Pressable>
@@ -1101,12 +1163,12 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                       borderWidth: 1,
                       borderRadius: 10,
                       paddingVertical: 12,
-                      borderColor: newIsHalal ? "rgba(56,189,248,0.45)" : "#333",
-                      backgroundColor: newIsHalal ? "rgba(56,189,248,0.12)" : "#0f0f0f",
+                      borderColor: newIsHalal ? "rgba(56,189,248,0.45)" : colors.cardBorder,
+                      backgroundColor: newIsHalal ? "rgba(56,189,248,0.12)" : (isDark ? "#0f0f0f" : colors.pressableBg),
                     }}
                   >
-                    <Moon size={14} color={newIsHalal ? "#38BDF8" : "#777"} />
-                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsHalal ? "#38BDF8" : "#777" }}>
+                    <Moon size={14} color={newIsHalal ? "#38BDF8" : colors.textMuted} />
+                    <Text style={{ marginLeft: 8, fontFamily: "Manrope_700Bold", color: newIsHalal ? "#38BDF8" : colors.textMuted }}>
                       Halal
                     </Text>
                   </Pressable>
@@ -1117,13 +1179,12 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               <View
                 style={{
                   borderTopWidth: 1,
-                  borderTopColor: "#2a2a2a",
+                  ...formStyles.modalFooterBar,
                   marginHorizontal: -20,
                   marginTop: 6,
                   paddingTop: 12,
                   paddingHorizontal: 20,
                   paddingBottom: Platform.OS === "ios" ? 18 : 10,
-                  backgroundColor: "#1a1a1a",
                 }}
               >
                 <Pressable
@@ -1151,52 +1212,3 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     </View>
   );
 }
-
-const labelStyle = {
-  fontFamily: "Manrope_600SemiBold",
-  color: "#999999",
-  fontSize: 12,
-  textTransform: "uppercase" as const,
-  letterSpacing: 1,
-  marginBottom: 8,
-  marginTop: 6,
-};
-
-const helperText = {
-  fontFamily: "Manrope_500Medium",
-  color: "#666",
-  fontSize: 11,
-  marginTop: 8,
-  marginBottom: 10,
-};
-
-const inputStyle = {
-  backgroundColor: "#0f0f0f",
-  color: "#f5f5f5",
-  borderWidth: 1,
-  borderColor: "#333",
-  borderRadius: 10,
-  paddingHorizontal: 12,
-  paddingVertical: 12,
-  marginBottom: 12,
-  fontFamily: "Manrope_500Medium",
-  fontSize: 14,
-} as const;
-
-const smallActionButton = {
-  flexDirection: "row" as const,
-  alignItems: "center" as const,
-  gap: 6,
-  borderWidth: 1,
-  borderColor: "#2f2f2f",
-  borderRadius: 10,
-  backgroundColor: "#111111",
-  paddingHorizontal: 10,
-  paddingVertical: 8,
-};
-
-const smallActionText = {
-  fontFamily: "Manrope_600SemiBold" as const,
-  color: "#f5f5f5",
-  fontSize: 12,
-};

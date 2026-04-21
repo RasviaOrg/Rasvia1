@@ -207,6 +207,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const [activeEntries, setActiveEntries] = useState<ActiveWaitlistEntry[]>([]);
   const [tableReadyAlert, setTableReadyAlert] = useState<TableReadyAlert | null>(null);
   const [seatedAlert, setSeatedAlert] = useState<SeatedAlert | null>(null);
+  /** After visiting Alerts, hide the extra “notified but no unread row” badge until new unread arrives. */
+  const [suppressExtraNotifiedBadge, setSuppressExtraNotifiedBadge] = useState(false);
 
   // Track entry IDs we're already watching to avoid duplicate subscriptions
   const watchedEntryIds = useRef<Set<string>>(new Set());
@@ -744,6 +746,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     );
   }, [serverEvents, localEvents]);
 
+  useEffect(() => {
+    if (events.some((e) => !e.read)) {
+      setSuppressExtraNotifiedBadge(false);
+    }
+  }, [events]);
+
   const removeEvent = useCallback(async (id: string) => {
     const serverEvent = serverEvents.find((e) => e.id === id);
     if (serverEvent?.serverId && session?.user?.id) {
@@ -770,26 +778,35 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const markAllRead = useCallback(async () => {
+    setSuppressExtraNotifiedBadge(true);
+
     setLocalEvents((prev) => {
+      if (!prev.some((e) => !e.read)) return prev;
       const updated = prev.map((e) => ({ ...e, read: true }));
       saveEvents(updated);
       return updated;
     });
 
-    if (session?.user?.id) {
-      const unreadServerIds = serverEvents
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    let unreadServerIds: number[] = [];
+    setServerEvents((prev) => {
+      if (!prev.some((e) => !e.read)) return prev;
+      unreadServerIds = prev
         .filter((e) => !e.read && e.serverId != null)
         .map((e) => e.serverId as number);
-      if (unreadServerIds.length > 0) {
-        await supabase
-          .from("app_notifications")
-          .update({ read_at: new Date().toISOString() })
-          .in("id", unreadServerIds)
-          .eq("user_id", session.user.id);
-      }
-      setServerEvents((prev) => prev.map((e) => ({ ...e, read: true })));
+      return prev.map((e) => ({ ...e, read: true }));
+    });
+
+    if (unreadServerIds.length > 0) {
+      await supabase
+        .from("app_notifications")
+        .update({ read_at: new Date().toISOString() })
+        .in("id", unreadServerIds)
+        .eq("user_id", userId);
     }
-  }, [serverEvents, session?.user?.id]);
+  }, [session?.user?.id]);
 
   const clearAll = useCallback(async () => {
     setActiveEntries((prev) => {
@@ -816,7 +833,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     0,
     activeEntries.filter((e) => e.status === "notified").length - unreadTableReadyEvents
   );
-  const notificationBadgeCount = unreadCount + notifiedWithoutUnreadEvent;
+  const notificationBadgeCount =
+    unreadCount + (suppressExtraNotifiedBadge ? 0 : notifiedWithoutUnreadEvent);
 
   return (
     <NotificationsContext.Provider

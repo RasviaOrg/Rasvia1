@@ -32,6 +32,7 @@ import Animated, {
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
@@ -83,6 +84,7 @@ const DAYS = [
 // ==========================================
 export default function OnboardingScreen() {
     const { session, setNeedsOnboarding } = useAuth();
+    const { colors, isDark } = useAppTheme();
 
     const [step, setStep] = useState(0);
     const [saving, setSaving] = useState(false);
@@ -194,7 +196,7 @@ export default function OnboardingScreen() {
     // RENDER
     // ==========================================
     return (
-        <View className="flex-1 bg-neutral-900">
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
             {/* ============ STEP 0: WELCOME & LOCATION ============ */}
             {step === 0 && (
                 <View className="flex-1">
@@ -207,12 +209,21 @@ export default function OnboardingScreen() {
                         resizeMode="cover"
                     />
                     <LinearGradient
-                        colors={[
-                            "rgba(15,15,15,0.15)",
-                            "rgba(15,15,15,0.45)",
-                            "rgba(15,15,15,0.88)",
-                            "#0f0f0f",
-                        ]}
+                        colors={
+                            isDark
+                                ? [
+                                    "rgba(15,15,15,0.15)",
+                                    "rgba(15,15,15,0.45)",
+                                    "rgba(15,15,15,0.88)",
+                                    "#0f0f0f",
+                                ]
+                                : [
+                                    "rgba(255,255,255,0.2)",
+                                    "rgba(250,250,250,0.72)",
+                                    "rgba(250,250,250,0.94)",
+                                    colors.background,
+                                ]
+                        }
                         locations={[0, 0.25, 0.6, 0.8]}
                         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
                     />
@@ -237,13 +248,13 @@ export default function OnboardingScreen() {
                             {showTagline && (
                                 <Animated.View entering={FadeIn.duration(800)}>
                                     <Text
-                                        style={{
-                                            fontFamily: "Manrope_500Medium",
-                                            color: "rgba(245,245,245,0.7)",
-                                            fontSize: 18,
-                                            marginTop: 8,
-                                            letterSpacing: 2,
-                                        }}
+                                    style={{
+                                        fontFamily: "Manrope_500Medium",
+                                        color: isDark ? "rgba(245,245,245,0.7)" : colors.textSecondary,
+                                        fontSize: 18,
+                                        marginTop: 8,
+                                        letterSpacing: 2,
+                                    }}
                                     >
                                         Dining, elevated.
                                     </Text>
@@ -257,10 +268,10 @@ export default function OnboardingScreen() {
                             style={{
                                 marginHorizontal: 20,
                                 marginBottom: 20,
-                                backgroundColor: "rgba(26, 26, 26, 0.92)",
+                                backgroundColor: isDark ? "rgba(26, 26, 26, 0.92)" : "rgba(255, 255, 255, 0.94)",
                                 borderRadius: 28,
                                 borderWidth: 1,
-                                borderColor: "rgba(255, 255, 255, 0.06)",
+                                borderColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.08)",
                                 padding: 24,
                             }}
                         >
@@ -283,7 +294,7 @@ export default function OnboardingScreen() {
                             <Text
                                 style={{
                                     fontFamily: "BricolageGrotesque_700Bold",
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     fontSize: 22,
                                     marginBottom: 4,
                                 }}
@@ -293,7 +304,7 @@ export default function OnboardingScreen() {
                             <Text
                                 style={{
                                     fontFamily: "Manrope_500Medium",
-                                    color: "#999999",
+                                    color: colors.textMuted,
                                     fontSize: 14,
                                     marginBottom: 20,
                                 }}
@@ -308,21 +319,21 @@ export default function OnboardingScreen() {
                                     flexDirection: "row",
                                     alignItems: "center",
                                     justifyContent: "space-between",
-                                    backgroundColor: "#262626",
+                                    backgroundColor: colors.pressableBg,
                                     borderRadius: 16,
                                     borderWidth: 1,
-                                    borderColor: "#333",
+                                    borderColor: colors.cardBorder,
                                     paddingHorizontal: 16,
                                     height: 56,
                                     marginBottom: showCityPicker ? 12 : 20,
                                 }}
                             >
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 16 }}>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 16 }}>
                                     {city}
                                 </Text>
                                 <ChevronDown
                                     size={20}
-                                    color="#999"
+                                    color={colors.iconMuted}
                                     style={{ transform: [{ rotate: showCityPicker ? "180deg" : "0deg" }] }}
                                 />
                             </Pressable>
@@ -331,10 +342,10 @@ export default function OnboardingScreen() {
                             {showCityPicker && (
                                 <View
                                     style={{
-                                        backgroundColor: "#1a1a1a",
+                                        backgroundColor: colors.card,
                                         borderRadius: 16,
                                         borderWidth: 1,
-                                        borderColor: "#2a2a2a",
+                                        borderColor: colors.cardBorder,
                                         maxHeight: 200,
                                         marginBottom: 20,
                                         overflow: "hidden",
@@ -356,14 +367,14 @@ export default function OnboardingScreen() {
                                                     paddingHorizontal: 16,
                                                     paddingVertical: 14,
                                                     borderBottomWidth: 1,
-                                                    borderBottomColor: "#262626",
-                                                    backgroundColor: city === c ? "rgba(255,153,51,0.08)" : "transparent",
+                                                    borderBottomColor: colors.cardBorder,
+                                                    backgroundColor: city === c ? "rgba(255,153,51,0.1)" : "transparent",
                                                 }}
                                             >
                                                 <Text
                                                     style={{
                                                         fontFamily: "Manrope_500Medium",
-                                                        color: city === c ? "#FF9933" : "#f5f5f5",
+                                                        color: city === c ? "#FF9933" : colors.text,
                                                         fontSize: 15,
                                                     }}
                                                 >
@@ -413,7 +424,7 @@ export default function OnboardingScreen() {
 
             {/* ============ STEP 1: DIETARY DNA ============ */}
             {step === 1 && (
-                <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+                <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "bottom"]}>
                     <ScrollView
                         className="flex-1"
                         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40, paddingTop: 16 }}
@@ -421,7 +432,7 @@ export default function OnboardingScreen() {
                     >
                         {/* Back Link */}
                         <Pressable onPress={goBack} style={{ marginBottom: 12 }}>
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999999", fontSize: 14 }}>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 14 }}>
                                 ← Back
                             </Text>
                         </Pressable>
@@ -435,7 +446,7 @@ export default function OnboardingScreen() {
                                         width: i === 1 ? 28 : 8,
                                         height: 8,
                                         borderRadius: 4,
-                                        backgroundColor: i === 1 ? "#FF9933" : i < 1 ? "#FF9933" : "#333",
+                                        backgroundColor: i === 1 ? "#FF9933" : i < 1 ? "#FF9933" : colors.switchTrackOff,
                                     }}
                                 />
                             ))}
@@ -446,7 +457,7 @@ export default function OnboardingScreen() {
                             <Text
                                 style={{
                                     fontFamily: "BricolageGrotesque_800ExtraBold",
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     fontSize: 36,
                                     letterSpacing: -0.5,
                                     marginBottom: 6,
@@ -457,7 +468,7 @@ export default function OnboardingScreen() {
                             <Text
                                 style={{
                                     fontFamily: "Manrope_500Medium",
-                                    color: "#999999",
+                                    color: colors.textMuted,
                                     fontSize: 16,
                                     marginBottom: 32,
                                 }}
@@ -482,10 +493,10 @@ export default function OnboardingScreen() {
                                         }}
                                         style={{
                                             width: (SCREEN_WIDTH - 54) / 2,
-                                            backgroundColor: isSelected ? "rgba(255,153,51,0.12)" : "#1a1a1a",
+                                            backgroundColor: isSelected ? "rgba(255,153,51,0.12)" : colors.card,
                                             borderRadius: 20,
                                             borderWidth: isSelected ? 2 : 1,
-                                            borderColor: isSelected ? "#FF9933" : "#2a2a2a",
+                                            borderColor: isSelected ? "#FF9933" : colors.cardBorder,
                                             padding: 20,
                                             minHeight: 150,
                                             justifyContent: "space-between",
@@ -502,7 +513,7 @@ export default function OnboardingScreen() {
                                                 width: 48,
                                                 height: 48,
                                                 borderRadius: 14,
-                                                backgroundColor: isSelected ? "rgba(255,153,51,0.2)" : "rgba(255,255,255,0.05)",
+                                                backgroundColor: isSelected ? "rgba(255,153,51,0.2)" : (isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
                                                 alignItems: "center",
                                                 justifyContent: "center",
                                                 marginBottom: 16,
@@ -516,7 +527,7 @@ export default function OnboardingScreen() {
                                             <Text
                                                 style={{
                                                     fontFamily: "BricolageGrotesque_700Bold",
-                                                    color: isSelected ? "#FF9933" : "#f5f5f5",
+                                                    color: isSelected ? "#FF9933" : colors.text,
                                                     fontSize: 18,
                                                     marginBottom: 4,
                                                 }}
@@ -526,7 +537,7 @@ export default function OnboardingScreen() {
                                             <Text
                                                 style={{
                                                     fontFamily: "Manrope_500Medium",
-                                                    color: isSelected ? "rgba(255,153,51,0.7)" : "#666",
+                                                    color: isSelected ? "rgba(255,153,51,0.7)" : colors.textMuted,
                                                     fontSize: 13,
                                                 }}
                                             >
@@ -567,7 +578,7 @@ export default function OnboardingScreen() {
                                 onPressOut={() => { btnScale.value = withSpring(1); }}
                                 disabled={!dietaryType || saving}
                                 style={{
-                                    backgroundColor: dietaryType ? "#FF9933" : "#333",
+                                    backgroundColor: dietaryType ? "#FF9933" : colors.switchTrackOff,
                                     borderRadius: 16,
                                     height: 56,
                                     alignItems: "center",
@@ -587,7 +598,7 @@ export default function OnboardingScreen() {
                                     <Text
                                         style={{
                                             fontFamily: "BricolageGrotesque_700Bold",
-                                            color: dietaryType ? "#0f0f0f" : "#666",
+                                            color: dietaryType ? "#0f0f0f" : colors.textMuted,
                                             fontSize: 17,
                                         }}
                                     >
@@ -602,11 +613,11 @@ export default function OnboardingScreen() {
 
             {/* ============ STEP 2: FLEXI-SCHEDULE (Non-Veg only) ============ */}
             {step === 2 && (
-                <SafeAreaView className="flex-1 justify-between" edges={["top", "bottom"]}>
+                <SafeAreaView style={{ flex: 1, justifyContent: "space-between", backgroundColor: colors.background }} edges={["top", "bottom"]}>
                     <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
                         {/* Back Link */}
                         <Pressable onPress={goBack} style={{ marginBottom: 12 }}>
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999999", fontSize: 14 }}>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 14 }}>
                                 ← Back
                             </Text>
                         </Pressable>
@@ -620,7 +631,7 @@ export default function OnboardingScreen() {
                                         width: i === 2 ? 28 : 8,
                                         height: 8,
                                         borderRadius: 4,
-                                        backgroundColor: i <= 2 ? "#FF9933" : "#333",
+                                        backgroundColor: i <= 2 ? "#FF9933" : colors.switchTrackOff,
                                     }}
                                 />
                             ))}
@@ -631,7 +642,7 @@ export default function OnboardingScreen() {
                             <Text
                                 style={{
                                     fontFamily: "BricolageGrotesque_800ExtraBold",
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     fontSize: 36,
                                     letterSpacing: -0.5,
                                     marginBottom: 6,
@@ -642,7 +653,7 @@ export default function OnboardingScreen() {
                             <Text
                                 style={{
                                     fontFamily: "Manrope_500Medium",
-                                    color: "#999999",
+                                    color: colors.textMuted,
                                     fontSize: 16,
                                     marginBottom: 8,
                                     lineHeight: 24,
@@ -675,9 +686,9 @@ export default function OnboardingScreen() {
                                                 borderRadius: 23,
                                                 alignItems: "center",
                                                 justifyContent: "center",
-                                                backgroundColor: isActive ? "#10B981" : "#1a1a1a",
+                                                backgroundColor: isActive ? "#10B981" : colors.card,
                                                 borderWidth: isActive ? 0 : 1,
-                                                borderColor: "#333",
+                                                borderColor: colors.cardBorder,
                                                 shadowColor: isActive ? "#10B981" : "transparent",
                                                 shadowOffset: { width: 0, height: 0 },
                                                 shadowOpacity: isActive ? 0.5 : 0,
@@ -688,7 +699,7 @@ export default function OnboardingScreen() {
                                             <Text
                                                 style={{
                                                     fontFamily: "BricolageGrotesque_700Bold",
-                                                    color: isActive ? "#fff" : "#999",
+                                                    color: isActive ? "#fff" : colors.textMuted,
                                                     fontSize: 16,
                                                 }}
                                             >
@@ -698,7 +709,7 @@ export default function OnboardingScreen() {
                                         <Text
                                             style={{
                                                 fontFamily: "Manrope_500Medium",
-                                                color: isActive ? "#10B981" : "#555",
+                                                color: isActive ? "#10B981" : colors.textMuted,
                                                 fontSize: 10,
                                                 textAlign: "center",
                                                 marginTop: 6,
@@ -727,7 +738,7 @@ export default function OnboardingScreen() {
                             <Text
                                 style={{
                                     fontFamily: "Manrope_500Medium",
-                                    color: "#999",
+                                    color: colors.textMuted,
                                     fontSize: 14,
                                     marginLeft: 12,
                                     flex: 1,

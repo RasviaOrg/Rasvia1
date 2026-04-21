@@ -10,7 +10,8 @@ import * as Device from "expo-device";
 import Constants from "expo-constants";
 import * as SecureStore from 'expo-secure-store';
 
-const PUSH_ENABLED_KEY = "rasvia:push-notifications-enabled";
+/** SecureStore keys may only use [A-Za-z0-9._-] — no colons. */
+const PUSH_ENABLED_KEY = "rasvia_push_notifications_enabled";
 const isExpoGo = Constants.executionEnvironment === "storeClient";
 let notificationsImportPromise: Promise<typeof import("expo-notifications") | null> | null = null;
 let notificationHandlerConfigured = false;

@@ -78,6 +78,7 @@ function SwipeableOrderRow({
   children: React.ReactNode;
   onDismiss: () => void;
 }) {
+  const { colors } = useAppTheme();
   const swipeableRef = useRef<Swipeable>(null);
 
   if (!canSwipeDismiss(order)) {
@@ -112,9 +113,9 @@ function SwipeableOrderRow({
             width: 44,
             height: 44,
             borderRadius: 22,
-            backgroundColor: "#EF444420",
+            backgroundColor: `${colors.card}`,
             borderWidth: 1,
-            borderColor: "#EF444440",
+            borderColor: "rgba(239,68,68,0.45)",
             alignItems: "center",
             justifyContent: "center",
           }}
@@ -263,6 +264,7 @@ function PulsingDot({ color }: { color: string }) {
 // ─────────────────────────── Progress Stepper ────────────────────────────────
 
 function OrderProgressStepper({ status }: { status: OrderStatus }) {
+  const { colors } = useAppTheme();
   const currentIdx = statusToStepIndex(status);
   const isCancelled = status === "cancelled";
 
@@ -314,12 +316,12 @@ function OrderProgressStepper({ status }: { status: OrderStatus }) {
             ? step.color
             : isActive
               ? `${step.color}25`
-              : "#1a1a1a";
+              : colors.pressableBg;
           const borderColor = isCompleted
             ? step.color
             : isActive
               ? step.color
-              : "#2a2a2a";
+              : colors.cardBorder;
 
           return (
             <React.Fragment key={step.key}>
@@ -329,7 +331,7 @@ function OrderProgressStepper({ status }: { status: OrderStatus }) {
                   style={{
                     flex: 1,
                     height: 3,
-                    backgroundColor: isCompleted || isActive ? TRACKING_STEPS[idx - 1].color : "#222",
+                    backgroundColor: isCompleted || isActive ? TRACKING_STEPS[idx - 1].color : colors.skeletonLine,
                     borderRadius: 2,
                     marginHorizontal: -2,
                   }}
@@ -398,8 +400,8 @@ function OrderProgressStepper({ status }: { status: OrderStatus }) {
                   color: isActive
                     ? step.color
                     : isCompleted
-                      ? "#888"
-                      : "#444",
+                      ? colors.textSecondary
+                      : colors.textMuted,
                   textAlign: "center",
                 }}
               >
@@ -413,53 +415,62 @@ function OrderProgressStepper({ status }: { status: OrderStatus }) {
   );
 }
 
-// ─────────────────────────── Status Message ──────────────────────────────────
+// ─────────────────────────── Status presentation (title + icon, no emoji) ───
 
-function getStatusMessage(
+type StatusIconComponent = React.ComponentType<{ size: number; color: string }>;
+
+function getStatusPresentation(
   status: OrderStatus,
   orderType: OrderType
-): { title: string; subtitle: string } {
+): { title: string; subtitle: string; StatusIcon: StatusIconComponent } {
   switch (status) {
     case "pending_payment":
       return {
-        title: "Processing Payment...",
+        title: "Processing payment",
         subtitle: "Your payment is being confirmed. This usually takes just a moment.",
+        StatusIcon: Clock,
       };
     case "pending":
       return {
-        title: "Order Received!",
+        title: "Order received",
         subtitle: "The restaurant has received your order and will start preparing it shortly.",
+        StatusIcon: ClipboardList,
       };
     case "preparing":
       return {
-        title: "Being Prepared 👨‍🍳",
+        title: "Being prepared",
         subtitle: "The kitchen is working on your order right now.",
+        StatusIcon: ChefHat,
       };
     case "ready":
       return {
-        title: orderType === "takeout" ? "Ready for Pickup! 🛍️" : "Food is Ready! 🍽️",
+        title: orderType === "takeout" ? "Ready for pickup" : "Food is ready",
         subtitle:
           orderType === "takeout"
             ? "Head to the counter to pick up your order."
             : "Your food is on its way to your table.",
+        StatusIcon: ShoppingBag,
       };
     case "served":
       return {
-        title: "Served! 🍽️ Enjoy!",
-        subtitle: "Your food has been served. Bon appétit!",
+        title: "Served",
+        subtitle: "Your food has been served. Enjoy!",
+        StatusIcon: UtensilsCrossed,
       };
     case "completed":
       return {
-        title: "All Done! 🎉",
+        title: "All done",
         subtitle: "Thank you for dining with us. We hope you enjoyed your meal!",
+        StatusIcon: CheckCircle2,
       };
     case "cancelled":
       return {
-        title: "Order Cancelled",
+        title: "Order cancelled",
         subtitle: "This order has been cancelled. Contact the restaurant for details.",
+        StatusIcon: XCircle,
       };
     default:
-      return { title: "Processing", subtitle: "" };
+      return { title: "Processing", subtitle: "", StatusIcon: ClipboardList };
   }
 }
 
@@ -476,9 +487,11 @@ function ActiveOrderCard({
    *  order list — optional so existing call sites don't have to change. */
   onCancelled?: () => void;
 }) {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const [cancelling, setCancelling] = useState(false);
-  const statusMsg = getStatusMessage(order.status, order.orderType);
+  const statusPresentation = getStatusPresentation(order.status, order.orderType);
+  const { title: statusTitle, subtitle: statusSubtitle, StatusIcon: StatusIcon } = statusPresentation;
   const isLive = order.status !== "completed" && order.status !== "cancelled";
   const statusColor = getStatusColor(order.status);
 
@@ -557,10 +570,10 @@ function ActiveOrderCard({
     <Animated.View
       entering={FadeInDown.delay(80 + index * 60).duration(500).springify()}
       style={{
-        backgroundColor: "#141414",
+        backgroundColor: colors.card,
         borderRadius: 22,
         borderWidth: 1,
-        borderColor: isLive ? `${statusColor}40` : "#2a2a2a",
+        borderColor: isLive ? `${statusColor}40` : colors.cardBorder,
         marginBottom: 16,
         overflow: "hidden",
       }}
@@ -591,7 +604,7 @@ function ActiveOrderCard({
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 20,
                 letterSpacing: -0.3,
               }}
@@ -612,19 +625,19 @@ function ActiveOrderCard({
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.backgroundElevated,
                   paddingHorizontal: 8,
                   paddingVertical: 3,
                   borderRadius: 8,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                 }}
               >
-                <TypeIcon size={11} color="#777" />
+                <TypeIcon size={11} color={colors.textMuted} />
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: "#777",
+                    color: colors.textMuted,
                     fontSize: 11,
                   }}
                 >
@@ -634,7 +647,7 @@ function ActiveOrderCard({
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#555",
+                  color: colors.textMuted,
                   fontSize: 11,
                 }}
               >
@@ -649,7 +662,7 @@ function ActiveOrderCard({
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 20,
               }}
             >
@@ -659,7 +672,7 @@ function ActiveOrderCard({
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#555",
+                  color: colors.textMuted,
                   fontSize: 11,
                   marginTop: 2,
                 }}
@@ -686,33 +699,40 @@ function ActiveOrderCard({
             marginTop: 4,
           }}
         >
-          <Text
-            style={{
-              fontFamily: "BricolageGrotesque_700Bold",
-              color: statusColor,
-              fontSize: 15,
-              marginBottom: 3,
-            }}
-          >
-            {statusMsg.title}
-          </Text>
-          <Text
-            style={{
-              fontFamily: "Manrope_500Medium",
-              color: "#999",
-              fontSize: 13,
-              lineHeight: 19,
-            }}
-          >
-            {statusMsg.subtitle}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+            <View style={{ marginTop: 2 }}>
+              <StatusIcon size={22} color={statusColor} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  color: statusColor,
+                  fontSize: 15,
+                  marginBottom: 3,
+                }}
+              >
+                {statusTitle}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: colors.textMuted,
+                  fontSize: 13,
+                  lineHeight: 19,
+                }}
+              >
+                {statusSubtitle}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Items summary */}
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
-            color: "#555",
+            color: colors.textMuted,
             fontSize: 12,
             marginTop: 12,
           }}
@@ -727,7 +747,7 @@ function ActiveOrderCard({
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#666",
+              color: colors.textMuted,
               fontSize: 11,
               marginTop: 10,
               fontStyle: "italic",
@@ -785,6 +805,7 @@ function PastOrderCard({
   order: UIOrder;
   index: number;
 }) {
+  const { colors } = useAppTheme();
   const statusColor = getStatusColor(order.status);
   const TypeIcon =
     order.orderType === "takeout"
@@ -808,10 +829,10 @@ function PastOrderCard({
     >
       <View
         style={{
-          backgroundColor: "#141414",
+          backgroundColor: colors.card,
           borderRadius: 16,
           borderWidth: 1,
-          borderColor: "#1e1e1e",
+          borderColor: colors.cardBorder,
           padding: 14,
           marginBottom: 10,
         }}
@@ -829,7 +850,7 @@ function PastOrderCard({
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 16,
               }}
               numberOfLines={1}
@@ -839,11 +860,11 @@ function PastOrderCard({
             <View
               style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 }}
             >
-              <Clock size={10} color="#555" />
+              <Clock size={10} color={colors.textMuted} />
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#555",
+                  color: colors.textMuted,
                   fontSize: 11,
                 }}
               >
@@ -854,7 +875,7 @@ function PastOrderCard({
           <Text
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: "#ccc",
+              color: colors.textSecondary,
               fontSize: 16,
             }}
           >
@@ -866,7 +887,7 @@ function PastOrderCard({
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
-            color: "#555",
+            color: colors.textMuted,
             fontSize: 12,
             marginBottom: 8,
           }}
@@ -888,19 +909,19 @@ function PastOrderCard({
               flexDirection: "row",
               alignItems: "center",
               gap: 5,
-              backgroundColor: "#0f0f0f",
+              backgroundColor: colors.backgroundElevated,
               paddingHorizontal: 8,
               paddingVertical: 4,
               borderRadius: 8,
               borderWidth: 1,
-              borderColor: "#1e1e1e",
+              borderColor: colors.cardBorder,
             }}
           >
-            <TypeIcon size={11} color="#666" />
+            <TypeIcon size={11} color={colors.textMuted} />
             <Text
               style={{
                 fontFamily: "Manrope_600SemiBold",
-                color: "#666",
+                color: colors.textMuted,
                 fontSize: 11,
               }}
             >
@@ -935,6 +956,7 @@ function PastOrderCard({
 }
 
 function MyOrdersLoadingSkeleton() {
+  const { colors } = useAppTheme();
   const pulse = useSharedValue(0.28);
   useEffect(() => {
     pulse.value = withRepeat(withTiming(0.52, { duration: 720 }), -1, true);
@@ -957,10 +979,10 @@ function MyOrdersLoadingSkeleton() {
         >
           <View
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 16,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               padding: 16,
               marginBottom: 14,
             }}
@@ -975,32 +997,32 @@ function MyOrdersLoadingSkeleton() {
             >
               <Animated.View
                 style={[
-                  { height: 14, width: "42%", borderRadius: 6, backgroundColor: "#262626" },
+                  { height: 14, width: "42%", borderRadius: 6, backgroundColor: colors.skeletonLine },
                   pulseStyle,
                 ]}
               />
               <Animated.View
                 style={[
-                  { height: 26, width: 76, borderRadius: 8, backgroundColor: "#262626" },
+                  { height: 26, width: 76, borderRadius: 8, backgroundColor: colors.skeletonLine },
                   pulseStyle,
                 ]}
               />
             </View>
             <Animated.View
               style={[
-                { height: 20, width: "58%", borderRadius: 8, backgroundColor: "#262626", marginBottom: 12 },
+                { height: 20, width: "58%", borderRadius: 8, backgroundColor: colors.skeletonLine, marginBottom: 12 },
                 pulseStyle,
               ]}
             />
             <Animated.View
               style={[
-                { height: 14, width: "88%", borderRadius: 6, backgroundColor: "#262626", marginBottom: 8 },
+                { height: 14, width: "88%", borderRadius: 6, backgroundColor: colors.skeletonLine, marginBottom: 8 },
                 pulseStyle,
               ]}
             />
             <Animated.View
               style={[
-                { height: 14, width: "52%", borderRadius: 6, backgroundColor: "#262626" },
+                { height: 14, width: "52%", borderRadius: 6, backgroundColor: colors.skeletonLine },
                 pulseStyle,
               ]}
             />
@@ -1171,18 +1193,18 @@ export default function MyOrdersScreen() {
               router.back();
             }}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.pressableBg,
               width: 44,
               height: 44,
               borderRadius: 22,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               marginRight: 16,
             }}
           >
-            <ArrowLeft size={22} color="#f5f5f5" />
+            <ArrowLeft size={22} color={colors.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text
@@ -1254,20 +1276,20 @@ export default function MyOrdersScreen() {
                     width: 80,
                     height: 80,
                     borderRadius: 40,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.card,
                     alignItems: "center",
                     justifyContent: "center",
                     marginBottom: 16,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                   }}
                 >
-                  <ShoppingBag size={32} color="#666" />
+                  <ShoppingBag size={32} color={colors.iconMuted} />
                 </View>
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 20,
                     marginBottom: 8,
                   }}
@@ -1277,7 +1299,7 @@ export default function MyOrdersScreen() {
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999",
+                    color: colors.textMuted,
                     fontSize: 15,
                     textAlign: "center",
                     lineHeight: 22,
@@ -1339,7 +1361,7 @@ export default function MyOrdersScreen() {
                       <Text
                         style={{
                           fontFamily: "BricolageGrotesque_700Bold",
-                          color: "#f5f5f5",
+                          color: colors.text,
                           fontSize: 18,
                           letterSpacing: -0.3,
                         }}
@@ -1376,11 +1398,11 @@ export default function MyOrdersScreen() {
                         marginBottom: 14,
                       }}
                     >
-                      <Clock size={14} color="#555" />
+                      <Clock size={14} color={colors.textMuted} />
                       <Text
                         style={{
                           fontFamily: "BricolageGrotesque_700Bold",
-                          color: "#888",
+                          color: colors.textSecondary,
                           fontSize: 16,
                           letterSpacing: -0.3,
                         }}
@@ -1390,7 +1412,7 @@ export default function MyOrdersScreen() {
                       <Text
                         style={{
                           fontFamily: "Manrope_500Medium",
-                          color: "#444",
+                          color: colors.textMuted,
                           fontSize: 12,
                         }}
                       >

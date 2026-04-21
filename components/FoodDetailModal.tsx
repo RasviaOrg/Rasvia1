@@ -5,6 +5,7 @@ import { X, Plus, Leaf, Moon, Flame, Settings, Camera } from "lucide-react-nativ
 import type { UIMenuItem } from "@/lib/restaurant-types";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
+import { useAppTheme } from "@/lib/app-theme";
 
 let SCREEN_WIDTH = Dimensions.get("window").width;
 let SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -30,6 +31,7 @@ export function FoodDetailModal({
   onContributeImage,
   canAddToCart = true,
 }: FoodDetailModalProps) {
+  const { colors, isDark } = useAppTheme();
   const hasImage = !!item.image?.trim();
   const addBlocked = !canAddToCart || item.isAvailable === false;
   const addLabel = !canAddToCart
@@ -42,7 +44,7 @@ export function FoodDetailModal({
       entering={FadeIn.duration(300)}
       className="absolute inset-0"
       style={{
-        backgroundColor: "rgba(0,0,0,0.85)",
+        backgroundColor: isDark ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.4)",
         zIndex: 100,
       }}
     >
@@ -51,8 +53,8 @@ export function FoodDetailModal({
         className="flex-1 justify-end"
       >
         <View
-          className="bg-rasvia-dark rounded-t-3xl overflow-hidden"
-          style={{ maxHeight: SCREEN_HEIGHT * 0.88 }}
+          className="rounded-t-3xl overflow-hidden"
+          style={{ maxHeight: SCREEN_HEIGHT * 0.88, backgroundColor: colors.card, borderTopWidth: 1, borderColor: colors.cardBorder }}
         >
           {/* Image Section with Video Placeholder */}
           <View style={{ height: SCREEN_HEIGHT * 0.45, position: "relative" }}>
@@ -69,17 +71,21 @@ export function FoodDetailModal({
                   height: "100%",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "#1b1b1b",
+                  backgroundColor: isDark ? "#1b1b1b" : colors.pressableBg,
                 }}
               >
-                <Camera size={34} color="#7a7a7a" />
-                <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 13 }}>
+                <Camera size={34} color={colors.iconMuted} />
+                <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 13 }}>
                   No image available
                 </Text>
               </View>
             )}
             <LinearGradient
-              colors={["rgba(26,26,26,0.3)", "transparent", "rgba(26,26,26,0.95)"]}
+              colors={
+                isDark
+                  ? ["rgba(26,26,26,0.3)", "transparent", "rgba(26,26,26,0.95)"]
+                  : ["rgba(255,255,255,0.25)", "transparent", "rgba(0,0,0,0.55)"]
+              }
               style={{
                 position: "absolute",
                 top: 0,
@@ -88,6 +94,24 @@ export function FoodDetailModal({
                 bottom: 0,
               }}
             />
+
+            <View
+              style={{
+                position: "absolute",
+                top: 16,
+                left: 16,
+                backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.94)",
+                borderRadius: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderWidth: 1,
+                borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+              }}
+            >
+              <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#FF9933", fontSize: 15 }}>
+                ${item.price.toFixed(2)}
+              </Text>
+            </View>
 
             {hasImage && item.communityImageCredit && (
               <View
@@ -139,15 +163,17 @@ export function FoodDetailModal({
                     onOpenSettings();
                   }}
                   style={{
-                    backgroundColor: "rgba(15, 15, 15, 0.6)",
+                    backgroundColor: isDark ? "rgba(15, 15, 15, 0.6)" : "rgba(255,255,255,0.92)",
                     width: 40,
                     height: 40,
                     borderRadius: 20,
                     alignItems: "center",
                     justifyContent: "center",
+                    borderWidth: isDark ? 0 : 1,
+                    borderColor: "rgba(0,0,0,0.08)",
                   }}
                 >
-                  <Settings size={18} color="#f5f5f5" />
+                  <Settings size={18} color={colors.text} />
                 </Pressable>
               )}
               <Pressable
@@ -156,15 +182,17 @@ export function FoodDetailModal({
                   onClose();
                 }}
                 style={{
-                  backgroundColor: "rgba(15, 15, 15, 0.6)",
+                  backgroundColor: isDark ? "rgba(15, 15, 15, 0.6)" : "rgba(255,255,255,0.92)",
                   width: 40,
                   height: 40,
                   borderRadius: 20,
                   alignItems: "center",
                   justifyContent: "center",
+                  borderWidth: isDark ? 0 : 1,
+                  borderColor: "rgba(0,0,0,0.08)",
                 }}
               >
-                <X size={20} color="#f5f5f5" />
+                <X size={20} color={colors.text} />
               </Pressable>
             </View>
 
@@ -232,7 +260,7 @@ export function FoodDetailModal({
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_800ExtraBold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 32,
                     lineHeight: 36,
                     letterSpacing: -0.5,
@@ -241,49 +269,38 @@ export function FoodDetailModal({
                   {item.name}
                 </Text>
               </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                  {showContributeImage && onContributeImage && (
-                    <Pressable
-                      onPress={() => {
-                        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        onContributeImage();
-                      }}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 5,
-                        backgroundColor: "rgba(15,15,15,0.72)",
-                        borderRadius: 999,
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderWidth: 1,
-                        borderColor: "rgba(255,255,255,0.2)",
-                      }}
-                    >
-                      <Camera size={12} color="#FF9933" />
-                      <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 11 }}>
-                        Add Photo
-                      </Text>
-                    </Pressable>
-                  )}
+              {showContributeImage && onContributeImage ? (
+                <View style={{ alignItems: "flex-end" }}>
+                  <Pressable
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      onContributeImage();
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      backgroundColor: isDark ? "rgba(15,15,15,0.72)" : colors.pressableBg,
+                      borderRadius: 999,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderWidth: 1,
+                      borderColor: isDark ? "rgba(255,255,255,0.2)" : colors.cardBorder,
+                    }}
+                  >
+                    <Camera size={12} color="#FF9933" />
+                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 11 }}>
+                      Add Photo
+                    </Text>
+                  </Pressable>
                 </View>
-                <Text
-                  style={{
-                    fontFamily: "JetBrainsMono_600SemiBold",
-                    color: "#FF9933",
-                    fontSize: 24,
-                  }}
-                >
-                  ${item.price.toFixed(2)}
-                </Text>
-              </View>
+              ) : null}
             </View>
 
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: colors.textMuted,
                 fontSize: 15,
                 lineHeight: 22,
                 marginBottom: 6,
@@ -350,9 +367,9 @@ export function FoodDetailModal({
               }}
               className="rounded-2xl py-4 flex-row items-center justify-center"
               style={{
-                backgroundColor: addBlocked ? "#3a3a3a" : "#FF9933",
+                backgroundColor: addBlocked ? colors.pressableBg : "#FF9933",
                 borderWidth: addBlocked ? 1 : 0,
-                borderColor: "rgba(255,255,255,0.08)",
+                borderColor: addBlocked ? colors.cardBorder : "rgba(255,255,255,0.08)",
                 shadowColor: addBlocked ? "transparent" : "#FF9933",
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: addBlocked ? 0 : 0.3,
@@ -364,7 +381,7 @@ export function FoodDetailModal({
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: addBlocked ? "#a3a3a3" : "#0f0f0f",
+                  color: addBlocked ? colors.textMuted : "#0f0f0f",
                   fontSize: addBlocked ? 15 : 17,
                   marginLeft: addBlocked ? 0 : 8,
                   textAlign: "center",

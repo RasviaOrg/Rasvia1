@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
     View,
     Text,
@@ -32,6 +32,7 @@ import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 import { useNotifications } from "@/lib/notifications-context";
 import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from "@/lib/edge-function-error";
 import { withTimeout } from "@/lib/with-timeout";
@@ -81,39 +82,6 @@ const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
 // Save / Not Now, but short enough that nobody's actively waiting.
 const WALLET_INTERACTION_GRACE_MS = 2600;
 
-const S = {
-    card: {
-        backgroundColor: "#1a1a1a",
-        borderWidth: 1,
-        borderColor: "#2a2a2a",
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 12,
-    } as const,
-    label: {
-        fontFamily: "Manrope_600SemiBold",
-        color: "#999",
-        fontSize: 12,
-        marginBottom: 6,
-        textTransform: "uppercase" as const,
-        letterSpacing: 0.5,
-    },
-    chip: (active: boolean, color = "#FF9933"): object => ({
-        paddingHorizontal: 14,
-        paddingVertical: 9,
-        borderRadius: 20,
-        borderWidth: 1,
-        backgroundColor: active ? `${color}22` : "#0f0f0f",
-        borderColor: active ? color : "#2a2a2a",
-        marginRight: 8,
-    }),
-    chipText: (active: boolean, color = "#FF9933") => ({
-        fontFamily: active ? "Manrope_700Bold" : "Manrope_500Medium",
-        fontSize: 13,
-        color: active ? color : "#777",
-    }),
-};
-
 export function CheckoutModal({
     visible,
     restaurantId,
@@ -133,6 +101,32 @@ export function CheckoutModal({
   const { session } = useAuth();
   const { addEvent } = useNotifications();
   const router = useRouter();
+  const { colors, isDark } = useAppTheme();
+  const ctaOnSaffron = isDark ? "#0f0f0f" : "#ffffff";
+  const sheetBackdrop = isDark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.45)";
+  const successBackdrop = isDark ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.5)";
+  const S = useMemo(
+    () =>
+      ({
+        card: {
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.cardBorder,
+          borderRadius: 16,
+          padding: 16,
+          marginBottom: 12,
+        } as const,
+        label: {
+          fontFamily: "Manrope_600SemiBold",
+          color: colors.textMuted,
+          fontSize: 12,
+          marginBottom: 6,
+          textTransform: "uppercase" as const,
+          letterSpacing: 0.5,
+        },
+      }) as const,
+    [colors]
+  );
 
     // If we have a waitlist entry it's a silent pre_order; otherwise use initialOrderType or dine_in.
     const defaultType: OrderType = waitlistEntryId
@@ -564,16 +558,24 @@ export function CheckoutModal({
     if (done) {
         return (
             <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-                <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+                <View style={{ flex: 1, backgroundColor: successBackdrop, justifyContent: "center", alignItems: "center", padding: 24 }}>
                     <Animated.View
                         entering={FadeIn.duration(400)}
-                        style={{ backgroundColor: "#1a1a1a", borderRadius: 24, padding: 32, alignItems: "center", width: "100%", borderWidth: 1, borderColor: "#2a2a2a" }}
+                        style={{
+                            backgroundColor: colors.card,
+                            borderRadius: 24,
+                            padding: 32,
+                            alignItems: "center",
+                            width: "100%",
+                            borderWidth: 1,
+                            borderColor: colors.cardBorder,
+                        }}
                     >
                         <CheckCircle2 size={56} color="#22C55E" style={{ marginBottom: 16 }} />
-                        <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 26, marginBottom: 8, textAlign: "center" }}>
+                        <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 26, marginBottom: 8, textAlign: "center" }}>
                             Order sent
                         </Text>
-                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 15, textAlign: "center", marginBottom: 4 }}>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 15, textAlign: "center", marginBottom: 4 }}>
                             {orderType === "takeout"
                                 ? `${restaurantName} received your order and is preparing it.`
                                 : orderType === "pre_order"
@@ -581,20 +583,30 @@ export function CheckoutModal({
                                     : `${restaurantName} has your order and the kitchen is on it.`}
                         </Text>
                         {orderType === "takeout" && (
-                            <View style={{ backgroundColor: "rgba(255,153,51,0.1)", borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(255,153,51,0.2)", width: "100%" }}>
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 13, textAlign: "center" }}>
+                            <View
+                                style={{
+                                    backgroundColor: "rgba(255,153,51,0.1)",
+                                    borderRadius: 12,
+                                    padding: 12,
+                                    marginTop: 12,
+                                    borderWidth: 1,
+                                    borderColor: "rgba(255,153,51,0.2)",
+                                    width: "100%",
+                                }}
+                            >
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.saffron, fontSize: 13, textAlign: "center" }}>
                                     You&apos;ll be notified when your order is ready for pickup 🛍️
                                 </Text>
                             </View>
                         )}
-                        <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#555", fontSize: 12, marginTop: 16 }}>
+                        <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.textMuted, fontSize: 12, marginTop: 16 }}>
                             Order #{placedOrderId}
                         </Text>
                         <Pressable
                             onPress={handleClose}
-                            style={{ marginTop: 24, backgroundColor: "#FF9933", borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 }}
+                            style={{ marginTop: 24, backgroundColor: colors.saffron, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 }}
                         >
-                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 17 }}>Done</Text>
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: ctaOnSaffron, fontSize: 17 }}>Done</Text>
                         </Pressable>
                     </Animated.View>
                 </View>
@@ -614,36 +626,48 @@ export function CheckoutModal({
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
             <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-                <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}>
+                <View style={{ flex: 1, backgroundColor: sheetBackdrop, justifyContent: "flex-end" }}>
                     <Pressable style={{ flex: 1 }} onPress={handleClose} />
 
                     <View
                         style={{
-                            backgroundColor: "#0f0f0f",
+                            backgroundColor: colors.backgroundElevated,
                             borderTopLeftRadius: 28,
                             borderTopRightRadius: 28,
                             maxHeight: "92%",
                             borderTopWidth: 1,
-                            borderTopColor: "#2a2a2a",
+                            borderTopColor: colors.cardBorder,
                         }}
                     >
                         {/* Handle */}
                         <View style={{ alignItems: "center", paddingTop: 12 }}>
-                            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: "#2a2a2a" }} />
+                            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.cardBorder }} />
                         </View>
 
                         {/* Header */}
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 16 }}>
                             <View>
-                                <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 24 }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 24 }}>
                                     {existingOrderId ? "Add to Order" : "Checkout"}
                                 </Text>
-                                <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 2 }}>
+                                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
                                     {restaurantName}
                                 </Text>
                             </View>
-                            <Pressable onPress={handleClose} style={{ backgroundColor: "#1a1a1a", width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#2a2a2a" }}>
-                                <X size={18} color="#f5f5f5" />
+                            <Pressable
+                                onPress={handleClose}
+                                style={{
+                                    backgroundColor: colors.card,
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 19,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    borderWidth: 1,
+                                    borderColor: colors.cardBorder,
+                                }}
+                            >
+                                <X size={18} color={colors.text} />
                             </Pressable>
                         </View>
 
@@ -655,13 +679,27 @@ export function CheckoutModal({
                                     <Text style={S.label}>Order Type</Text>
                                     {lockOrderType ? (
                                         /* Read-only pill when order type was pre-selected */
-                                        <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,153,51,0.12)", borderRadius: 14, padding: 14, borderWidth: 1.5, borderColor: "#FF9933" }}>
-                                            {orderType === "takeout" ? <Truck size={20} color="#FF9933" /> : <UtensilsCrossed size={20} color="#FF9933" />}
+                                        <View
+                                            style={{
+                                                flexDirection: "row",
+                                                alignItems: "center",
+                                                backgroundColor: "rgba(255,153,51,0.12)",
+                                                borderRadius: 14,
+                                                padding: 14,
+                                                borderWidth: 1.5,
+                                                borderColor: colors.saffron,
+                                            }}
+                                        >
+                                            {orderType === "takeout" ? (
+                                                <Truck size={20} color={colors.saffron} />
+                                            ) : (
+                                                <UtensilsCrossed size={20} color={colors.saffron} />
+                                            )}
                                             <View style={{ marginLeft: 12 }}>
-                                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 16 }}>
+                                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 16 }}>
                                                     {orderType === "takeout" ? "Takeout" : "Dine In"}
                                                 </Text>
-                                                <Text style={{ fontFamily: "Manrope_500Medium", color: "#FF9933", fontSize: 12, marginTop: 2 }}>
+                                                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.saffron, fontSize: 12, marginTop: 2 }}>
                                                     {orderType === "takeout" ? "Ready for pickup" : "At your table"}
                                                 </Text>
                                             </View>
@@ -680,17 +718,36 @@ export function CheckoutModal({
                                                         style={{
                                                             flex: 1,
                                                             marginRight: key !== "takeout" ? 8 : 0,
-                                                            backgroundColor: active ? "rgba(255,153,51,0.12)" : "#0f0f0f",
+                                                            backgroundColor: active ? "rgba(255,153,51,0.12)" : colors.background,
                                                             borderRadius: 14,
                                                             borderWidth: 1.5,
-                                                            borderColor: active ? "#FF9933" : "#2a2a2a",
+                                                            borderColor: active ? colors.saffron : colors.cardBorder,
                                                             padding: 12,
                                                             alignItems: "center",
                                                         }}
                                                     >
-                                                        <Icon size={20} color={active ? "#FF9933" : "#666"} />
-                                                        <Text style={{ fontFamily: "Manrope_700Bold", color: active ? "#FF9933" : "#f5f5f5", fontSize: 12, marginTop: 6 }}>{label}</Text>
-                                                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 10, marginTop: 2, textAlign: "center" }}>{desc}</Text>
+                                                        <Icon size={20} color={active ? colors.saffron : colors.iconMuted} />
+                                                        <Text
+                                                            style={{
+                                                                fontFamily: "Manrope_700Bold",
+                                                                color: active ? colors.saffron : colors.text,
+                                                                fontSize: 12,
+                                                                marginTop: 6,
+                                                            }}
+                                                        >
+                                                            {label}
+                                                        </Text>
+                                                        <Text
+                                                            style={{
+                                                                fontFamily: "Manrope_500Medium",
+                                                                color: colors.textMuted,
+                                                                fontSize: 10,
+                                                                marginTop: 2,
+                                                                textAlign: "center",
+                                                            }}
+                                                        >
+                                                            {desc}
+                                                        </Text>
                                                     </Pressable>
                                                 );
                                             })}
@@ -707,15 +764,15 @@ export function CheckoutModal({
                                         value={customerName}
                                         onChangeText={setCustomerName}
                                         placeholder="e.g. John Doe"
-                                        placeholderTextColor="#555"
+                                        placeholderTextColor={colors.textMuted}
                                         style={{
-                                            backgroundColor: "#0f0f0f",
+                                            backgroundColor: colors.background,
                                             borderRadius: 12,
                                             borderWidth: 1,
-                                            borderColor: customerName ? "#FF9933" : "#2a2a2a",
+                                            borderColor: customerName ? colors.saffron : colors.cardBorder,
                                             paddingHorizontal: 14,
                                             paddingVertical: 12,
-                                            color: "#f5f5f5",
+                                            color: colors.text,
                                             fontFamily: "Manrope_600SemiBold",
                                             fontSize: 15,
                                         }}
@@ -729,11 +786,22 @@ export function CheckoutModal({
                                 {cartItems.length === 0 ? (
                                     <Pressable
                                         onPress={() => { if (Platform.OS !== "web") Haptics.selectionAsync(); onAddMoreItems?.(); }}
-                                        style={{ alignItems: "center", paddingVertical: 20, backgroundColor: "#0f0f0f", borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a" }}
+                                        style={{
+                                            alignItems: "center",
+                                            paddingVertical: 20,
+                                            backgroundColor: colors.background,
+                                            borderRadius: 12,
+                                            borderWidth: 1,
+                                            borderColor: colors.cardBorder,
+                                        }}
                                     >
-                                        <Plus size={20} color="#FF9933" />
-                                        <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 14, marginTop: 8 }}>Browse Menu & Add Items</Text>
-                                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 4 }}>Your cart is empty</Text>
+                                        <Plus size={20} color={colors.saffron} />
+                                        <Text style={{ fontFamily: "Manrope_700Bold", color: colors.saffron, fontSize: 14, marginTop: 8 }}>
+                                            Browse Menu & Add Items
+                                        </Text>
+                                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
+                                            Your cart is empty
+                                        </Text>
                                     </Pressable>
                                 ) : (
                                     cartItems.map((item, idx) => (
@@ -744,28 +812,38 @@ export function CheckoutModal({
                                                 alignItems: "center",
                                                 paddingVertical: 10,
                                                 borderBottomWidth: idx < cartItems.length - 1 ? 1 : 0,
-                                                borderBottomColor: "#222",
+                                                borderBottomColor: colors.cardBorder,
                                             }}
                                         >
                                             <View style={{ flex: 1 }}>
                                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14, flex: 1 }} numberOfLines={1}>
+                                                    <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 14, flex: 1 }} numberOfLines={1}>
                                                         {item.name}
                                                     </Text>
                                                     {item.isVegetarian && <Leaf size={12} color="#22C55E" />}
                                                 </View>
-                                                <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#FF9933", fontSize: 13, marginTop: 2 }}>
+                                                <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.saffron, fontSize: 13, marginTop: 2 }}>
                                                     ${(item.price * item.quantity).toFixed(2)}
                                                 </Text>
                                             </View>
                                             {/* Quantity controls */}
-                                            <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#262626", borderRadius: 20, paddingHorizontal: 4, borderWidth: 1, borderColor: "#333" }}>
+                                            <View
+                                                style={{
+                                                    flexDirection: "row",
+                                                    alignItems: "center",
+                                                    backgroundColor: colors.pressableBg,
+                                                    borderRadius: 20,
+                                                    paddingHorizontal: 4,
+                                                    borderWidth: 1,
+                                                    borderColor: colors.cardBorder,
+                                                }}
+                                            >
                                                 <Pressable onPress={() => { if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onUpdateQuantity(item.id, -1); }} style={{ padding: 7 }}>
-                                                    <Minus size={13} color="#f5f5f5" />
+                                                    <Minus size={13} color={colors.text} />
                                                 </Pressable>
-                                                <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 13, minWidth: 22, textAlign: "center" }}>{item.quantity}</Text>
+                                                <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 13, minWidth: 22, textAlign: "center" }}>{item.quantity}</Text>
                                                 <Pressable onPress={() => { if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onUpdateQuantity(item.id, 1); }} style={{ padding: 7 }}>
-                                                    <Plus size={13} color="#f5f5f5" />
+                                                    <Plus size={13} color={colors.text} />
                                                 </Pressable>
                                             </View>
                                         </View>
@@ -780,17 +858,17 @@ export function CheckoutModal({
                                     value={notes}
                                     onChangeText={setNotes}
                                     placeholder="Allergies, preferences, requests..."
-                                    placeholderTextColor="#555"
+                                    placeholderTextColor={colors.textMuted}
                                     multiline
                                     numberOfLines={3}
                                     style={{
-                                        backgroundColor: "#0f0f0f",
+                                        backgroundColor: colors.background,
                                         borderRadius: 12,
                                         borderWidth: 1,
-                                        borderColor: notes ? "#FF9933" : "#2a2a2a",
+                                        borderColor: notes ? colors.saffron : colors.cardBorder,
                                         paddingHorizontal: 14,
                                         paddingVertical: 12,
-                                        color: "#f5f5f5",
+                                        color: colors.text,
                                         fontFamily: "Manrope_500Medium",
                                         fontSize: 14,
                                         minHeight: 72,
@@ -802,8 +880,8 @@ export function CheckoutModal({
                             {/* ── Summary ── */}
                             <Animated.View entering={FadeInDown.delay(160).duration(400)} style={{ ...S.card, marginBottom: 20 }}>
                                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-                                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 14 }}>Subtotal</Text>
-                                    <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 16 }}>${subtotal.toFixed(2)}</Text>
+                                    <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 14 }}>Subtotal</Text>
+                                    <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 16 }}>${subtotal.toFixed(2)}</Text>
                                 </View>
                                 <View style={{ marginTop: 4 }}>
                                     <Text style={{ ...S.label, marginBottom: 8 }}>Payment Method</Text>
@@ -822,12 +900,18 @@ export function CheckoutModal({
                                                 paddingVertical: 12,
                                                 borderRadius: 12,
                                                 borderWidth: 1.5,
-                                                backgroundColor: paymentMethod === 'cash' ? 'rgba(34,197,94,0.12)' : '#0f0f0f',
-                                                borderColor: paymentMethod === 'cash' ? '#22C55E' : '#2a2a2a',
+                                                backgroundColor: paymentMethod === 'cash' ? 'rgba(34,197,94,0.12)' : colors.background,
+                                                borderColor: paymentMethod === 'cash' ? '#22C55E' : colors.cardBorder,
                                             }}
                                         >
-                                            <Wallet size={16} color={paymentMethod === 'cash' ? '#22C55E' : '#666'} />
-                                            <Text style={{ fontFamily: paymentMethod === 'cash' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMethod === 'cash' ? '#22C55E' : '#777', fontSize: 14 }}>
+                                            <Wallet size={16} color={paymentMethod === 'cash' ? '#22C55E' : colors.iconMuted} />
+                                            <Text
+                                                style={{
+                                                    fontFamily: paymentMethod === 'cash' ? 'Manrope_700Bold' : 'Manrope_500Medium',
+                                                    color: paymentMethod === 'cash' ? '#22C55E' : colors.textMuted,
+                                                    fontSize: 14,
+                                                }}
+                                            >
                                                 Cash
                                             </Text>
                                         </Pressable>
@@ -849,13 +933,19 @@ export function CheckoutModal({
                                                 paddingVertical: 12,
                                                 borderRadius: 12,
                                                 borderWidth: 1.5,
-                                                backgroundColor: paymentMethod === 'card' ? 'rgba(129,140,248,0.12)' : '#0f0f0f',
-                                                borderColor: paymentMethod === 'card' ? '#818CF8' : '#2a2a2a',
+                                                backgroundColor: paymentMethod === 'card' ? 'rgba(129,140,248,0.12)' : colors.background,
+                                                borderColor: paymentMethod === 'card' ? '#818CF8' : colors.cardBorder,
                                                 opacity: hasStripe ? 1 : 0.5,
                                             }}
                                         >
-                                            <CreditCard size={16} color={paymentMethod === 'card' ? '#818CF8' : '#666'} />
-                                            <Text style={{ fontFamily: paymentMethod === 'card' ? 'Manrope_700Bold' : 'Manrope_500Medium', color: paymentMethod === 'card' ? '#818CF8' : '#777', fontSize: 14 }}>
+                                            <CreditCard size={16} color={paymentMethod === 'card' ? '#818CF8' : colors.iconMuted} />
+                                            <Text
+                                                style={{
+                                                    fontFamily: paymentMethod === 'card' ? 'Manrope_700Bold' : 'Manrope_500Medium',
+                                                    color: paymentMethod === 'card' ? '#818CF8' : colors.textMuted,
+                                                    fontSize: 14,
+                                                }}
+                                            >
                                                 Card
                                             </Text>
                                         </Pressable>
@@ -868,7 +958,10 @@ export function CheckoutModal({
                                 onPress={handlePlaceOrder}
                                 disabled={placing || cartItems.length === 0 || (!existingOrderId && !customerName.trim())}
                                 style={{
-                                    backgroundColor: (cartItems.length === 0 || (!existingOrderId && !customerName.trim())) ? "#333" : "#FF9933",
+                                    backgroundColor:
+                                        cartItems.length === 0 || (!existingOrderId && !customerName.trim())
+                                            ? colors.switchTrackOff
+                                            : colors.saffron,
                                     borderRadius: 18,
                                     paddingVertical: 17,
                                     alignItems: "center",
@@ -876,7 +969,7 @@ export function CheckoutModal({
                                     justifyContent: "center",
                                     gap: 10,
                                     opacity: placing ? 0.8 : 1,
-                                    shadowColor: "#FF9933",
+                                    shadowColor: colors.saffron,
                                     shadowOffset: { width: 0, height: 4 },
                                     shadowOpacity: cartItems.length > 0 ? 0.3 : 0,
                                     shadowRadius: 12,
@@ -884,17 +977,17 @@ export function CheckoutModal({
                                 }}
                             >
                                 {placing ? (
-                                    <ActivityIndicator color="#0f0f0f" />
+                                    <ActivityIndicator color={ctaOnSaffron} />
                                 ) : (
                                     <>
                                         {paymentMethod === 'card'
-                                            ? <CreditCard size={18} color="#0f0f0f" />
+                                            ? <CreditCard size={18} color={ctaOnSaffron} />
                                             : orderType === "takeout"
-                                                ? <Truck size={18} color="#0f0f0f" />
+                                                ? <Truck size={18} color={ctaOnSaffron} />
                                                 : orderType === "pre_order"
-                                                    ? <Clock size={18} color="#0f0f0f" />
-                                                    : <ShoppingBag size={18} color="#0f0f0f" />}
-                                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 17 }}>
+                                                    ? <Clock size={18} color={ctaOnSaffron} />
+                                                    : <ShoppingBag size={18} color={ctaOnSaffron} />}
+                                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: ctaOnSaffron, fontSize: 17 }}>
                                             {existingOrderId
                                                 ? `Add Items · $${subtotal.toFixed(2)}`
                                                 : paymentMethod === 'card'

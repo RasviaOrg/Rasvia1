@@ -34,14 +34,12 @@ import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
 import { EmailVerifyModal } from "@/components/EmailVerifyModal";
 import { ResetPasswordModal } from "@/components/ResetPasswordModal";
 import { friendlyAuthError } from "@/lib/friendly-auth-error";
+import { useAppTheme } from "@/lib/app-theme";
 
 let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
 WebBrowser.maybeCompleteAuthSession();
 const VERIFY_EMAIL_WEB_URL = "https://rasvia.com/verify-email";
-
-/** Create-account card, filler strip, and sticky footer — same value so gaps blend. */
-const SIGNUP_PANEL_BG = "rgba(26, 26, 26, 0.92)";
 
 /** Ref to store the normalized phone after sign-up so the PhoneVerifyModal can use it */
 let pendingSignupPhoneRef = "";
@@ -64,6 +62,9 @@ function digitsOnly(s: string): string {
 type AuthPhase = "identifier" | "signin_password" | "signup";
 
 export default function AuthScreen() {
+    const { colors, isDark } = useAppTheme();
+    const authPanelBg = isDark ? "rgba(26, 26, 26, 0.92)" : "rgba(255, 255, 255, 0.94)";
+    const authPanelBorder = isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.08)";
     const [authPhase, setAuthPhase] = useState<AuthPhase>("identifier");
     const [identifierInput, setIdentifierInput] = useState("");
     const [signInWithPhone, setSignInWithPhone] = useState(false);
@@ -412,7 +413,7 @@ export default function AuthScreen() {
     }
 
     return (
-        <View className="flex-1 bg-rasvia-black">
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
             {/* In-App Notification */}
             <InAppNotification
                 visible={notification.visible}
@@ -430,14 +431,22 @@ export default function AuthScreen() {
                 resizeMode="cover"
             />
 
-            {/* Dark Gradient Overlay */}
             <LinearGradient
-                colors={[
-                    "rgba(15,15,15,0.3)",
-                    "rgba(15,15,15,0.6)",
-                    "rgba(15,15,15,0.95)",
-                    "#0f0f0f",
-                ]}
+                colors={
+                    isDark
+                        ? [
+                            "rgba(15,15,15,0.3)",
+                            "rgba(15,15,15,0.6)",
+                            "rgba(15,15,15,0.95)",
+                            "#0f0f0f",
+                        ]
+                        : [
+                            "rgba(255,255,255,0.35)",
+                            "rgba(250,250,250,0.82)",
+                            "rgba(250,250,250,0.96)",
+                            colors.background,
+                        ]
+                }
                 locations={[0, 0.3, 0.65, 0.85]}
                 style={{
                     position: "absolute",
@@ -477,7 +486,7 @@ export default function AuthScreen() {
                         <Text
                             style={{
                                 fontFamily: "Manrope_500Medium",
-                                color: "#999999",
+                                color: colors.textMuted,
                                 fontSize: 16,
                                 marginTop: 4,
                             }}
@@ -490,13 +499,13 @@ export default function AuthScreen() {
                     <Animated.View
                         entering={FadeInUp.delay(300).duration(600)}
                         style={{
-                            backgroundColor: "rgba(26, 26, 26, 0.92)",
+                            backgroundColor: authPanelBg,
                             borderTopLeftRadius: 32,
                             borderTopRightRadius: 32,
                             borderTopWidth: 1,
                             borderLeftWidth: 1,
                             borderRightWidth: 1,
-                            borderColor: "rgba(255, 255, 255, 0.06)",
+                            borderColor: authPanelBorder,
                             paddingHorizontal: 24,
                             paddingTop: 32,
                             paddingBottom: 40,
@@ -508,7 +517,7 @@ export default function AuthScreen() {
                         <Text
                             style={{
                                 fontFamily: "BricolageGrotesque_700Bold",
-                                color: "#f5f5f5",
+                                color: colors.text,
                                 fontSize: 24,
                                 marginBottom: 8,
                                 textAlign: "center",
@@ -519,7 +528,7 @@ export default function AuthScreen() {
                         <Text
                             style={{
                                 fontFamily: "Manrope_500Medium",
-                                color: "#999999",
+                                color: colors.textMuted,
                                 fontSize: 14,
                                 marginBottom: 22,
                                 textAlign: "center",
@@ -532,7 +541,7 @@ export default function AuthScreen() {
                         <Text
                             style={{
                                 fontFamily: "Manrope_700Bold",
-                                color: "#e5e5e5",
+                                color: colors.textSecondary,
                                 fontSize: 13,
                                 marginBottom: 8,
                             }}
@@ -541,10 +550,10 @@ export default function AuthScreen() {
                         </Text>
                         <View
                             style={{
-                                backgroundColor: "#262626",
+                                backgroundColor: colors.pressableBg,
                                 borderRadius: 16,
                                 borderWidth: 1,
-                                borderColor: "#333333",
+                                borderColor: colors.cardBorder,
                                 paddingHorizontal: 16,
                                 height: 56,
                                 marginBottom: 14,
@@ -555,12 +564,12 @@ export default function AuthScreen() {
                             <TextInput
                                 style={{
                                     flex: 1,
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     fontFamily: "Manrope_500Medium",
                                     fontSize: 16,
                                 }}
                                 placeholder="you@email.com or (555) 000-0000"
-                                placeholderTextColor="#666666"
+                                placeholderTextColor={colors.textMuted}
                                 value={identifierInput}
                                 onChangeText={(text) => {
                                     // Make formatting adaptable: if letters are typed, it's an email/username -> plain string
@@ -673,11 +682,11 @@ export default function AuthScreen() {
                         </Animated.View>
 
                         <View style={{ flexDirection: "row", alignItems: "center", marginVertical: 18 }}>
-                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
-                            <Text style={{ marginHorizontal: 10, color: "#666666", fontFamily: "Manrope_500Medium", fontSize: 12 }}>
+                            <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
+                            <Text style={{ marginHorizontal: 10, color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 12 }}>
                                 or
                             </Text>
-                            <View style={{ flex: 1, height: 1, backgroundColor: "#2b2b2b" }} />
+                            <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
                         </View>
 
                         <Pressable
@@ -689,15 +698,15 @@ export default function AuthScreen() {
                                 alignItems: "center",
                                 justifyContent: "center",
                                 flexDirection: "row",
-                                backgroundColor: "#202020",
+                                backgroundColor: isDark ? "#202020" : colors.pressableBg,
                                 borderWidth: 1,
-                                borderColor: "#333333",
+                                borderColor: colors.cardBorder,
                                 opacity: loading || googleLoading || identifierChecking ? 0.7 : 1,
                                 marginBottom: 20,
                             }}
                         >
                             {googleLoading ? (
-                                <ActivityIndicator color="#f5f5f5" />
+                                <ActivityIndicator color={colors.text} />
                             ) : (
                                 <>
                                     <View
@@ -711,7 +720,7 @@ export default function AuthScreen() {
                                     >
                                         <FontAwesome5 name="google" size={16} color="#EA4335" />
                                     </View>
-                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 15 }}>
+                                    <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 15 }}>
                                         Continue with Google
                                     </Text>
                                 </>
@@ -739,7 +748,7 @@ export default function AuthScreen() {
                         <Text
                             style={{
                                 fontFamily: "BricolageGrotesque_700Bold",
-                                color: "#f5f5f5",
+                                color: colors.text,
                                 fontSize: 26,
                                 marginBottom: 6,
                             }}
@@ -749,7 +758,7 @@ export default function AuthScreen() {
                         <Text
                             style={{
                                 fontFamily: "Manrope_500Medium",
-                                color: "#999999",
+                                color: colors.textMuted,
                                 fontSize: 14,
                                 marginBottom: 22,
                             }}
@@ -761,26 +770,26 @@ export default function AuthScreen() {
                             style={{
                                 flexDirection: "row",
                                 alignItems: "center",
-                                backgroundColor: "#262626",
+                                backgroundColor: colors.pressableBg,
                                 borderRadius: 16,
                                 borderWidth: 1,
-                                borderColor: "#333333",
+                                borderColor: colors.cardBorder,
                                 paddingHorizontal: 16,
                                 marginBottom: 12,
                                 height: 56,
                             }}
                         >
-                            <Lock size={18} color="#999999" />
+                            <Lock size={18} color={colors.iconMuted} />
                             <TextInput
                                 style={{
                                     flex: 1,
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     fontFamily: "Manrope_500Medium",
                                     fontSize: 15,
                                     marginLeft: 12,
                                 }}
                                 placeholder="Password"
-                                placeholderTextColor="#666666"
+                                placeholderTextColor={colors.textMuted}
                                 value={password}
                                 onChangeText={setPassword}
                                 onFocus={() => {
@@ -880,7 +889,7 @@ export default function AuthScreen() {
                                 <Text
                                     style={{
                                         fontFamily: "Manrope_500Medium",
-                                        color: "#999999",
+                                        color: colors.textMuted,
                                         fontSize: 16,
                                         marginTop: 4,
                                     }}
@@ -892,13 +901,13 @@ export default function AuthScreen() {
                             <Animated.View
                                 entering={FadeInUp.delay(300).duration(600)}
                                 style={{
-                                    backgroundColor: SIGNUP_PANEL_BG,
+                                    backgroundColor: authPanelBg,
                                     borderTopLeftRadius: 32,
                                     borderTopRightRadius: 32,
                                     borderTopWidth: 1,
                                     borderLeftWidth: 1,
                                     borderRightWidth: 1,
-                                    borderColor: "rgba(255, 255, 255, 0.06)",
+                                    borderColor: authPanelBorder,
                                     paddingHorizontal: 24,
                                     paddingTop: 32,
                                     paddingBottom: 24,
@@ -922,7 +931,7 @@ export default function AuthScreen() {
                                 <Text
                                     style={{
                                         fontFamily: "BricolageGrotesque_700Bold",
-                                        color: "#f5f5f5",
+                                        color: colors.text,
                                         fontSize: 26,
                                         marginBottom: 6,
                                     }}
@@ -932,7 +941,7 @@ export default function AuthScreen() {
                                 <Text
                                     style={{
                                         fontFamily: "Manrope_500Medium",
-                                        color: "#999999",
+                                        color: colors.textMuted,
                                         fontSize: 14,
                                         marginBottom: 28,
                                     }}
@@ -952,10 +961,10 @@ export default function AuthScreen() {
                                             flex: 1,
                                             flexDirection: "row",
                                             alignItems: "center",
-                                            backgroundColor: "#262626",
+                                            backgroundColor: colors.pressableBg,
                                             borderRadius: 16,
                                             borderWidth: 1,
-                                            borderColor: "#333333",
+                                            borderColor: colors.cardBorder,
                                             paddingHorizontal: 16,
                                             height: 56,
                                         }}
@@ -963,12 +972,12 @@ export default function AuthScreen() {
                                         <TextInput
                                             style={{
                                                 flex: 1,
-                                                color: "#f5f5f5",
+                                                color: colors.text,
                                                 fontFamily: "Manrope_500Medium",
                                                 fontSize: 15,
                                             }}
                                             placeholder="First name"
-                                            placeholderTextColor="#666666"
+                                            placeholderTextColor={colors.textMuted}
                                             value={firstName}
                                             onChangeText={setFirstName}
                                             onFocus={() => {
@@ -989,10 +998,10 @@ export default function AuthScreen() {
                                             flex: 1,
                                             flexDirection: "row",
                                             alignItems: "center",
-                                            backgroundColor: "#262626",
+                                            backgroundColor: colors.pressableBg,
                                             borderRadius: 16,
                                             borderWidth: 1,
-                                            borderColor: "#333333",
+                                            borderColor: colors.cardBorder,
                                             paddingHorizontal: 16,
                                             height: 56,
                                         }}
@@ -1000,12 +1009,12 @@ export default function AuthScreen() {
                                         <TextInput
                                             style={{
                                                 flex: 1,
-                                                color: "#f5f5f5",
+                                                color: colors.text,
                                                 fontFamily: "Manrope_500Medium",
                                                 fontSize: 15,
                                             }}
                                             placeholder="Last name"
-                                            placeholderTextColor="#666666"
+                                            placeholderTextColor={colors.textMuted}
                                             value={lastName}
                                             onChangeText={setLastName}
                                             onFocus={() => {
@@ -1038,26 +1047,26 @@ export default function AuthScreen() {
                                     style={{
                                         flexDirection: "row",
                                         alignItems: "center",
-                                        backgroundColor: "#262626",
+                                        backgroundColor: colors.pressableBg,
                                         borderRadius: 16,
                                         borderWidth: 1,
-                                        borderColor: "#333333",
+                                        borderColor: colors.cardBorder,
                                         paddingHorizontal: 16,
                                         marginBottom: 14,
                                         height: 56,
                                     }}
                                 >
-                                    <Phone size={18} color="#999999" />
+                                    <Phone size={18} color={colors.iconMuted} />
                                     <TextInput
                                         style={{
                                             flex: 1,
-                                            color: "#f5f5f5",
+                                            color: colors.text,
                                             fontFamily: "Manrope_500Medium",
                                             fontSize: 15,
                                             marginLeft: 12,
                                         }}
                                         placeholder="(555) 000-0000"
-                                        placeholderTextColor="#666666"
+                                        placeholderTextColor={colors.textMuted}
                                         value={phone}
                                         onChangeText={(v) => setPhone(formatPhoneNumber(v))}
                                         onFocus={() => {
@@ -1083,27 +1092,27 @@ export default function AuthScreen() {
                                     style={{
                                         flexDirection: "row",
                                         alignItems: "center",
-                                        backgroundColor: signInWithPhone ? "#262626" : "#1a1a1a",
+                                        backgroundColor: signInWithPhone ? colors.pressableBg : colors.card,
                                         borderRadius: 16,
                                         borderWidth: 1,
-                                        borderColor: signInWithPhone ? "#333333" : "#2a2a2a",
+                                        borderColor: signInWithPhone ? colors.cardBorder : colors.cardBorder,
                                         paddingHorizontal: 16,
                                         marginBottom: 14,
                                         height: 56,
                                         opacity: signInWithPhone ? 1 : 0.65,
                                     }}
                                 >
-                                    <Mail size={18} color={signInWithPhone ? "#999999" : "#555555"} />
+                                    <Mail size={18} color={signInWithPhone ? colors.iconMuted : colors.textMuted} />
                                     <TextInput
                                         style={{
                                             flex: 1,
-                                            color: signInWithPhone ? "#f5f5f5" : "#888888",
+                                            color: signInWithPhone ? colors.text : colors.textMuted,
                                             fontFamily: "Manrope_500Medium",
                                             fontSize: 15,
                                             marginLeft: 12,
                                         }}
                                         placeholder={signInWithPhone ? "you@example.com" : undefined}
-                                        placeholderTextColor="#666666"
+                                        placeholderTextColor={colors.textMuted}
                                         value={email}
                                         editable={signInWithPhone}
                                         onChangeText={signInWithPhone ? setEmail : undefined}
@@ -1126,26 +1135,26 @@ export default function AuthScreen() {
                                     style={{
                                         flexDirection: "row",
                                         alignItems: "center",
-                                        backgroundColor: "#262626",
+                                        backgroundColor: colors.pressableBg,
                                         borderRadius: 16,
                                         borderWidth: 1,
-                                        borderColor: "#333333",
+                                        borderColor: colors.cardBorder,
                                         paddingHorizontal: 16,
                                         marginBottom: 20,
                                         height: 56,
                                     }}
                                 >
-                                    <Lock size={18} color="#999999" />
+                                    <Lock size={18} color={colors.iconMuted} />
                                     <TextInput
                                         style={{
                                             flex: 1,
-                                            color: "#f5f5f5",
+                                            color: colors.text,
                                             fontFamily: "Manrope_500Medium",
                                             fontSize: 15,
                                             marginLeft: 12,
                                         }}
                                         placeholder="Password"
-                                        placeholderTextColor="#666666"
+                                        placeholderTextColor={colors.textMuted}
                                         value={password}
                                         onChangeText={setPassword}
                                         onFocus={() => {
@@ -1201,7 +1210,7 @@ export default function AuthScreen() {
                                 style={{
                                     flex: 1,
                                     minHeight: 0,
-                                    backgroundColor: SIGNUP_PANEL_BG,
+                                    backgroundColor: authPanelBg,
                                     paddingBottom: signupStickyFooterReserve,
                                 }}
                             />
@@ -1213,7 +1222,7 @@ export default function AuthScreen() {
                                 left: 0,
                                 right: 0,
                                 bottom: 0,
-                                backgroundColor: SIGNUP_PANEL_BG,
+                                backgroundColor: authPanelBg,
                                 paddingHorizontal: 24,
                                 paddingTop: 12,
                                 paddingBottom: Math.max(insets.bottom, 12) + 8,

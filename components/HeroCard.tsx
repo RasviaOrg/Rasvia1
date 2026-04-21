@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Pressable, Dimensions } from "react-native";
+import { View, Text, Pressable, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Star, MapPin, Clock, Heart, Hourglass } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
@@ -12,10 +12,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-
-let SCREEN_WIDTH = Dimensions.get("window").width;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
-const CARD_WIDTH = SCREEN_WIDTH - 48;
+import { heroCardWidth, HERO_CARD_ITEM_GAP } from "@/lib/hero-carousel-layout";
 
 interface HeroCardProps {
   restaurant: UIRestaurant;
@@ -27,7 +24,10 @@ interface HeroCardProps {
 }
 
 export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavorite, mediaSlides }: HeroCardProps) {
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = heroCardWidth(windowWidth);
   const { colors, isDark } = useAppTheme();
+  const heartBtnBg = isDark ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.92)";
   const pressScale = useSharedValue(1);
   const heroGradient = isDark
     ? (["transparent", "rgba(15,15,15,0.6)", "rgba(15,15,15,0.95)"] as const)
@@ -40,7 +40,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
   return (
     <Animated.View
       entering={FadeInDown.delay(index * 100).duration(600)}
-      style={{ width: CARD_WIDTH, marginRight: 16 }}
+      style={{ width: cardWidth, marginRight: HERO_CARD_ITEM_GAP }}
     >
       <Animated.View
         style={[
@@ -102,13 +102,15 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               position: "absolute",
               top: 16,
               right: 16,
-              backgroundColor: "rgba(0,0,0,0.7)",
+              backgroundColor: heartBtnBg,
               borderRadius: 20,
               padding: 8,
               zIndex: 5,
+              borderWidth: isDark ? 0 : 1,
+              borderColor: "rgba(0,0,0,0.06)",
             }}
           >
-            <Heart size={16} color={isFavorite ? "#EF4444" : "#fff"} fill={isFavorite ? "#EF4444" : "transparent"} />
+            <Heart size={16} color={isFavorite ? "#EF4444" : (isDark ? "#fff" : colors.textMuted)} fill={isFavorite ? "#EF4444" : "transparent"} />
           </Pressable>
         )}
 
@@ -119,7 +121,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               position: "absolute",
               top: 16,
               left: 16,
-              backgroundColor: "rgba(10,10,10,0.92)",
+              backgroundColor: isDark ? "rgba(10,10,10,0.92)" : "rgba(255,255,255,0.96)",
               borderWidth: 2,
               borderColor: "#FF9F43",
               borderRadius: 999,
@@ -130,16 +132,16 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               gap: 6,
               shadowColor: "#FF9F43",
               shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.3,
+              shadowOpacity: isDark ? 0.3 : 0.15,
               shadowRadius: 10,
               elevation: 6,
             }}
           >
-            <Hourglass size={13} color="#FFB56B" />
+            <Hourglass size={13} color="#FF9933" />
             <Text
               style={{
                 fontFamily: "Manrope_700Bold",
-                color: "#FFC484",
+                color: isDark ? "#FFC484" : "#C2410C",
                 fontSize: 13,
                 letterSpacing: 0.45,
               }}
@@ -152,16 +154,16 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
         {/* Content */}
         <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 20 }}>
           <View className="flex-row items-center mb-1">
-            {restaurant.tags.slice(0, 2).map((tag, i) => (
+            {restaurant.tags.slice(0, 2).map((tag) => (
               <View
                 key={tag}
                 className="rounded-full px-2.5 py-0.5 mr-2"
-                style={{ backgroundColor: "rgba(255,153,51,0.35)" }}
+                style={{ backgroundColor: "rgba(255,153,51,0.85)" }}
               >
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: "rgba(255,153,51,0.95)",
+                    color: "#ffffff",
                     fontSize: 11,
                   }}
                 >
@@ -179,6 +181,9 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               lineHeight: 40,
               marginBottom: 4,
               letterSpacing: -0.5,
+              textShadowColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.2)",
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: isDark ? 10 : 6,
             }}
             numberOfLines={1}
           >

@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 
 type ProfileRow = {
   id: string;
@@ -38,6 +39,7 @@ function getRoleBadge(role: string | null) {
 
 export default function AdminUsersScreen() {
   const router = useRouter();
+  const { colors } = useAppTheme();
   const { isAdmin, loading: roleLoading } = useAdminMode();
   const { session } = useAuth();
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
@@ -110,77 +112,77 @@ export default function AdminUsersScreen() {
 
   if (roleLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" color="#FF9933" />
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" color={colors.saffron} />
       </View>
     );
   }
 
   if (!isAdmin) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", textAlign: "center" }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, textAlign: "center" }}>
           Admin access only.
         </Text>
         <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
-          <Text style={{ color: "#FF9933", fontFamily: "Manrope_600SemiBold" }}>Go back</Text>
+          <Text style={{ color: colors.saffron, fontFamily: "Manrope_600SemiBold" }}>Go back</Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#222" }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
         <Pressable
           onPress={() => (selected ? setSelected(null) : router.back())}
           hitSlop={12}
           style={{ padding: 8, marginRight: 8 }}
         >
-          <ArrowLeft size={22} color="#fff" />
+          <ArrowLeft size={22} color={colors.text} />
         </Pressable>
-        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#fff", flex: 1 }}>
+        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text, flex: 1 }}>
           {selected ? "Edit user" : "User management"}
         </Text>
       </View>
 
       {selected ? (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-          <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginBottom: 16 }}>
+          <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginBottom: 16 }}>
             {selected.email ?? selected.id}
           </Text>
-          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 11, marginBottom: 6 }}>FULL NAME</Text>
+          <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 11, marginBottom: 6 }}>FULL NAME</Text>
           <TextInput
             value={draft.full_name}
             onChangeText={(t) => setDraft((d) => ({ ...d, full_name: t }))}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 12,
               borderWidth: 1,
-              borderColor: "#333",
+              borderColor: colors.cardBorder,
               padding: 14,
-              color: "#f5f5f5",
+              color: colors.text,
               marginBottom: 16,
               fontFamily: "Manrope_500Medium",
             }}
           />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 11, marginBottom: 6 }}>PHONE</Text>
+          <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 11, marginBottom: 6 }}>PHONE</Text>
           <TextInput
             value={draft.phone_number}
             onChangeText={(t) => setDraft((d) => ({ ...d, phone_number: t }))}
             keyboardType="phone-pad"
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 12,
               borderWidth: 1,
-              borderColor: "#333",
+              borderColor: colors.cardBorder,
               padding: 14,
-              color: "#f5f5f5",
+              color: colors.text,
               marginBottom: 16,
               fontFamily: "Manrope_500Medium",
             }}
           />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 11, marginBottom: 6 }}>ROLE</Text>
+          <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 11, marginBottom: 6 }}>ROLE</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
             {["user", "restaurant_owner", "admin"].map((r) => (
               <Pressable
@@ -191,11 +193,11 @@ export default function AdminUsersScreen() {
                   paddingVertical: 10,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: draft.role === r ? "#FF9933" : "#333",
-                  backgroundColor: draft.role === r ? "rgba(255,153,51,0.12)" : "#1a1a1a",
+                  borderColor: draft.role === r ? colors.saffron : colors.cardBorder,
+                  backgroundColor: draft.role === r ? "rgba(255,153,51,0.12)" : colors.card,
                 }}
               >
-                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: draft.role === r ? "#FF9933" : "#aaa" }}>
+                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: draft.role === r ? colors.saffron : colors.textMuted }}>
                   {r}
                 </Text>
               </Pressable>
@@ -209,7 +211,7 @@ export default function AdminUsersScreen() {
               alignItems: "center",
               justifyContent: "center",
               gap: 8,
-              backgroundColor: "#FF9933",
+              backgroundColor: colors.saffron,
               borderRadius: 14,
               padding: 16,
               opacity: saving ? 0.7 : 1,
@@ -225,23 +227,23 @@ export default function AdminUsersScreen() {
             value={search}
             onChangeText={setSearch}
             placeholder="Search name, email, id…"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textMuted}
             style={{
               marginHorizontal: 16,
               marginTop: 12,
               marginBottom: 8,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 12,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               paddingHorizontal: 14,
               paddingVertical: 12,
-              color: "#f5f5f5",
+              color: colors.text,
               fontFamily: "Manrope_500Medium",
             }}
           />
           {loading ? (
-            <ActivityIndicator color="#FF9933" style={{ marginTop: 40 }} />
+            <ActivityIndicator color={colors.saffron} style={{ marginTop: 40 }} />
           ) : (
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
               {filtered.map((p) => (
@@ -251,9 +253,9 @@ export default function AdminUsersScreen() {
                   style={{
                     padding: 16,
                     borderRadius: 14,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.card,
                     borderWidth: p.id === session?.user?.id ? 1.5 : 1,
-                    borderColor: p.id === session?.user?.id ? "#FF9933" : "#2a2a2a",
+                    borderColor: p.id === session?.user?.id ? colors.saffron : colors.cardBorder,
                     marginBottom: 10,
                   }}
                 >
@@ -268,11 +270,11 @@ export default function AdminUsersScreen() {
                       </View>
                     );
                   })()}
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 15, color: p.id === session?.user?.id ? "#FF9933" : "#f5f5f5", paddingRight: 60 }}>
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 15, color: p.id === session?.user?.id ? colors.saffron : colors.text, paddingRight: 60 }}>
                     {p.full_name?.trim() || p.email || "—"}{p.id === session?.user?.id ? " (you)" : ""}
                   </Text>
-                  <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginTop: 4 }}>{p.email}</Text>
-                  <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#444", marginTop: 2 }}>{p.id}</Text>
+                  <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginTop: 4 }}>{p.email}</Text>
+                  <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>{p.id}</Text>
                 </Pressable>
               ))}
             </ScrollView>

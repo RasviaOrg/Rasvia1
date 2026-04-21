@@ -14,9 +14,11 @@ import {
 } from "react-native";
 import { Users, Shield, Plus, X } from "lucide-react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
+import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { isolatedSupabase } from "@/lib/isolated-supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 import {
   type SavedAccount,
   getSavedAccounts,
@@ -49,7 +51,11 @@ interface Props {
  * and passwords in SecureStore.
  */
 export function AccountsManagementSection({ onLoggingOutChange }: Props) {
+  const router = useRouter();
   const { session } = useAuth();
+  const { colors, isDark } = useAppTheme();
+  const modalBackdrop = isDark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.45)";
+  const onBlueCta = isDark ? "#0f0f0f" : "#ffffff";
   const userId = session?.user?.id;
   const userEmail = session?.user?.email;
 
@@ -168,6 +174,8 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
           "Switch failed",
           "We were signed out but could not finish signing into the other account. Please sign in again."
         );
+      } else {
+        router.replace("/");
       }
     } catch (err) {
       console.error("Switch account error", err);
@@ -351,19 +359,19 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
           marginHorizontal: 20,
           marginBottom: 16,
           padding: 20,
-          backgroundColor: "#141414",
+          backgroundColor: colors.card,
           borderRadius: 20,
           borderWidth: 1,
-          borderColor: "#2a2a2a",
+          borderColor: colors.cardBorder,
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
           <Shield size={18} color={selfAccount ? "#22C55E" : "#F59E0B"} />
-          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 16 }}>
+          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 16 }}>
             Switch-back credential
           </Text>
         </View>
-        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
           {selfAccount
             ? `Enabled for ${selfAccount.email}. When you switch into another account, we'll preload your credentials there so you can hop back in one tap.`
             : "Save your own password on this device to enable one-tap switch-back. Validated against Supabase; stored in the OS secure keystore."}
@@ -412,19 +420,19 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
           marginHorizontal: 20,
           marginBottom: 24,
           padding: 20,
-          backgroundColor: "#141414",
+          backgroundColor: colors.card,
           borderRadius: 20,
           borderWidth: 1,
-          borderColor: "#2a2a2a",
+          borderColor: colors.cardBorder,
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
           <Users size={20} color="#60A5FA" />
-          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>
+          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 18 }}>
             Saved Accounts
           </Text>
         </View>
-        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
+        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, lineHeight: 18, marginBottom: 20 }}>
           Save credentials for quick switching between accounts. Validated securely.
         </Text>
 
@@ -433,12 +441,12 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
             style={{
               alignItems: "center",
               paddingVertical: 20,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.pressableBg,
               borderRadius: 12,
               marginBottom: 16,
             }}
           >
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#555", fontSize: 13 }}>
+            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 13 }}>
               No accounts saved yet.
             </Text>
           </View>
@@ -449,12 +457,12 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 12,
                 padding: 14,
                 marginBottom: 10,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
               <View style={{ flex: 1, paddingRight: 12 }}>
@@ -462,7 +470,7 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                   <Text
                     style={{
                       fontFamily: "BricolageGrotesque_600SemiBold",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 15,
                     }}
                   >
@@ -501,7 +509,7 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                     </Text>
                   </View>
                 </View>
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 4 }}>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
                   {acc.email}
                 </Text>
               </View>
@@ -531,7 +539,7 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                     justifyContent: "center",
                   }}
                 >
-                  <Text style={{ fontFamily: "Manrope_700Bold", color: "#000", fontSize: 13 }}>Switch</Text>
+                  <Text style={{ fontFamily: "Manrope_700Bold", color: onBlueCta, fontSize: 13 }}>Switch</Text>
                 </Pressable>
               </View>
             </View>
@@ -568,16 +576,16 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 20 }}
+          style={{ flex: 1, backgroundColor: modalBackdrop, justifyContent: "center", padding: 20 }}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View
               style={{
-                backgroundColor: "#141414",
+                backgroundColor: colors.card,
                 borderRadius: 20,
                 padding: 24,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
               <View
@@ -588,27 +596,27 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                   marginBottom: 20,
                 }}
               >
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 20 }}>
                   Add Saved Account
                 </Text>
                 <Pressable onPress={() => setShowAddAccountModal(false)} hitSlop={10}>
-                  <X size={20} color="#888" />
+                  <X size={20} color={colors.iconMuted} />
                 </Pressable>
               </View>
 
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 13, marginBottom: 8 }}>
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 13, marginBottom: 8 }}>
                   Email Address
                 </Text>
                 <TextInput
                   style={{
                     height: 48,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.pressableBg,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: "#333",
+                    borderColor: colors.cardBorder,
                     paddingHorizontal: 16,
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontFamily: "Manrope_500Medium",
                   }}
                   value={addAccountEmail}
@@ -616,30 +624,30 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                   autoCapitalize="none"
                   keyboardType="email-address"
                   placeholder="name@example.com"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
 
               <View style={{ marginBottom: 24 }}>
-                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 13, marginBottom: 8 }}>
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 13, marginBottom: 8 }}>
                   Password
                 </Text>
                 <TextInput
                   style={{
                     height: 48,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.pressableBg,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: "#333",
+                    borderColor: colors.cardBorder,
                     paddingHorizontal: 16,
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontFamily: "Manrope_500Medium",
                   }}
                   value={addAccountPassword}
                   onChangeText={setAddAccountPassword}
                   secureTextEntry
                   placeholder="••••••••"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
 
@@ -657,9 +665,9 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                 }}
               >
                 {validatingAccount ? (
-                  <ActivityIndicator color="#000" />
+                  <ActivityIndicator color={onBlueCta} />
                 ) : (
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#000", fontSize: 16 }}>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: onBlueCta, fontSize: 16 }}>
                     Validate & Save
                   </Text>
                 )}
@@ -680,16 +688,16 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 20 }}
+          style={{ flex: 1, backgroundColor: modalBackdrop, justifyContent: "center", padding: 20 }}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View
               style={{
-                backgroundColor: "#141414",
+                backgroundColor: colors.card,
                 borderRadius: 20,
                 padding: 24,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
               <View
@@ -700,7 +708,7 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                   marginBottom: 10,
                 }}
               >
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 20 }}>
                   Enable switch-back
                 </Text>
                 <Pressable
@@ -710,33 +718,33 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                   }}
                   hitSlop={10}
                 >
-                  <X size={20} color="#888" />
+                  <X size={20} color={colors.iconMuted} />
                 </Pressable>
               </View>
-              <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, lineHeight: 18, marginBottom: 20 }}>
+              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 20 }}>
                 We'll validate {userEmail ? `"${userEmail}"` : "your account"} against Supabase and store the credentials in this device's secure keystore. Needed once per device.
               </Text>
 
               <View style={{ marginBottom: 24 }}>
-                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#888", fontSize: 13, marginBottom: 8 }}>
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 13, marginBottom: 8 }}>
                   Your password
                 </Text>
                 <TextInput
                   style={{
                     height: 48,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.pressableBg,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: "#333",
+                    borderColor: colors.cardBorder,
                     paddingHorizontal: 16,
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontFamily: "Manrope_500Medium",
                   }}
                   value={selfAccountPassword}
                   onChangeText={setSelfAccountPassword}
                   secureTextEntry
                   placeholder="••••••••"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
 
@@ -754,9 +762,9 @@ export function AccountsManagementSection({ onLoggingOutChange }: Props) {
                 }}
               >
                 {savingSelfAccount ? (
-                  <ActivityIndicator color="#0f0f0f" />
+                  <ActivityIndicator color={onBlueCta} />
                 ) : (
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 16 }}>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: onBlueCta, fontSize: 16 }}>
                     Validate & Save
                   </Text>
                 )}

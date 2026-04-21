@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef } from "react";
+import React, { useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   Animated as RNAnimated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter, Stack } from "expo-router";
+import { useRouter } from "expo-router";
 import {
   Bell,
   BellRing,
@@ -716,10 +716,9 @@ function NotificationRow({
         paddingRight: 16,
         paddingTop: 16,
         paddingBottom: 16,
-        paddingLeft: event.read ? 16 : 13,
-        borderLeftWidth: event.read ? 0 : 3,
-        borderLeftColor: cfg.color,
-        backgroundColor: event.read ? colors.card : "rgba(255,153,51,0.06)",
+        paddingLeft: 16,
+        borderLeftWidth: 0,
+        backgroundColor: colors.card,
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 14 }}>
@@ -778,16 +777,6 @@ function NotificationRow({
               </Text>
             </View>
             <View style={{ alignItems: "flex-end", flexShrink: 0, gap: 6 }}>
-              {!event.read && (
-                <View
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: 4,
-                    backgroundColor: "#FF9933",
-                  }}
-                />
-              )}
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
@@ -881,8 +870,6 @@ export default function NotificationsScreen() {
   const {
     events,
     activeEntries,
-    unreadCount,
-    markAllRead,
     clearAll,
     refreshActive,
     removeEvent,
@@ -890,13 +877,6 @@ export default function NotificationsScreen() {
   } = useNotifications();
 
   const [refreshing, setRefreshing] = React.useState(false);
-
-  // Mark all read when screen opens
-  useEffect(() => {
-    if (unreadCount > 0) {
-      markAllRead();
-    }
-  }, []);
 
   const handleRefresh = useCallback(async () => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -964,7 +944,6 @@ export default function NotificationsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
-      <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.homeBg }} edges={["top"]}>
         <TabScreenEntrance>
         <View style={{ flex: 1, backgroundColor: colors.homeBg }}>

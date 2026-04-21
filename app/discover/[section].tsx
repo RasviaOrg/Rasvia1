@@ -68,6 +68,7 @@ function getSectionCopy(section: string): { title: string; subtitle: string } {
 }
 
 function DiscoverLoadingSkeleton() {
+  const { colors } = useAppTheme();
   const pulse = useSharedValue(0.28);
   useEffect(() => {
     pulse.value = withRepeat(withTiming(0.52, { duration: 700 }), -1, true);
@@ -84,25 +85,25 @@ function DiscoverLoadingSkeleton() {
           style={{
             borderRadius: 14,
             borderWidth: 1,
-            borderColor: "#252525",
-            backgroundColor: "#121212",
+            borderColor: colors.cardBorder,
+            backgroundColor: colors.card,
             padding: 12,
             marginBottom: 10,
           }}
         >
           <Animated.View
             style={[
-              { height: 198, borderRadius: 12, backgroundColor: "#1e1e1e" },
+              { height: 198, borderRadius: 12, backgroundColor: colors.skeleton },
               pulseStyle,
             ]}
           />
           <View style={{ marginTop: 14, gap: 10 }}>
-            <Animated.View style={[{ height: 22, width: "72%", borderRadius: 8, backgroundColor: "#1e1e1e" }, pulseStyle]} />
-            <Animated.View style={[{ height: 14, width: "44%", borderRadius: 6, backgroundColor: "#1e1e1e" }, pulseStyle]} />
+            <Animated.View style={[{ height: 22, width: "72%", borderRadius: 8, backgroundColor: colors.skeletonLine }, pulseStyle]} />
+            <Animated.View style={[{ height: 14, width: "44%", borderRadius: 6, backgroundColor: colors.skeletonLine }, pulseStyle]} />
             <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
-              <Animated.View style={[{ height: 12, width: 52, borderRadius: 4, backgroundColor: "#1e1e1e" }, pulseStyle]} />
-              <Animated.View style={[{ height: 12, width: 64, borderRadius: 4, backgroundColor: "#1e1e1e" }, pulseStyle]} />
-              <Animated.View style={[{ height: 12, width: 56, borderRadius: 4, backgroundColor: "#1e1e1e" }, pulseStyle]} />
+              <Animated.View style={[{ height: 12, width: 52, borderRadius: 4, backgroundColor: colors.skeletonLine }, pulseStyle]} />
+              <Animated.View style={[{ height: 12, width: 64, borderRadius: 4, backgroundColor: colors.skeletonLine }, pulseStyle]} />
+              <Animated.View style={[{ height: 12, width: 56, borderRadius: 4, backgroundColor: colors.skeletonLine }, pulseStyle]} />
             </View>
           </View>
         </Animated.View>
@@ -115,11 +116,15 @@ function SectionRestaurantRow({
   restaurant,
   mediaSlides,
   onPress,
+  isTrending = false,
 }: {
   restaurant: UIRestaurant;
   mediaSlides?: RestaurantMediaSlide[];
   onPress: () => void;
+  /** Trending list: stronger tag chips + title legibility (matches home carousel). */
+  isTrending?: boolean;
 }) {
+  const { colors, isDark } = useAppTheme();
   const isComingSoon = restaurant.isComingSoon;
   const waitColor =
     isComingSoon
@@ -137,8 +142,8 @@ function SectionRestaurantRow({
       style={{
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: "#2a2a2a",
-        backgroundColor: "#151515",
+        borderColor: colors.cardBorder,
+        backgroundColor: colors.card,
         padding: 12,
         marginBottom: 10,
       }}
@@ -151,24 +156,48 @@ function SectionRestaurantRow({
         includeDefaultStarter={restaurant.useRegularImageAsFirstSlide}
       />
       <Pressable onPress={onPress} style={{ marginTop: 12 }}>
+        {isTrending && (restaurant.tags?.length ?? 0) > 0 && (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {restaurant.tags
+              .filter((t) => t.trim().toLowerCase() !== "indian")
+              .slice(0, 2)
+              .map((tag) => (
+                <View
+                  key={tag}
+                  style={{
+                    backgroundColor: "rgba(255,153,51,0.85)",
+                    borderRadius: 999,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#ffffff", fontSize: 11 }}>{tag}</Text>
+                </View>
+              ))}
+          </View>
+        )}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: "#f5f5f5",
-              fontSize: 24,
+              color: colors.text,
+              fontSize: isTrending ? 26 : 24,
               flex: 1,
+              letterSpacing: isTrending ? -0.4 : undefined,
+              textShadowColor: isTrending ? (isDark ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.12)") : undefined,
+              textShadowOffset: isTrending ? { width: 0, height: 1 } : undefined,
+              textShadowRadius: isTrending ? 6 : undefined,
             }}
             numberOfLines={1}
           >
             {restaurant.name}
           </Text>
-          <ChevronRight size={18} color="#666" />
+          <ChevronRight size={18} color={colors.iconMuted} />
         </View>
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
-            color: "#9a9a9a",
+            color: colors.textMuted,
             fontSize: 13,
             marginTop: 2,
           }}
@@ -180,7 +209,7 @@ function SectionRestaurantRow({
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Star size={12} color="#FF9933" fill="#FF9933" />
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12 }}>
+            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 12 }}>
               {restaurant.rating.toFixed(1)}
             </Text>
           </View>
@@ -191,8 +220,8 @@ function SectionRestaurantRow({
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <MapPin size={11} color="#777" />
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 11 }}>
+            <MapPin size={11} color={colors.iconMuted} />
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11 }}>
               {restaurant.distance}
             </Text>
           </View>
@@ -560,6 +589,7 @@ export default function DiscoverSectionPage() {
                       restaurant={restaurant}
                       mediaSlides={restaurantMediaById[restaurant.id]}
                       onPress={() => handleRestaurantPress(restaurant.id)}
+                      isTrending={section === "trending"}
                     />
                   </Animated.View>
                 ))

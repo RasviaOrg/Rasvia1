@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { friendlyAuthError } from "@/lib/friendly-auth-error";
 import { authGateFlags } from "@/lib/auth-gate-flags";
+import { useAppTheme } from "@/lib/app-theme";
 
 interface EmailVerifyModalProps {
   visible: boolean;
@@ -28,6 +29,20 @@ interface EmailVerifyModalProps {
 type VerifyStep = "code-sent" | "verifying" | "success";
 
 export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailVerifyModalProps) {
+  const { colors, isDark } = useAppTheme();
+  const keyboardAppearance = isDark ? "dark" : "light";
+  const scrim = isDark ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.45)";
+  const cardStyle = useMemo(
+    () => ({
+      backgroundColor: colors.card,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      overflow: "hidden" as const,
+    }),
+    [colors.card, colors.cardBorder]
+  );
+
   const [step, setStep] = useState<VerifyStep>("code-sent");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -129,18 +144,12 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", padding: 20 }}
+        style={{ flex: 1, backgroundColor: scrim, justifyContent: "center", padding: 20 }}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <Animated.View
             entering={FadeIn.duration(300)}
-            style={{
-              backgroundColor: "#141414",
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: "#2a2a2a",
-              overflow: "hidden",
-            }}
+            style={cardStyle}
           >
             {/* Close button */}
             <View
@@ -153,7 +162,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
               }}
             >
               <Pressable onPress={onClose} hitSlop={10}>
-                <X size={20} color="#888" />
+                <X size={20} color={colors.iconMuted} />
               </Pressable>
             </View>
 
@@ -177,10 +186,10 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                     >
                       <Mail size={28} color="#FF9933" />
                     </View>
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 22, textAlign: "center", marginBottom: 8 }}>
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 22, textAlign: "center", marginBottom: 8 }}>
                       Verify Your Email
                     </Text>
-                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 14, textAlign: "center", lineHeight: 20 }}>
+                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14, textAlign: "center", lineHeight: 20 }}>
                       Enter the verification code sent to
                     </Text>
                     <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 15, marginTop: 4 }}>
@@ -191,10 +200,10 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                   {/* Code input */}
                   <View
                     style={{
-                      backgroundColor: "#1a1a1a",
+                      backgroundColor: colors.backgroundElevated,
                       borderRadius: 16,
                       borderWidth: 1.5,
-                      borderColor: error ? "#EF4444" : "#333",
+                      borderColor: error ? "#EF4444" : colors.cardBorder,
                       height: 60,
                       alignItems: "center",
                       justifyContent: "center",
@@ -209,7 +218,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                         setError("");
                       }}
                       style={{
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontFamily: "JetBrainsMono_600SemiBold",
                         fontSize: 28,
                         letterSpacing: 12,
@@ -218,11 +227,11 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                         height: "100%",
                       }}
                       placeholder="-------"
-                      placeholderTextColor="#444"
+                      placeholderTextColor={colors.textMuted}
                       keyboardType="number-pad"
                       maxLength={7}
                       autoFocus
-                      keyboardAppearance="dark"
+                      keyboardAppearance={keyboardAppearance}
                       onSubmitEditing={handleVerify}
                     />
                   </View>
@@ -236,7 +245,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                   {/* Resend */}
                   <View style={{ alignItems: "center", marginBottom: 16 }}>
                     {resendCooldown > 0 ? (
-                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 13 }}>
+                      <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
                         Resend code in {resendCooldown}s
                       </Text>
                     ) : (
@@ -257,7 +266,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                     onPress={handleVerify}
                     disabled={step === "verifying" || code.length < 7}
                     style={{
-                      backgroundColor: code.length >= 7 ? "#FF9933" : "#333",
+                      backgroundColor: code.length >= 7 ? "#FF9933" : colors.switchTrackOff,
                       borderRadius: 16,
                       height: 52,
                       alignItems: "center",
@@ -271,7 +280,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                       <Text
                         style={{
                           fontFamily: "BricolageGrotesque_700Bold",
-                          color: code.length >= 7 ? "#0f0f0f" : "#888",
+                          color: code.length >= 7 ? "#0f0f0f" : colors.textMuted,
                           fontSize: 16,
                         }}
                       >
@@ -303,7 +312,7 @@ export function EmailVerifyModal({ visible, email, onClose, onVerified }: EmailV
                   <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#22C55E", fontSize: 22, marginBottom: 8 }}>
                     Email Verified!
                   </Text>
-                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 14, textAlign: "center" }}>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14, textAlign: "center" }}>
                     Your email has been confirmed. Welcome to Rasvia!
                   </Text>
                 </Animated.View>

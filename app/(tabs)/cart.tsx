@@ -32,7 +32,7 @@ type RestaurantCartGroup = {
 };
 
 export default function CartScreen() {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const router = useRouter();
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -287,18 +287,18 @@ export default function CartScreen() {
                 borderRadius: 60,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
                 marginBottom: 24,
               }}
             >
-              <ShoppingCart size={48} color="#666666" />
+              <ShoppingCart size={48} color={colors.iconMuted} />
             </View>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 26,
                 textAlign: "center",
                 marginBottom: 8,
@@ -309,7 +309,7 @@ export default function CartScreen() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#9a9a9a",
+                color: colors.textMuted,
                 fontSize: 14,
                 textAlign: "center",
                 maxWidth: 280,
@@ -322,13 +322,21 @@ export default function CartScreen() {
             <Pressable
               onPress={goHome}
               style={{
-                backgroundColor: "#FF9933",
+                backgroundColor: isDark ? "#FF9933" : colors.card,
                 borderRadius: 14,
                 paddingHorizontal: 22,
                 paddingVertical: 12,
+                borderWidth: isDark ? 0 : 1,
+                borderColor: isDark ? "transparent" : colors.saffron,
               }}
             >
-              <Text style={{ color: "#0f0f0f", fontFamily: "Manrope_700Bold", fontSize: 14 }}>
+              <Text
+                style={{
+                  color: isDark ? "#0f0f0f" : colors.saffron,
+                  fontFamily: "Manrope_700Bold",
+                  fontSize: 14,
+                }}
+              >
                 Go To Main Menu
               </Text>
             </Pressable>
@@ -355,9 +363,9 @@ export default function CartScreen() {
                 <View
                   key={group.groupKey}
                   style={{
-                    backgroundColor: "#141414",
+                    backgroundColor: colors.card,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                     borderRadius: 16,
                     overflow: "hidden",
                   }}
@@ -370,14 +378,14 @@ export default function CartScreen() {
                       paddingHorizontal: 12,
                       paddingVertical: 10,
                       borderBottomWidth: 1,
-                      borderBottomColor: "#242424",
-                      backgroundColor: "#181818",
+                      borderBottomColor: colors.cardBorder,
+                      backgroundColor: colors.backgroundElevated,
                     }}
                   >
                     {group.restaurantImage ? (
                       <Image
                         source={{ uri: group.restaurantImage }}
-                        style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "#222" }}
+                        style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: colors.pressableBg }}
                       />
                     ) : (
                       <View
@@ -385,16 +393,16 @@ export default function CartScreen() {
                           width: 40,
                           height: 40,
                           borderRadius: 10,
-                          backgroundColor: "#222",
+                          backgroundColor: colors.pressableBg,
                           alignItems: "center",
                           justifyContent: "center",
                         }}
                       >
-                        <ShoppingCart size={17} color="#7a7a7a" />
+                        <ShoppingCart size={17} color={colors.iconMuted} />
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 15 }} numberOfLines={1}>
+                      <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 15 }} numberOfLines={1}>
                         {group.restaurantName}
                       </Text>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
@@ -448,16 +456,16 @@ export default function CartScreen() {
                           paddingHorizontal: 10,
                           paddingVertical: 6,
                           borderRadius: 999,
-                          backgroundColor: groupClosed ? "#2a2a2a" : "#FF9933",
+                          backgroundColor: groupClosed ? colors.pressableBg : "#FF9933",
                           opacity: groupClosed ? 0.7 : 1,
                           borderWidth: groupClosed ? 1 : 0,
-                          borderColor: groupClosed ? "#3a3a3a" : "transparent",
+                          borderColor: groupClosed ? colors.cardBorder : "transparent",
                         }}
                       >
                         <Text
                           style={{
                             fontFamily: "Manrope_800ExtraBold",
-                            color: groupClosed ? "#6b6b6b" : "#0f0f0f",
+                            color: groupClosed ? colors.textMuted : "#0f0f0f",
                             fontSize: 11,
                             letterSpacing: 0.3,
                           }}
@@ -473,10 +481,10 @@ export default function CartScreen() {
                           paddingVertical: 6,
                           borderRadius: 999,
                           borderWidth: 1,
-                          borderColor: "#2a2a2a",
+                          borderColor: colors.cardBorder,
                         }}
                       >
-                        <Text style={{ fontFamily: "Manrope_700Bold", color: "#9a9a9a", fontSize: 11 }}>
+                        <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 11 }}>
                           View
                         </Text>
                       </Pressable>
@@ -492,17 +500,17 @@ export default function CartScreen() {
                           key={key}
                           style={{
                             borderWidth: 1,
-                            borderColor: "#2a2a2a",
+                            borderColor: colors.cardBorder,
                             borderRadius: 12,
                             padding: 10,
-                            backgroundColor: "#1a1a1a",
+                            backgroundColor: colors.backgroundElevated,
                           }}
                         >
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                             {row.itemImage ? (
                               <Image
                                 source={{ uri: row.itemImage }}
-                                style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: "#222" }}
+                                style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: colors.pressableBg }}
                               />
                             ) : (
                               <View
@@ -510,19 +518,19 @@ export default function CartScreen() {
                                   width: 48,
                                   height: 48,
                                   borderRadius: 10,
-                                  backgroundColor: "#222",
+                                  backgroundColor: colors.pressableBg,
                                   alignItems: "center",
                                   justifyContent: "center",
                                 }}
                               >
-                                <ShoppingCart size={18} color="#757575" />
+                                <ShoppingCart size={18} color={colors.iconMuted} />
                               </View>
                             )}
                             <View style={{ flex: 1 }}>
-                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14 }} numberOfLines={2}>
+                              <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 14 }} numberOfLines={2}>
                                 {row.itemName}
                               </Text>
-                              <Text style={{ fontFamily: "Manrope_500Medium", color: "#a0a0a0", fontSize: 12 }}>
+                              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>
                                 ${row.unitPrice.toFixed(2)} each
                               </Text>
                             </View>
@@ -557,17 +565,17 @@ export default function CartScreen() {
                                   width: 30,
                                   height: 30,
                                   borderRadius: 15,
-                                  backgroundColor: "#222",
+                                  backgroundColor: colors.pressableBg,
                                   borderWidth: 1,
-                                  borderColor: "#333",
+                                  borderColor: colors.cardBorder,
                                   alignItems: "center",
                                   justifyContent: "center",
                                   opacity: busy ? 0.5 : 1,
                                 }}
                               >
-                                <Minus size={14} color="#c6c6c6" />
+                                <Minus size={14} color={colors.textSecondary} />
                               </Pressable>
-                              <Text style={{ minWidth: 18, textAlign: "center", fontFamily: "Manrope_700Bold", color: "#f5f5f5" }}>
+                              <Text style={{ minWidth: 18, textAlign: "center", fontFamily: "Manrope_700Bold", color: colors.text }}>
                                 {row.quantity}
                               </Text>
                               <Pressable
@@ -577,15 +585,15 @@ export default function CartScreen() {
                                   width: 30,
                                   height: 30,
                                   borderRadius: 15,
-                                  backgroundColor: "#222",
+                                  backgroundColor: colors.pressableBg,
                                   borderWidth: 1,
-                                  borderColor: "#333",
+                                  borderColor: colors.cardBorder,
                                   alignItems: "center",
                                   justifyContent: "center",
                                   opacity: busy ? 0.5 : 1,
                                 }}
                               >
-                                <Plus size={14} color="#c6c6c6" />
+                                <Plus size={14} color={colors.textSecondary} />
                               </Pressable>
                             </View>
                             <Pressable
@@ -631,8 +639,8 @@ export default function CartScreen() {
             <View
               style={{
                 borderTopWidth: 1,
-                borderTopColor: "#2a2a2a",
-                backgroundColor: "#0f0f0f",
+                borderTopColor: colors.cardBorder,
+                backgroundColor: colors.background,
                 paddingTop: 16,
                 paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 10,
                 flexDirection: "row",
@@ -642,7 +650,7 @@ export default function CartScreen() {
               }}
             >
               <View style={{ flex: 1 }}>
-                <Text style={{ color: "#9a9a9a", fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
+                <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
                   Grand Total
                 </Text>
                 <Text style={{ color: "#FF9933", fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 26 }}>
@@ -656,7 +664,7 @@ export default function CartScreen() {
                 accessibilityState={{ disabled: !anyOpen }}
                 style={({ pressed }) => ({
                   backgroundColor: !anyOpen
-                    ? "#2a2a2a"
+                    ? colors.pressableBg
                     : pressed
                     ? "#e88829"
                     : "#FF9933",
@@ -673,13 +681,13 @@ export default function CartScreen() {
                   shadowRadius: 12,
                   elevation: !anyOpen ? 0 : 4,
                   borderWidth: !anyOpen ? 1 : 0,
-                  borderColor: !anyOpen ? "#3a3a3a" : "transparent",
+                  borderColor: !anyOpen ? colors.cardBorder : "transparent",
                 })}
               >
-                <ShoppingCart size={16} color={!anyOpen ? "#6b6b6b" : "#0f0f0f"} />
+                <ShoppingCart size={16} color={!anyOpen ? colors.textMuted : "#0f0f0f"} />
                 <Text
                   style={{
-                    color: !anyOpen ? "#6b6b6b" : "#0f0f0f",
+                    color: !anyOpen ? colors.textMuted : "#0f0f0f",
                     fontFamily: "Manrope_800ExtraBold",
                     fontSize: 15,
                     letterSpacing: 0.3,

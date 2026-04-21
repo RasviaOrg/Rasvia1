@@ -39,6 +39,7 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme, type AppColors } from "@/lib/app-theme";
 import {
     type SupabaseOrder,
     type UIOrder,
@@ -66,30 +67,32 @@ const ORDER_TYPE_LABELS: Record<OrderType, string> = {
     takeout: "Takeout",
 };
 
-const S = {
-    card: {
-        backgroundColor: "#1a1a1a",
-        borderWidth: 1,
-        borderColor: "#2a2a2a",
-        borderRadius: 16,
-        marginBottom: 12,
-    } as const,
-    chip: (active: boolean, color = "#FF9933") =>
-    ({
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 20,
-        borderWidth: 1,
-        backgroundColor: active ? `${color}20` : "#0f0f0f",
-        borderColor: active ? color : "#2a2a2a",
-        marginRight: 6,
-    } as const),
-    chipText: (active: boolean, color = "#FF9933") => ({
-        fontFamily: active ? ("Manrope_700Bold" as const) : ("Manrope_500Medium" as const),
-        fontSize: 12,
-        color: active ? color : "#666",
-    }),
-};
+function orderChrome(colors: AppColors) {
+    return {
+        card: {
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.cardBorder,
+            borderRadius: 16,
+            marginBottom: 12,
+        } as const,
+        chip: (active: boolean, accent = "#FF9933") =>
+            ({
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 20,
+                borderWidth: 1,
+                backgroundColor: active ? `${accent}20` : colors.background,
+                borderColor: active ? accent : colors.cardBorder,
+                marginRight: 6,
+            }) as const,
+        chipText: (active: boolean, accent = "#FF9933") => ({
+            fontFamily: active ? ("Manrope_700Bold" as const) : ("Manrope_500Medium" as const),
+            fontSize: 12,
+            color: active ? accent : colors.textMuted,
+        }),
+    };
+}
 
 // ──────────────────────── Close Table Modal ──────────────────────────
 function CloseTableModal({
@@ -108,6 +111,7 @@ function CloseTableModal({
     const [tipPercent, setTipPercent] = useState(18);
     const [customTip, setCustomTip] = useState("");
     const [closing, setClosing] = useState(false);
+    const { colors, isDark } = useAppTheme();
 
     if (!order) return null;
 
@@ -142,31 +146,31 @@ function CloseTableModal({
 
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "flex-end" }}>
+            <View style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.35)", justifyContent: "flex-end" }}>
                 <Pressable style={{ flex: 1 }} onPress={onClose} />
-                <View style={{ backgroundColor: "#0f0f0f", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: Platform.OS === "ios" ? 40 : 24, borderTopWidth: 1, borderTopColor: "#2a2a2a" }}>
+                <View style={{ backgroundColor: colors.backgroundElevated, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: Platform.OS === "ios" ? 40 : 24, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
                     <View style={{ alignItems: "center", marginBottom: 20 }}>
-                        <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: "#2a2a2a", marginBottom: 20 }} />
-                        <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 24 }}>Close Table</Text>
-                        <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 13, marginTop: 4 }}>
+                        <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.cardBorder, marginBottom: 20 }} />
+                        <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 24 }}>Close Table</Text>
+                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 4 }}>
                             Table {order.tableNumber} · {order.items.length} items
                         </Text>
                     </View>
 
                     {/* Subtotal */}
-                    <View style={{ backgroundColor: "#1a1a1a", borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "#2a2a2a" }}>
+                    <View style={{ backgroundColor: colors.card, borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: colors.cardBorder }}>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 14 }}>Subtotal</Text>
-                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 14 }}>${order.subtotal.toFixed(2)}</Text>
+                            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14 }}>Subtotal</Text>
+                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 14 }}>${order.subtotal.toFixed(2)}</Text>
                         </View>
                         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 14 }}>Tip</Text>
-                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#FF9933", fontSize: 14 }}>${tipAmount.toFixed(2)}</Text>
+                            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14 }}>Tip</Text>
+                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.saffron, fontSize: 14 }}>${tipAmount.toFixed(2)}</Text>
                         </View>
-                        <View style={{ height: 1, backgroundColor: "#2a2a2a", marginVertical: 12 }} />
+                        <View style={{ height: 1, backgroundColor: colors.cardBorder, marginVertical: 12 }} />
                         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 16 }}>Total</Text>
-                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 18 }}>${total.toFixed(2)}</Text>
+                            <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 16 }}>Total</Text>
+                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 18 }}>${total.toFixed(2)}</Text>
                         </View>
                     </View>
 
@@ -178,12 +182,12 @@ function CloseTableModal({
                                 onPress={() => { setTipMode(mode); setCustomTip(""); }}
                                 style={{
                                     flex: 1, padding: 10, borderRadius: 12, borderWidth: 1,
-                                    backgroundColor: tipMode === mode ? "rgba(255,153,51,0.12)" : "#0f0f0f",
-                                    borderColor: tipMode === mode ? "#FF9933" : "#2a2a2a",
+                                    backgroundColor: tipMode === mode ? "rgba(255,153,51,0.12)" : colors.background,
+                                    borderColor: tipMode === mode ? colors.saffron : colors.cardBorder,
                                     alignItems: "center",
                                 }}
                             >
-                                <Text style={{ fontFamily: "Manrope_700Bold", color: tipMode === mode ? "#FF9933" : "#555", fontSize: 13 }}>
+                                <Text style={{ fontFamily: "Manrope_700Bold", color: tipMode === mode ? colors.saffron : colors.textMuted, fontSize: 13 }}>
                                     {mode === "percent" ? "% Percentage" : "$ Amount"}
                                 </Text>
                             </Pressable>
@@ -198,12 +202,12 @@ function CloseTableModal({
                                     onPress={() => { setTipPercent(p); if (Platform.OS !== "web") Haptics.selectionAsync(); }}
                                     style={{
                                         flex: 1, padding: 10, borderRadius: 12, borderWidth: 1,
-                                        backgroundColor: tipPercent === p ? "rgba(255,153,51,0.12)" : "#0f0f0f",
-                                        borderColor: tipPercent === p ? "#FF9933" : "#2a2a2a",
+                                        backgroundColor: tipPercent === p ? "rgba(255,153,51,0.12)" : colors.background,
+                                        borderColor: tipPercent === p ? colors.saffron : colors.cardBorder,
                                         alignItems: "center",
                                     }}
                                 >
-                                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: tipPercent === p ? "#FF9933" : "#777", fontSize: 14 }}>
+                                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: tipPercent === p ? colors.saffron : colors.textMuted, fontSize: 14 }}>
                                         {p === 0 ? "No tip" : `${p}%`}
                                     </Text>
                                 </Pressable>
@@ -214,12 +218,12 @@ function CloseTableModal({
                             value={customTip}
                             onChangeText={setCustomTip}
                             placeholder="Enter tip amount"
-                            placeholderTextColor="#555"
+                            placeholderTextColor={colors.textMuted}
                             keyboardType="decimal-pad"
                             style={{
-                                backgroundColor: "#1a1a1a", borderRadius: 12, borderWidth: 1,
-                                borderColor: customTip ? "#FF9933" : "#2a2a2a",
-                                paddingHorizontal: 14, paddingVertical: 13, color: "#f5f5f5",
+                                backgroundColor: colors.card, borderRadius: 12, borderWidth: 1,
+                                borderColor: customTip ? colors.saffron : colors.cardBorder,
+                                paddingHorizontal: 14, paddingVertical: 13, color: colors.text,
                                 fontFamily: "JetBrainsMono_600SemiBold", fontSize: 16, marginBottom: 16,
                             }}
                         />
@@ -261,6 +265,8 @@ function OrderCard({
     onClose: (order: UIOrder) => void;
     onNotifyReady: (order: UIOrder) => void;
 }) {
+    const { colors } = useAppTheme();
+    const S = orderChrome(colors);
     const [expanded, setExpanded] = useState(false);
     const statusColor = STATUS_COLORS[order.status];
 
@@ -282,10 +288,10 @@ function OrderCard({
     const isFinished = order.status === "completed" || order.status === "cancelled";
 
     const typeIcon = order.orderType === "takeout"
-        ? <Truck size={12} color="#777" />
+        ? <Truck size={12} color={colors.textMuted} />
         : order.orderType === "pre_order"
-            ? <Clock size={12} color="#777" />
-            : <UtensilsCrossed size={12} color="#777" />;
+            ? <Clock size={12} color={colors.textMuted} />
+            : <UtensilsCrossed size={12} color={colors.textMuted} />;
 
     return (
         <Animated.View entering={FadeInDown.duration(300)} style={S.card}>
@@ -299,18 +305,18 @@ function OrderCard({
                         {/* Table + party */}
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
                             <View>
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 18 }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 18 }}>
                                     {order.customerName ? `${order.customerName}` : (order.tableNumber !== "—" ? `Table ${order.tableNumber}` : ORDER_TYPE_LABELS[order.orderType])}
                                 </Text>
                                 {order.customerName && order.tableNumber !== "—" && (
-                                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 13, marginTop: 2 }}>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
                                         Table {order.tableNumber}
                                     </Text>
                                 )}
                             </View>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginLeft: 8, marginTop: 2, alignSelf: "flex-start" }}>
-                                <Users size={11} color="#555" />
-                                <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11 }}>{order.partySize}</Text>
+                                <Users size={11} color={colors.textMuted} />
+                                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11 }}>{order.partySize}</Text>
                             </View>
                         </View>
 
@@ -318,24 +324,24 @@ function OrderCard({
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
                                 {typeIcon}
-                                <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 11 }}>
+                                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11 }}>
                                     {ORDER_TYPE_LABELS[order.orderType]}
                                 </Text>
                             </View>
-                            <Text style={{ color: "#333" }}>·</Text>
-                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 11 }}>
+                            <Text style={{ color: colors.textSecondary }}>·</Text>
+                            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11 }}>
                                 {order.mealPeriod}
                             </Text>
-                            <Text style={{ color: "#333" }}>·</Text>
-                            <Clock size={10} color="#555" />
-                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#777", fontSize: 11 }}>
+                            <Text style={{ color: colors.textSecondary }}>·</Text>
+                            <Clock size={10} color={colors.textMuted} />
+                            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11 }}>
                                 {order.elapsedMinutes < 60 ? `${order.elapsedMinutes}m ago` : `${Math.floor(order.elapsedMinutes / 60)}h ago`}
                             </Text>
                         </View>
                     </View>
 
                     <View style={{ alignItems: "flex-end" }}>
-                        <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 16, marginBottom: 6 }}>
+                        <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 16, marginBottom: 6 }}>
                             ${order.subtotal.toFixed(2)}
                         </Text>
                         <View style={{ backgroundColor: `${statusColor}20`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: `${statusColor}50` }}>
@@ -347,35 +353,35 @@ function OrderCard({
                 </View>
 
                 {/* Item summary */}
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 8 }} numberOfLines={2}>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 8 }} numberOfLines={2}>
                     {order.items.map(i => `${i.quantity}× ${i.name}`).join(", ")}
                 </Text>
 
                 {/* Expand indicator */}
                 <View style={{ alignItems: "center", marginTop: 8 }}>
-                    {expanded ? <ChevronUp size={14} color="#555" /> : <ChevronDown size={14} color="#555" />}
+                    {expanded ? <ChevronUp size={14} color={colors.textMuted} /> : <ChevronDown size={14} color={colors.textMuted} />}
                 </View>
             </Pressable>
 
             {/* Expanded details */}
             {expanded && (
-                <View style={{ borderTopWidth: 1, borderTopColor: "#222", padding: 14 }}>
+                <View style={{ borderTopWidth: 1, borderTopColor: colors.cardBorder, padding: 14 }}>
                     {/* Items list */}
                     {order.items.map((item) => (
                         <View key={item.id} style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 13, flex: 1 }}>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 13, flex: 1 }}>
                                 {item.quantity}× {item.name}
                             </Text>
                             {item.isVegetarian && <Leaf size={11} color="#22C55E" style={{ marginRight: 6 }} />}
-                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#FF9933", fontSize: 12 }}>
+                            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.saffron, fontSize: 12 }}>
                                 ${item.lineTotal.toFixed(2)}
                             </Text>
                         </View>
                     ))}
 
                     {(order.notes ?? "") !== "" && (
-                        <View style={{ backgroundColor: "#0f0f0f", borderRadius: 10, padding: 10, marginTop: 6, marginBottom: 10 }}>
-                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12 }}>📝 {order.notes}</Text>
+                        <View style={{ backgroundColor: colors.background, borderRadius: 10, padding: 10, marginTop: 6, marginBottom: 10 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>📝 {order.notes}</Text>
                         </View>
                     )}
 
@@ -393,7 +399,7 @@ function OrderCard({
                                     }}
                                     style={{ backgroundColor: "rgba(255,153,51,0.15)", borderRadius: 12, padding: 12, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,153,51,0.3)" }}
                                 >
-                                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 14 }}>{nextLabel}</Text>
+                                    <Text style={{ fontFamily: "Manrope_700Bold", color: colors.saffron, fontSize: 14 }}>{nextLabel}</Text>
                                 </Pressable>
                             )}
                             {order.status === "served" || order.status === "pending" || order.status === "preparing" ? (
@@ -421,6 +427,8 @@ export default function AdminOrdersScreen() {
     const router = useRouter();
     const { isAdmin, loading: adminLoading } = useAdminMode();
     const { session } = useAuth();
+    const { colors } = useAppTheme();
+    const S = orderChrome(colors);
 
     const [orders, setOrders] = useState<UIOrder[]>([]);
     const [loading, setLoading] = useState(true);
@@ -530,11 +538,11 @@ export default function AdminOrdersScreen() {
     // Access guard
     if (!adminLoading && !isAdmin) {
         return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
                 <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 22, marginBottom: 16 }}>Admin Only</Text>
-                    <Pressable onPress={() => router.back()} style={{ backgroundColor: "#1a1a1a", padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a" }}>
-                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5" }}>Go Back</Text>
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 22, marginBottom: 16 }}>Admin Only</Text>
+                    <Pressable onPress={() => router.back()} style={{ backgroundColor: colors.card, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text }}>Go Back</Text>
                     </Pressable>
                 </View>
             </SafeAreaView>
@@ -542,21 +550,21 @@ export default function AdminOrdersScreen() {
     }
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
             {/* Header */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1e1e1e" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
                 <Pressable onPress={() => router.back()} hitSlop={12} style={{ padding: 4 }}>
-                    <ArrowLeft size={24} color="#f5f5f5" />
+                    <ArrowLeft size={24} color={colors.text} />
                 </Pressable>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <ShoppingBag size={18} color="#FF9933" />
-                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 20 }}>Orders</Text>
+                    <ShoppingBag size={18} color={colors.saffron} />
+                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 20 }}>Orders</Text>
                 </View>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#FF9933" }} />
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.saffron }} />
             </View>
 
             {/* Tab Bar — compact inline pills, no ScrollView overhead */}
-            <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#1e1e1e", paddingHorizontal: 12, paddingVertical: 6, gap: 6, alignItems: "center" }}>
+            <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.cardBorder, paddingHorizontal: 12, paddingVertical: 6, gap: 6, alignItems: "center" }}>
                 {TABS.map(({ key, label }) => {
                     const active = activeTab === key;
                     const count = key === "dine_in"
@@ -575,13 +583,13 @@ export default function AdminOrdersScreen() {
                                 flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3,
                                 paddingHorizontal: 6, paddingVertical: 4, borderRadius: 12,
                                 backgroundColor: active ? "rgba(129,140,248,0.15)" : "transparent",
-                                borderWidth: 1, borderColor: active ? "#818CF8" : "#2a2a2a",
+                                borderWidth: 1, borderColor: active ? "#818CF8" : colors.cardBorder,
                             }}
                         >
-                            <Text style={{ fontFamily: active ? "Manrope_700Bold" : "Manrope_500Medium", fontSize: 10, color: active ? "#818CF8" : "#555" }} numberOfLines={1}>{label}</Text>
+                            <Text style={{ fontFamily: active ? "Manrope_700Bold" : "Manrope_500Medium", fontSize: 10, color: active ? "#818CF8" : colors.textMuted }} numberOfLines={1}>{label}</Text>
                             {count > 0 && (
-                                <View style={{ backgroundColor: active ? "#818CF8" : "#333", borderRadius: 6, paddingHorizontal: 4, paddingVertical: 0 }}>
-                                    <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: active ? "#fff" : "#888", fontSize: 9 }}>{count}</Text>
+                                <View style={{ backgroundColor: active ? "#818CF8" : colors.pressableBg, borderRadius: 6, paddingHorizontal: 4, paddingVertical: 0 }}>
+                                    <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: active ? "#fff" : colors.textMuted, fontSize: 9 }}>{count}</Text>
                                 </View>
                             )}
                         </Pressable>
@@ -590,7 +598,7 @@ export default function AdminOrdersScreen() {
             </View>
 
             {/* Filter Rows — Diet above Meals, stacked vertically */}
-            <View style={{ borderBottomWidth: 1, borderBottomColor: "#1a1a1a", paddingHorizontal: 16, paddingTop: 6, paddingBottom: 6, gap: 6 }}>
+            <View style={{ borderBottomWidth: 1, borderBottomColor: colors.cardBorder, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 6, gap: 6 }}>
                 {/* Row 1: Diet filters + table search */}
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     {(["all", "veg", "non_veg"] as DietFilter[]).map((d) => {
@@ -598,26 +606,26 @@ export default function AdminOrdersScreen() {
                         const isActive = dietFilter === d;
                         return (
                             <Pressable key={d} onPress={() => setDietFilter(d)} style={[S.chip(isActive, dietColor), { flexDirection: "row", alignItems: "center", gap: 4, marginRight: 0 }]}>
-                                {d === "veg" && <Leaf size={10} color={isActive ? dietColor : "#555"} />}
-                                {d === "non_veg" && <Drumstick size={10} color={isActive ? dietColor : "#555"} />}
+                                {d === "veg" && <Leaf size={10} color={isActive ? dietColor : colors.textMuted} />}
+                                {d === "non_veg" && <Drumstick size={10} color={isActive ? dietColor : colors.textMuted} />}
                                 <Text style={S.chipText(isActive, dietColor)}>
                                     {d === "all" ? "All Diet" : d === "veg" ? "Veg" : "Non-Veg"}
                                 </Text>
                             </Pressable>
                         );
                     })}
-                    <View style={{ width: 1, height: 18, backgroundColor: "#2a2a2a", marginHorizontal: 2 }} />
+                    <View style={{ width: 1, height: 18, backgroundColor: colors.cardBorder, marginHorizontal: 2 }} />
                     <TextInput
                         value={tableFilter}
                         onChangeText={setTableFilter}
                         placeholder="Table #"
-                        placeholderTextColor="#555"
+                        placeholderTextColor={colors.textMuted}
                         keyboardType="default"
                         style={{
-                            backgroundColor: "#1a1a1a", borderRadius: 16, borderWidth: 1,
-                            borderColor: tableFilter ? "#FF9933" : "#2a2a2a",
+                            backgroundColor: colors.card, borderRadius: 16, borderWidth: 1,
+                            borderColor: tableFilter ? colors.saffron : colors.cardBorder,
                             paddingHorizontal: 10, paddingVertical: 4,
-                            color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 11,
+                            color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 11,
                             minWidth: 70, maxWidth: 90,
                         }}
                     />
@@ -629,10 +637,10 @@ export default function AdminOrdersScreen() {
                         const isActive = mealFilter === m;
                         return (
                             <Pressable key={m} onPress={() => setMealFilter(m)} style={[S.chip(isActive, mealColor), { flexDirection: "row", alignItems: "center", gap: 4, marginRight: 0 }]}>
-                                {m === "breakfast" && <Coffee size={10} color={isActive ? mealColor : "#555"} />}
-                                {m === "lunch" && <Sun size={10} color={isActive ? mealColor : "#555"} />}
-                                {m === "dinner" && <Moon size={10} color={isActive ? mealColor : "#555"} />}
-                                {m === "special" && <Star size={10} color={isActive ? mealColor : "#555"} />}
+                                {m === "breakfast" && <Coffee size={10} color={isActive ? mealColor : colors.textMuted} />}
+                                {m === "lunch" && <Sun size={10} color={isActive ? mealColor : colors.textMuted} />}
+                                {m === "dinner" && <Moon size={10} color={isActive ? mealColor : colors.textMuted} />}
+                                {m === "special" && <Star size={10} color={isActive ? mealColor : colors.textMuted} />}
                                 <Text style={S.chipText(isActive, mealColor)}>
                                     {m === "all" ? "All Meals" : m === "breakfast" ? "Breakfast" : m === "lunch" ? "Lunch" : m === "dinner" ? "Dinner" : "Special"}
                                 </Text>
@@ -645,20 +653,20 @@ export default function AdminOrdersScreen() {
             {/* List */}
             {loading ? (
                 <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                    <ActivityIndicator size="large" color="#FF9933" />
+                    <ActivityIndicator size="large" color={colors.saffron} />
                 </View>
             ) : (
                 <ScrollView
                     style={{ flex: 1 }}
                     contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
                     showsVerticalScrollIndicator={false}
-                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF9933" />}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.saffron} colors={[colors.saffron]} />}
                 >
                     {filteredOrders.length === 0 ? (
                         <Animated.View entering={FadeIn.duration(400)} style={{ alignItems: "center", paddingTop: 60 }}>
-                            <ShoppingBag size={40} color="#333" style={{ marginBottom: 12 }} />
-                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#555", fontSize: 18 }}>No orders here</Text>
-                            <Text style={{ fontFamily: "Manrope_500Medium", color: "#444", fontSize: 14, marginTop: 4 }}>
+                            <ShoppingBag size={40} color={colors.iconMuted} style={{ marginBottom: 12 }} />
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.textMuted, fontSize: 18 }}>No orders here</Text>
+                            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textSecondary, fontSize: 14, marginTop: 4 }}>
                                 {activeTab === "dine_in" ? "No active dine-in orders" : activeTab === "pre_order" ? "No pre-orders" : activeTab === "takeout" ? "No takeout orders" : "No completed orders"}
                             </Text>
                         </Animated.View>

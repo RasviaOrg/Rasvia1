@@ -11,6 +11,7 @@ import {
 import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag } from "lucide-react-native";
 import type { CartItem, GroupMember } from "@/data/mockData";
 import * as Haptics from "expo-haptics";
+import { useAppTheme } from "@/lib/app-theme";
 import Animated, {
   FadeIn,
   FadeInLeft,
@@ -44,6 +45,7 @@ export function GroupCartDrawer({
   isGroupMode = false,
   isClosed = false,
 }: GroupCartDrawerProps) {
+  const { colors, isDark } = useAppTheme();
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const checkoutScale = useSharedValue(1);
@@ -67,31 +69,31 @@ export function GroupCartDrawer({
         bottom: 0,
         left: 0,
         right: 0,
-        backgroundColor: "#1a1a1a",
+        backgroundColor: colors.card,
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         maxHeight: SCREEN_HEIGHT * 0.82,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: -8 },
-        shadowOpacity: 0.4,
+        shadowOpacity: isDark ? 0.4 : 0.12,
         shadowRadius: 24,
         elevation: 20,
         borderTopWidth: 1,
-        borderTopColor: "#2a2a2a",
+        borderTopColor: colors.cardBorder,
       }}
     >
       {/* Drag Handle */}
       <View style={{ alignItems: "center", paddingTop: 12, paddingBottom: 8 }}>
-        <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: "#2a2a2a" }} />
+        <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.cardBorder }} />
       </View>
 
       {/* Header */}
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 16 }}>
         <View>
-          <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 22 }}>
+          <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 22 }}>
             {isGroupMode ? "Group Cart" : "Your Cart"}
           </Text>
-          <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 13, marginTop: 2 }}>
+          <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
             {isGroupMode
               ? `${items.length} items · ${members.length} members`
               : `${items.length} item${items.length !== 1 ? "s" : ""}`}
@@ -102,13 +104,15 @@ export function GroupCartDrawer({
             <Pressable
               onPress={onShare}
               style={{
-                backgroundColor: "#2a2a2a",
+                backgroundColor: colors.pressableBg,
                 width: 40,
                 height: 40,
                 borderRadius: 20,
                 alignItems: "center",
                 justifyContent: "center",
                 marginRight: 10,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
               }}
             >
               <Share2 size={18} color="#FF9933" />
@@ -117,15 +121,17 @@ export function GroupCartDrawer({
           <Pressable
             onPress={onClose}
             style={{
-              backgroundColor: "#2a2a2a",
+              backgroundColor: colors.pressableBg,
               width: 40,
               height: 40,
               borderRadius: 20,
               alignItems: "center",
               justifyContent: "center",
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
             }}
           >
-            <X size={18} color="#f5f5f5" />
+            <X size={18} color={colors.text} />
           </Pressable>
         </View>
       </View>
@@ -157,14 +163,14 @@ export function GroupCartDrawer({
                 width: 36,
                 height: 36,
                 borderRadius: 18,
-                backgroundColor: "#2a2a2a",
+                backgroundColor: colors.pressableBg,
                 borderWidth: 2,
-                borderColor: "#333333",
+                borderColor: colors.cardBorder,
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Users size={14} color="#999999" />
+              <Users size={14} color={colors.iconMuted} />
             </View>
           </View>
         </View>
@@ -186,17 +192,17 @@ export function GroupCartDrawer({
               alignItems: "center",
               paddingVertical: 12,
               borderBottomWidth: index < items.length - 1 ? 1 : 0,
-              borderBottomColor: "#2a2a2a",
+              borderBottomColor: colors.cardBorder,
             }}
           >
             <Image
               source={{ uri: item.image }}
-              style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: "#262626" }}
+              style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: colors.pressableBg }}
             />
             <View style={{ flex: 1, marginLeft: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Text
-                  style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14, flex: 1 }}
+                  style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 14, flex: 1 }}
                   numberOfLines={1}
                 >
                   {item.name}
@@ -220,7 +226,7 @@ export function GroupCartDrawer({
                 <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#FF9933", fontSize: 13 }}>
                   ${(item.price * item.quantity).toFixed(2)}
                 </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#262626", borderRadius: 20, paddingHorizontal: 4, borderWidth: 1, borderColor: "#2a2a2a" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: colors.pressableBg, borderRadius: 20, paddingHorizontal: 4, borderWidth: 1, borderColor: colors.cardBorder }}>
                   <Pressable
                     onPress={() => {
                       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -228,9 +234,9 @@ export function GroupCartDrawer({
                     }}
                     style={{ padding: 8 }}
                   >
-                    <Minus size={14} color="#f5f5f5" />
+                    <Minus size={14} color={colors.text} />
                   </Pressable>
-                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 13, minWidth: 20, textAlign: "center" }}>
+                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 13, minWidth: 20, textAlign: "center" }}>
                     {item.quantity}
                   </Text>
                   <Pressable
@@ -240,7 +246,7 @@ export function GroupCartDrawer({
                     }}
                     style={{ padding: 8 }}
                   >
-                    <Plus size={14} color="#f5f5f5" />
+                    <Plus size={14} color={colors.text} />
                   </Pressable>
                 </View>
               </View>
@@ -250,12 +256,12 @@ export function GroupCartDrawer({
       </ScrollView>
 
       {/* Footer */}
-      <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: Platform.OS === "ios" ? 36 : 24, borderTopWidth: 1, borderTopColor: "#2a2a2a" }}>
+      <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: Platform.OS === "ios" ? 36 : 24, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999999", fontSize: 15 }}>
+          <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 15 }}>
             Total
           </Text>
-          <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#f5f5f5", fontSize: 22 }}>
+          <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 22 }}>
             ${total.toFixed(2)}
           </Text>
         </View>
@@ -277,7 +283,7 @@ export function GroupCartDrawer({
               flexDirection: "row",
               justifyContent: "center",
               gap: 8,
-              backgroundColor: isClosed ? "#333333" : "#FF9933",
+              backgroundColor: isClosed ? colors.switchTrackOff : (isDark ? "#FF9933" : "#b45309"),
               opacity: isClosed ? 0.7 : 1,
               shadowColor: isClosed ? "transparent" : "#FF9933",
               shadowOffset: { width: 0, height: 4 },
@@ -287,11 +293,11 @@ export function GroupCartDrawer({
             }}
           >
             {isClosed ? (
-              <Clock size={16} color="#999" />
+              <Clock size={16} color={colors.textMuted} />
             ) : (
-              <ShoppingBag size={18} color="#0f0f0f" strokeWidth={2.5} />
+              <ShoppingBag size={18} color={isDark ? "#0f0f0f" : "#ffffff"} strokeWidth={2.5} />
             )}
-            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isClosed ? "#999999" : "#0f0f0f", fontSize: 17 }}>
+            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isClosed ? colors.textMuted : (isDark ? "#0f0f0f" : "#ffffff"), fontSize: 17 }}>
               {isClosed
                 ? "Currently Closed"
                 : isGroupMode

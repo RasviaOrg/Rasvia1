@@ -52,6 +52,7 @@ import { InAppNotification } from "@/components/InAppNotification";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { AppBottomNav, type TabKey } from "@/components/AppBottomNav";
 import { AppThemeProvider, useAppTheme } from "@/lib/app-theme";
+import { RestaurantBottomNavProvider, useRestaurantBottomNav } from "@/lib/restaurant-bottom-nav-context";
 import * as SystemUI from "expo-system-ui";
 
 SplashScreen.preventAutoHideAsync();
@@ -110,6 +111,7 @@ function GlobalTableReadyBanner() {
 // ==========================================
 function AuthGate() {
   const { colors } = useAppTheme();
+  const { forceShowRestaurantBottomNav } = useRestaurantBottomNav();
   const { session, loading, needsOnboarding } = useAuth();
   const segments = useSegments();
   const pathname = usePathname();
@@ -119,8 +121,37 @@ function AuthGate() {
   // when we early-return the loading screen below. (React requires every hook
   // to be called on every render in the same order.)
   const lastTabRef = useRef<TabKey>("home");
+  const prevHadSessionRef = useRef(false);
+  const prevSignedInUserIdRef = useRef<string | null>(null);
 
   useBackgroundRoutePrefetch(!!session && !needsOnboarding && !loading);
+
+  useEffect(() => {
+    if (loading) return;
+    const uid = session?.user?.id ?? null;
+    if (uid) {
+      const prev = prevSignedInUserIdRef.current;
+      if (prev !== null && prev !== uid) {
+        lastTabRef.current = "home";
+        router.replace("/");
+      }
+      prevSignedInUserIdRef.current = uid;
+    } else {
+      prevSignedInUserIdRef.current = null;
+    }
+  }, [loading, session?.user?.id, router]);
+
+  useEffect(() => {
+    const hasSession = !!session?.user;
+    if (hasSession && !prevHadSessionRef.current) {
+      lastTabRef.current = "home";
+      const p = pathname ?? "";
+      if (p.startsWith("/cart")) {
+        router.replace("/");
+      }
+    }
+    prevHadSessionRef.current = hasSession;
+  }, [session?.user, pathname, router]);
 
   useEffect(() => {
     if (!loading) {
@@ -239,9 +270,6 @@ function AuthGate() {
     "/onboarding",
     "/email-verify",
     "/reset-password",
-    "/terms",
-    "/privacy",
-    "/restaurant/",
     "/cuisine/",
     "/discover/",
     "/waitlist/",
@@ -250,7 +278,10 @@ function AuthGate() {
     "/order-confirmation",
     "/host_party",
   ];
-  const navHidden = navHiddenRoutes.some((r) => path === r.replace(/\/$/, "") || path.startsWith(r));
+  let navHidden = navHiddenRoutes.some((r) => path === r.replace(/\/$/, "") || path.startsWith(r));
+  if (path.startsWith("/restaurant/")) {
+    navHidden = !forceShowRestaurantBottomNav;
+  }
 
   const resolvedTab: TabKey | null =
     path === "/" || path === "/index"
@@ -269,7 +300,9 @@ function AuthGate() {
         path.startsWith("/my-accounts") ||
         path.startsWith("/dining-preferences") ||
         path.startsWith("/roles") ||
-        path.startsWith("/owner-media-carousel")
+        path.startsWith("/owner-media-carousel") ||
+        path.startsWith("/terms") ||
+        path.startsWith("/privacy")
       ? "profile"
       : null;
 
@@ -423,14 +456,14 @@ function RootLayoutWithFonts() {
       <SafeAreaProvider>
         <ThemeProvider value={navigationTheme}>
           <StatusBar style={isDark ? "light" : "dark"} />
-          <AuthProvider>
-            <LocationProvider>
-              <NotificationsProvider>
+          <LocationProvider>
+            <NotificationsProvider>
+              <RestaurantBottomNavProvider>
                 <AuthGate />
                 <GlobalTableReadyBanner />
-              </NotificationsProvider>
-            </LocationProvider>
-          </AuthProvider>
+              </RestaurantBottomNavProvider>
+            </NotificationsProvider>
+          </LocationProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -439,8 +472,10 @@ function RootLayoutWithFonts() {
 
 export default function RootLayout() {
   return (
-    <AppThemeProvider>
-      <RootLayoutWithFonts />
-    </AppThemeProvider>
+    <AuthProvider>
+      <AppThemeProvider>
+        <RootLayoutWithFonts />
+      </AppThemeProvider>
+    </AuthProvider>
   );
 }

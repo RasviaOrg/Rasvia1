@@ -40,6 +40,7 @@ import { useLocation } from "../lib/location-context";
 import { haversineDistance } from "../lib/restaurant-types";
 import { useClosedRestaurantIds } from "../hooks/useClosedRestaurantIds";
 import { addActiveParty, removeActiveParty } from "../lib/party-active";
+import { useAppTheme } from "../lib/app-theme";
 
 interface Restaurant {
   id: number;
@@ -58,6 +59,9 @@ const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 
 export default function HostPartyScreen() {
   const router = useRouter();
+  const { colors, isDark } = useAppTheme();
+  const saffronBtnBg = isDark ? "#FF9933" : "#c2410c";
+  const saffronBtnFg = isDark ? "#0f0f0f" : "#ffffff";
   const { session } = useAuth();
   const { addEvent } = useNotifications();
   const { userCoords } = useLocation();
@@ -463,7 +467,7 @@ export default function HostPartyScreen() {
         options={{ headerShown: false, gestureEnabled: step !== "created" }}
       />
       <SafeAreaView
-        style={{ flex: 1, backgroundColor: "#0f0f0f" }}
+        style={{ flex: 1, backgroundColor: colors.background }}
         edges={["top"]}
       >
         {/* Header */}
@@ -475,7 +479,7 @@ export default function HostPartyScreen() {
             paddingTop: 4,
             paddingBottom: 12,
             borderBottomWidth: 1,
-            borderBottomColor: "#1a1a1a",
+            borderBottomColor: colors.cardBorder,
           }}
         >
           <Pressable
@@ -484,19 +488,21 @@ export default function HostPartyScreen() {
               width: 40,
               height: 40,
               borderRadius: 20,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               alignItems: "center",
               justifyContent: "center",
               marginRight: 12,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
             }}
           >
-            <ArrowLeft size={20} color="#f5f5f5" />
+            <ArrowLeft size={20} color={colors.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 22,
                 letterSpacing: -0.3,
               }}
@@ -506,7 +512,7 @@ export default function HostPartyScreen() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#666",
+                color: colors.textMuted,
                 fontSize: 13,
                 marginTop: 1,
               }}
@@ -525,10 +531,10 @@ export default function HostPartyScreen() {
         {existingSession && step === "select" && (
           <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
             <View style={{
-              backgroundColor: "rgba(255,153,51,0.1)",
+              backgroundColor: isDark ? "rgba(255,153,51,0.1)" : "rgba(255,153,51,0.12)",
               borderRadius: 16,
               borderWidth: 1.5,
-              borderColor: "rgba(255,153,51,0.3)",
+              borderColor: isDark ? "rgba(255,153,51,0.3)" : "rgba(234,88,12,0.35)",
               padding: 16,
             }}>
               <Pressable
@@ -550,7 +556,7 @@ export default function HostPartyScreen() {
                   <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#FF9933", fontSize: 14, marginBottom: 2 }}>
                     Active Group Order
                   </Text>
-                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#aaa", fontSize: 13 }}>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
                     You have an open order at {existingSession.restaurantName}
                   </Text>
                 </View>
@@ -614,24 +620,24 @@ export default function HostPartyScreen() {
                 marginHorizontal: 16,
                 marginTop: 12,
                 marginBottom: 8,
-                backgroundColor: "#141414",
+                backgroundColor: colors.card,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: "#1e1e1e",
+                borderColor: colors.cardBorder,
                 paddingHorizontal: 12,
                 gap: 8,
               }}
             >
-              <Search size={16} color="#555" />
+              <Search size={16} color={colors.textMuted} />
               <TextInput
                 value={search}
                 onChangeText={setSearch}
                 placeholder="Search restaurants or cuisine…"
-                placeholderTextColor="#444"
+                placeholderTextColor={colors.textMuted}
                 style={{
                   flex: 1,
                   fontFamily: "Manrope_500Medium",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 14,
                   paddingVertical: 12,
                 }}
@@ -664,19 +670,19 @@ export default function HostPartyScreen() {
                       gap: 5,
                       backgroundColor: active
                         ? "rgba(255,153,51,0.2)"
-                        : "#141414",
+                        : colors.card,
                       borderRadius: 20,
                       paddingHorizontal: 14,
                       paddingVertical: 7,
                       borderWidth: 1,
-                      borderColor: active ? "#FF9933" : "#2a2a2a",
+                      borderColor: active ? "#FF9933" : colors.cardBorder,
                     }}
                   >
-                    <Icon size={12} color={active ? "#FF9933" : "#999"} />
+                    <Icon size={12} color={active ? "#FF9933" : colors.textMuted} />
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: active ? "#FF9933" : "#999",
+                        color: active ? "#FF9933" : colors.textMuted,
                         fontSize: 12,
                       }}
                     >
@@ -699,7 +705,7 @@ export default function HostPartyScreen() {
                   <Text
                     style={{
                       fontFamily: "Manrope_500Medium",
-                      color: "#666",
+                      color: colors.textMuted,
                       fontSize: 14,
                       marginTop: 12,
                     }}
@@ -731,9 +737,9 @@ export default function HostPartyScreen() {
                               borderRadius: 14,
                               backgroundColor: isSelected
                                 ? "rgba(255,153,51,0.12)"
-                                : "#141414",
+                                : colors.card,
                               borderWidth: 1,
-                              borderColor: isSelected ? "#FF9933" : "#1e1e1e",
+                              borderColor: isSelected ? "#FF9933" : colors.cardBorder,
                               gap: 12,
                             }}
                           >
@@ -745,7 +751,7 @@ export default function HostPartyScreen() {
                                   width: 52,
                                   height: 52,
                                   borderRadius: 10,
-                                  backgroundColor: "#1e1e1e",
+                                  backgroundColor: colors.pressableBg,
                                 }}
                                 resizeMode="cover"
                               />
@@ -755,12 +761,12 @@ export default function HostPartyScreen() {
                                   width: 52,
                                   height: 52,
                                   borderRadius: 10,
-                                  backgroundColor: "#1e1e1e",
+                                  backgroundColor: colors.pressableBg,
                                   alignItems: "center",
                                   justifyContent: "center",
                                 }}
                               >
-                                <UtensilsCrossed size={22} color="#333" />
+                                <UtensilsCrossed size={22} color={colors.iconMuted} />
                               </View>
                             )}
 
@@ -769,7 +775,7 @@ export default function HostPartyScreen() {
                               <Text
                                 style={{
                                   fontFamily: "BricolageGrotesque_700Bold",
-                                  color: "#f5f5f5",
+                                  color: colors.text,
                                   fontSize: 15,
                                   letterSpacing: -0.2,
                                 }}
@@ -781,7 +787,7 @@ export default function HostPartyScreen() {
                                 <Text
                                   style={{
                                     fontFamily: "Manrope_500Medium",
-                                    color: "#666",
+                                    color: colors.textMuted,
                                     fontSize: 12,
                                     marginTop: 2,
                                   }}
@@ -820,7 +826,7 @@ export default function HostPartyScreen() {
                                   height: 20,
                                   borderRadius: 10,
                                   borderWidth: 2,
-                                  borderColor: isSelected ? "#FF9933" : "#333",
+                                  borderColor: isSelected ? "#FF9933" : colors.iconMuted,
                                   backgroundColor: isSelected
                                     ? "#FF9933"
                                     : "transparent",
@@ -847,7 +853,7 @@ export default function HostPartyScreen() {
                       <Text
                         style={{
                           fontFamily: "Manrope_500Medium",
-                          color: "#555",
+                          color: colors.textMuted,
                           fontSize: 14,
                         }}
                       >
@@ -869,16 +875,16 @@ export default function HostPartyScreen() {
                 paddingHorizontal: 20,
                 paddingBottom: 36,
                 paddingTop: 16,
-                backgroundColor: "#0f0f0f",
+                backgroundColor: colors.background,
                 borderTopWidth: 1,
-                borderTopColor: "#1a1a1a",
+                borderTopColor: colors.cardBorder,
               }}
             >
               <Pressable
                 onPress={handleStart}
                 disabled={!selectedRestaurant}
                 style={{
-                  backgroundColor: selectedRestaurant ? "#FF9933" : "#1a1a1a",
+                  backgroundColor: selectedRestaurant ? saffronBtnBg : colors.card,
                   borderRadius: 14,
                   paddingVertical: 16,
                   paddingHorizontal: 20,
@@ -886,17 +892,19 @@ export default function HostPartyScreen() {
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 10,
+                  borderWidth: selectedRestaurant ? 0 : 1,
+                  borderColor: colors.cardBorder,
                 }}
               >
                 <Users
                   size={18}
-                  color={selectedRestaurant ? "#0f0f0f" : "#444"}
+                  color={selectedRestaurant ? saffronBtnFg : colors.textMuted}
                   style={{ flexShrink: 0 }}
                 />
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: selectedRestaurant ? "#0f0f0f" : "#444",
+                    color: selectedRestaurant ? saffronBtnFg : colors.textMuted,
                     fontSize: 17,
                     letterSpacing: -0.2,
                     flexShrink: 1,
@@ -928,7 +936,7 @@ export default function HostPartyScreen() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#888",
+                color: colors.textMuted,
                 fontSize: 15,
               }}
             >
@@ -946,11 +954,11 @@ export default function HostPartyScreen() {
             {/* Success header */}
             <View
               style={{
-                backgroundColor: "rgba(255,153,51,0.1)",
+                backgroundColor: isDark ? "rgba(255,153,51,0.1)" : "rgba(255,153,51,0.12)",
                 borderRadius: 16,
                 padding: 20,
                 borderWidth: 1,
-                borderColor: "rgba(255,153,51,0.25)",
+                borderColor: isDark ? "rgba(255,153,51,0.25)" : "rgba(234,88,12,0.32)",
                 marginBottom: 24,
               }}
             >
@@ -968,7 +976,7 @@ export default function HostPartyScreen() {
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#aaa",
+                  color: colors.textMuted,
                   fontSize: 14,
                   lineHeight: 20,
                 }}
@@ -993,7 +1001,7 @@ export default function HostPartyScreen() {
                     borderRadius: 14,
                     padding: 12,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                   }}
                 >
                   <QRCode value={shareUrl} size={148} />
@@ -1005,7 +1013,7 @@ export default function HostPartyScreen() {
             <Text
               style={{
                 fontFamily: "Manrope_600SemiBold",
-                color: "#666",
+                color: colors.textMuted,
                 fontSize: 12,
                 letterSpacing: 0.5,
                 textTransform: "uppercase",
@@ -1016,10 +1024,10 @@ export default function HostPartyScreen() {
             </Text>
             <View
               style={{
-                backgroundColor: "#141414",
+                backgroundColor: colors.card,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: "#1e1e1e",
+                borderColor: colors.cardBorder,
                 padding: 14,
                 marginBottom: 12,
               }}
@@ -1027,7 +1035,7 @@ export default function HostPartyScreen() {
               <Text
                 style={{
                   fontFamily: "JetBrainsMono_400Regular",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 13,
                   lineHeight: 18,
                 }}
@@ -1047,22 +1055,22 @@ export default function HostPartyScreen() {
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 8,
-                  backgroundColor: "#141414",
+                  backgroundColor: colors.card,
                   borderRadius: 12,
                   paddingVertical: 14,
                   borderWidth: 1,
-                  borderColor: copied ? "#FF9933" : "#1e1e1e",
+                  borderColor: copied ? "#FF9933" : colors.cardBorder,
                 }}
               >
                 {copied ? (
                   <Check size={16} color="#FF9933" />
                 ) : (
-                  <Copy size={16} color="#f5f5f5" />
+                  <Copy size={16} color={colors.text} />
                 )}
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: copied ? "#FF9933" : "#f5f5f5",
+                    color: copied ? "#FF9933" : colors.text,
                     fontSize: 14,
                   }}
                 >
@@ -1077,18 +1085,18 @@ export default function HostPartyScreen() {
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 8,
-                  backgroundColor: "#141414",
+                  backgroundColor: colors.card,
                   borderRadius: 12,
                   paddingVertical: 14,
                   borderWidth: 1,
-                  borderColor: "#1e1e1e",
+                  borderColor: colors.cardBorder,
                 }}
               >
-                <Share2 size={16} color="#f5f5f5" />
+                <Share2 size={16} color={colors.text} />
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 14,
                   }}
                 >
@@ -1101,7 +1109,7 @@ export default function HostPartyScreen() {
             <Pressable
               onPress={handleJoinAsHost}
               style={{
-                backgroundColor: "#FF9933",
+                backgroundColor: saffronBtnBg,
                 borderRadius: 14,
                 paddingVertical: 16,
                 alignItems: "center",
@@ -1110,24 +1118,24 @@ export default function HostPartyScreen() {
                 gap: 8,
               }}
             >
-              <Users size={18} color="#0f0f0f" />
+              <Users size={18} color={saffronBtnFg} />
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#0f0f0f",
+                  color: saffronBtnFg,
                   fontSize: 17,
                   letterSpacing: -0.2,
                 }}
               >
                 Join as Host
               </Text>
-              <ChevronRight size={18} color="#0f0f0f" />
+              <ChevronRight size={18} color={saffronBtnFg} />
             </Pressable>
 
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#555",
+                color: colors.textMuted,
                 fontSize: 12,
                 textAlign: "center",
                 marginTop: 16,

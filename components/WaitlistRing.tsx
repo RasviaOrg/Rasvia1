@@ -12,6 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 import { Bell } from "lucide-react-native";
+import { useAppTheme } from "@/lib/app-theme";
 
 interface WaitlistRingProps {
   position: number;
@@ -28,6 +29,7 @@ export function WaitlistRing({
   restaurantName,
   isTableReady = false,
 }: WaitlistRingProps) {
+  const { colors, isDark } = useAppTheme();
   const progress = useSharedValue(0);
   const pulseScale = useSharedValue(1);
 
@@ -35,6 +37,9 @@ export function WaitlistRing({
   const strokeWidth = 10;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
+  /** Fills the ring interior (inside the stroke) so light mode isn’t a dark hole. */
+  const innerFillRadius = Math.max(0, radius - strokeWidth / 2 - 1);
+  const trackStroke = isDark ? "#2a2a2a" : colors.cardBorder;
 
   const progressPercent = isTableReady
     ? 1
@@ -95,12 +100,14 @@ export function WaitlistRing({
         />
 
         <Svg width={size} height={size}>
+          {/* Inner fill so the ring interior matches light/dark surfaces */}
+          <Circle cx={size / 2} cy={size / 2} r={innerFillRadius} fill={colors.background} />
           {/* Background track */}
           <Circle
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke="#2a2a2a"
+            stroke={trackStroke}
             strokeWidth={strokeWidth}
             fill="none"
           />
@@ -172,7 +179,7 @@ export function WaitlistRing({
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 14,
                   marginTop: 2,
                 }}
@@ -189,7 +196,7 @@ export function WaitlistRing({
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
-            color: "#999999",
+            color: colors.textMuted,
             fontSize: 14,
           }}
         >
@@ -198,7 +205,7 @@ export function WaitlistRing({
         <Text
           style={{
             fontFamily: "JetBrainsMono_600SemiBold",
-            color: isTableReady ? "#22C55E" : "#f5f5f5",
+            color: isTableReady ? "#22C55E" : colors.text,
             fontSize: isTableReady ? 24 : 32,
             marginTop: 2,
             textAlign: "center",

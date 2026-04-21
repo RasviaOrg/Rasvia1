@@ -12,10 +12,29 @@ import {
   DefaultTheme,
   type Theme as NavigationTheme,
 } from "@react-navigation/native";
+import {
+  LayoutAnimation,
+  Platform,
+  UIManager,
+  useColorScheme,
+} from "react-native";
+import { useAuth } from "./auth-context";
 
-const STORAGE_KEY = "rasvia.appearance.v1";
+/** Legacy global key — migrated per-user on first login. */
+const LEGACY_APPEARANCE_KEY = "rasvia.appearance.v1";
 
-export type AppearanceMode = "dark" | "light";
+function userAppearanceKey(userId: string) {
+  return `rasvia.appearance.user.${userId}`;
+}
+
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+export type AppearanceMode = "dark" | "light" | "system";
 
 export type AppColors = {
   background: string;
@@ -66,26 +85,29 @@ const darkColors: AppColors = {
 };
 
 const lightColors: AppColors = {
-  background: "#f2f2f7",
-  backgroundElevated: "#ffffff",
-  card: "#ffffff",
-  cardBorder: "#d1d1d6",
+  /** Lightest canvas — slightly whiter than surfaces/cards */
+  background: "#fafafa",
+  backgroundElevated: "#f4f4f6",
+  /** Cards / elevated panels — subtle grey vs background */
+  card: "#ececf0",
+  cardBorder: "#d8d8dc",
   text: "#0f0f0f",
   textSecondary: "#3a3a3c",
   textMuted: "#6b7280",
   iconMuted: "#6b7280",
   iconTileBg: "rgba(0,0,0,0.06)",
-  navBar: "#ffffff",
-  navBarBorder: "#c6c6c8",
-  pressableBg: "#e5e5ea",
+  /** Match card/surfaces so the tab bar reads as part of the same grey tier */
+  navBar: "#ececf0",
+  navBarBorder: "#d8d8dc",
+  pressableBg: "#e4e4e9",
   switchTrackOff: "#d1d1d6",
   saffron: "#FF9933",
-  homeBg: "#e8e8ed",
-  homeHeaderBg: "#ffffff",
-  homeSurface: "#ffffff",
-  homeBorder: "#d1d1d6",
-  skeleton: "#e5e5ea",
-  skeletonLine: "#d1d1d6",
+  homeBg: "#fafafa",
+  homeHeaderBg: "#fafafa",
+  homeSurface: "#ececf0",
+  homeBorder: "#d8d8dc",
+  skeleton: "#e8e8ec",
+  skeletonLine: "#d8d8dc",
 };
 
 function buildNavigationTheme(colors: AppColors, isDark: boolean): NavigationTheme {
@@ -105,7 +127,9 @@ function buildNavigationTheme(colors: AppColors, isDark: boolean): NavigationThe
 }
 
 type AppThemeContextValue = {
+  /** User-selected appearance (may be `system`). */
   appearance: AppearanceMode;
+  /** Resolved after applying system preference. */
   isDark: boolean;
   colors: AppColors;
   navigationTheme: NavigationTheme;
@@ -114,33 +138,67 @@ type AppThemeContextValue = {
 
 const AppThemeContext = createContext<AppThemeContextValue | null>(null);
 
+/**
+ * Must render **inside** `AuthProvider` so appearance can be stored per user
+ * and fall back to **system** when logged out.
+ */
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
-  const [appearance, setAppearanceState] = useState<AppearanceMode>("dark");
+  const systemColorScheme = useColorScheme();
+  const { session } = useAuth();
+  const userId = session?.user?.id ?? null;
+
+  const [appearance, setAppearanceState] = useState<AppearanceMode>("system");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (!userId) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        if (!cancelled) setAppearanceState("system");
+        return;
+      }
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const key = userAppearanceKey(userId);
+        let raw = await AsyncStorage.getItem(key);
+        if (!raw) {
+          const legacy = await AsyncStorage.getItem(LEGACY_APPEARANCE_KEY);
+          if (legacy === "light" || legacy === "dark" || legacy === "system") {
+            raw = legacy;
+            await AsyncStorage.setItem(key, legacy);
+          }
+        }
         if (cancelled) return;
-        if (raw === "light" || raw === "dark") {
+        if (raw === "light" || raw === "dark" || raw === "system") {
           setAppearanceState(raw);
+        } else {
+          setAppearanceState("system");
         }
       } catch {
-        /* ignore */
+        if (!cancelled) setAppearanceState("system");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userId]);
 
-  const setAppearance = useCallback((mode: AppearanceMode) => {
-    setAppearanceState(mode);
-    void AsyncStorage.setItem(STORAGE_KEY, mode);
-  }, []);
+  const isDark =
+    appearance === "system"
+      ? systemColorScheme !== "light"
+      : appearance === "dark";
 
-  const isDark = appearance === "dark";
+  const setAppearance = useCallback(
+    (mode: AppearanceMode) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setAppearanceState(mode);
+      const uid = session?.user?.id;
+      if (uid) {
+        void AsyncStorage.setItem(userAppearanceKey(uid), mode);
+      }
+    },
+    [session?.user?.id]
+  );
+
   const colors = isDark ? darkColors : lightColors;
 
   const value = useMemo<AppThemeContextValue>(

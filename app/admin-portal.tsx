@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { BrandedLoader } from "@/components/BrandedLoader";
+import { useAppTheme } from "@/lib/app-theme";
 
 type RestaurantRow = {
   id: number;
@@ -134,6 +135,7 @@ async function syncRolesAfterOwnerChange(previousOwnerId: string | null, newOwne
 export default function AdminPortalScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const { isAdmin, loading: roleLoading } = useAdminMode();
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileOption[]>([]);
@@ -542,11 +544,11 @@ export default function AdminPortalScreen() {
 
   if (!isAdmin) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <View style={{ padding: 24 }}>
-          <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 16 }}>Access denied</Text>
+          <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 16 }}>Access denied</Text>
           <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
-            <Text style={{ color: "#FF9933" }}>Go back</Text>
+            <Text style={{ color: colors.saffron }}>Go back</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -554,27 +556,27 @@ export default function AdminPortalScreen() {
   }
 
   const inputStyle = {
-    backgroundColor: "#141414",
+    backgroundColor: colors.backgroundElevated,
     borderWidth: 1,
-    borderColor: "#2a2a2a",
+    borderColor: colors.cardBorder,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: "#f5f5f5",
+    color: colors.text,
     fontFamily: "Manrope_500Medium" as const,
     fontSize: 15,
   };
 
-  const labelStyle = { color: "#999", fontFamily: "Manrope_600SemiBold" as const, fontSize: 12, marginBottom: 6 };
+  const labelStyle = { color: colors.textMuted, fontFamily: "Manrope_600SemiBold" as const, fontSize: 12, marginBottom: 6 };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#2a2a2a" }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.cardBorder }}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={{ marginRight: 12 }}>
-          <ArrowLeft size={22} color="#f5f5f5" />
+          <ArrowLeft size={22} color={colors.text} />
         </Pressable>
         <Building2 size={20} color="#EAB308" />
-        <Text style={{ marginLeft: 8, fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5", flex: 1 }}>
+        <Text style={{ marginLeft: 8, fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text, flex: 1 }}>
           Admin Portal
         </Text>
         <Pressable
@@ -591,7 +593,7 @@ export default function AdminPortalScreen() {
             paddingVertical: 7,
           }}
         >
-          <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 11 }}>
+          <Text style={{ color: colors.saffron, fontFamily: "Manrope_700Bold", fontSize: 11 }}>
             Switch to Admin Pulse
           </Text>
         </Pressable>
@@ -607,13 +609,13 @@ export default function AdminPortalScreen() {
             paddingVertical: 8,
             paddingHorizontal: 14,
             borderRadius: 999,
-            backgroundColor: "rgba(255,255,255,0.06)",
+            backgroundColor: colors.iconTileBg,
             borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.08)",
+            borderColor: colors.cardBorder,
           }}
         >
-          <Camera size={14} color="#888" />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: "#888" }}>
+          <Camera size={14} color={colors.textMuted} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: colors.textMuted }}>
             Menu Images
           </Text>
         </Pressable>
@@ -630,13 +632,13 @@ export default function AdminPortalScreen() {
             paddingVertical: 8,
             paddingHorizontal: 14,
             borderRadius: 999,
-            backgroundColor: adminMode === "restaurants" ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.06)",
+            backgroundColor: adminMode === "restaurants" ? "rgba(234,179,8,0.2)" : colors.iconTileBg,
             borderWidth: 1,
-            borderColor: adminMode === "restaurants" ? "rgba(234,179,8,0.45)" : "rgba(255,255,255,0.08)",
+            borderColor: adminMode === "restaurants" ? "rgba(234,179,8,0.45)" : colors.cardBorder,
           }}
         >
-          <Building2 size={14} color={adminMode === "restaurants" ? "#EAB308" : "#888"} />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "restaurants" ? "#EAB308" : "#888" }}>
+          <Building2 size={14} color={adminMode === "restaurants" ? "#EAB308" : colors.textMuted} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "restaurants" ? "#EAB308" : colors.textMuted }}>
             Restaurants
           </Text>
         </Pressable>
@@ -653,13 +655,13 @@ export default function AdminPortalScreen() {
             paddingVertical: 8,
             paddingHorizontal: 14,
             borderRadius: 999,
-            backgroundColor: adminMode === "users" ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.06)",
+            backgroundColor: adminMode === "users" ? "rgba(234,179,8,0.2)" : colors.iconTileBg,
             borderWidth: 1,
-            borderColor: adminMode === "users" ? "rgba(234,179,8,0.45)" : "rgba(255,255,255,0.08)",
+            borderColor: adminMode === "users" ? "rgba(234,179,8,0.45)" : colors.cardBorder,
           }}
         >
-          <Users size={14} color={adminMode === "users" ? "#EAB308" : "#888"} />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "users" ? "#EAB308" : "#888" }}>Users</Text>
+          <Users size={14} color={adminMode === "users" ? "#EAB308" : colors.textMuted} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "users" ? "#EAB308" : colors.textMuted }}>Users</Text>
         </Pressable>
         <Pressable
           onPress={() => {
@@ -675,13 +677,13 @@ export default function AdminPortalScreen() {
             paddingVertical: 8,
             paddingHorizontal: 14,
             borderRadius: 999,
-            backgroundColor: adminMode === "groups" ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.06)",
+            backgroundColor: adminMode === "groups" ? "rgba(234,179,8,0.2)" : colors.iconTileBg,
             borderWidth: 1,
-            borderColor: adminMode === "groups" ? "rgba(234,179,8,0.45)" : "rgba(255,255,255,0.08)",
+            borderColor: adminMode === "groups" ? "rgba(234,179,8,0.45)" : colors.cardBorder,
           }}
         >
-          <Users size={14} color={adminMode === "groups" ? "#EAB308" : "#888"} />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "groups" ? "#EAB308" : "#888" }}>Groups</Text>
+          <Users size={14} color={adminMode === "groups" ? "#EAB308" : colors.textMuted} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "groups" ? "#EAB308" : colors.textMuted }}>Groups</Text>
         </Pressable>
         <Pressable
           onPress={() => {
@@ -697,13 +699,13 @@ export default function AdminPortalScreen() {
             paddingVertical: 8,
             paddingHorizontal: 14,
             borderRadius: 999,
-            backgroundColor: adminMode === "settings" ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.06)",
+            backgroundColor: adminMode === "settings" ? "rgba(234,179,8,0.2)" : colors.iconTileBg,
             borderWidth: 1,
-            borderColor: adminMode === "settings" ? "rgba(234,179,8,0.45)" : "rgba(255,255,255,0.08)",
+            borderColor: adminMode === "settings" ? "rgba(234,179,8,0.45)" : colors.cardBorder,
           }}
         >
-          <Settings2 size={14} color={adminMode === "settings" ? "#EAB308" : "#888"} />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "settings" ? "#EAB308" : "#888" }}>
+          <Settings2 size={14} color={adminMode === "settings" ? "#EAB308" : colors.textMuted} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: adminMode === "settings" ? "#EAB308" : colors.textMuted }}>
             Review Reports
           </Text>
         </Pressable>
@@ -715,7 +717,7 @@ export default function AdminPortalScreen() {
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
           <TextInput
             placeholder="Search name, email, id…"
-            placeholderTextColor="#666"
+            placeholderTextColor={colors.textMuted}
             value={userSearch}
             onChangeText={setUserSearch}
             style={[inputStyle, { marginBottom: 12 }]}
@@ -737,9 +739,9 @@ export default function AdminPortalScreen() {
                   paddingHorizontal: 12,
                   borderRadius: 10,
                   marginBottom: 4,
-                  backgroundColor: "#141414",
+                  backgroundColor: colors.card,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                   position: "relative",
                 }}
               >
@@ -754,12 +756,12 @@ export default function AdminPortalScreen() {
                     </View>
                   );
                 })()}
-                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 14, paddingRight: 56 }}>{profileLabel(p)}</Text>
-                <Text style={{ color: "#666", fontSize: 10, fontFamily: "Manrope_500Medium", marginTop: 2 }}>{p.id}</Text>
+                <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 14, paddingRight: 56 }}>{profileLabel(p)}</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: "Manrope_500Medium", marginTop: 2 }}>{p.id}</Text>
               </Pressable>
             )}
             ListEmptyComponent={
-              <Text style={{ color: "#666", textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
+              <Text style={{ color: colors.textMuted, textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
                 No users match your search.
               </Text>
             }
@@ -768,7 +770,7 @@ export default function AdminPortalScreen() {
             <View
               style={{
                 flex: 1,
-                backgroundColor: "#0f0f0f",
+                backgroundColor: colors.background,
                 paddingTop: insets.top,
                 paddingBottom: insets.bottom,
               }}
@@ -781,7 +783,7 @@ export default function AdminPortalScreen() {
                   paddingHorizontal: 16,
                   paddingVertical: 14,
                   borderBottomWidth: 1,
-                  borderBottomColor: "#2a2a2a",
+                  borderBottomColor: colors.cardBorder,
                 }}
               >
                 <Text
@@ -790,7 +792,7 @@ export default function AdminPortalScreen() {
                     marginRight: 12,
                     fontFamily: "BricolageGrotesque_700Bold",
                     fontSize: 18,
-                    color: "#f5f5f5",
+                    color: colors.text,
                   }}
                 >
                   Edit profile
@@ -800,7 +802,7 @@ export default function AdminPortalScreen() {
                   hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
                   style={{ flexShrink: 0, padding: 4 }}
                 >
-                  <X size={24} color="#f5f5f5" />
+                  <X size={24} color={colors.text} />
                 </Pressable>
               </View>
               <ScrollView style={{ flex: 1, padding: 16 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
@@ -821,12 +823,12 @@ export default function AdminPortalScreen() {
                         paddingVertical: 8,
                         paddingHorizontal: 12,
                         borderRadius: 999,
-                        backgroundColor: userDraft.role === role ? "rgba(234,179,8,0.2)" : "#1a1a1a",
+                        backgroundColor: userDraft.role === role ? "rgba(234,179,8,0.2)" : colors.pressableBg,
                         borderWidth: 1,
-                        borderColor: userDraft.role === role ? "rgba(234,179,8,0.45)" : "#333",
+                        borderColor: userDraft.role === role ? "rgba(234,179,8,0.45)" : colors.cardBorder,
                       }}
                     >
-                      <Text style={{ color: userDraft.role === role ? "#EAB308" : "#888", fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>{role}</Text>
+                      <Text style={{ color: userDraft.role === role ? "#EAB308" : colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>{role}</Text>
                     </Pressable>
                   ))}
                 </View>
@@ -854,7 +856,7 @@ export default function AdminPortalScreen() {
       ) : adminMode === "groups" ? (
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4, paddingBottom: 10 }}>
-            <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>GROUPS</Text>
+            <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>GROUPS</Text>
             <Pressable
               onPress={() => {
                 haptic();
@@ -876,9 +878,9 @@ export default function AdminPortalScreen() {
               <View
                 style={{
                   marginBottom: 10,
-                  backgroundColor: "#141414",
+                  backgroundColor: colors.card,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                   borderRadius: 12,
                   padding: 12,
                   gap: 8,
@@ -888,11 +890,11 @@ export default function AdminPortalScreen() {
                   <Text style={{ color: "#60A5FA", fontFamily: "JetBrainsMono_600SemiBold", fontSize: 13, flex: 1 }} numberOfLines={1}>
                     {item.key}
                   </Text>
-                  <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>
+                  <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>
                     {item.members.length} restaurants
                   </Text>
                 </View>
-                <Text style={{ color: "#b6b6b6", fontFamily: "Manrope_500Medium", fontSize: 12 }} numberOfLines={2}>
+                <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium", fontSize: 12 }} numberOfLines={2}>
                   {item.members.map((m) => m.name).join(", ")}
                 </Text>
                 <View style={{ flexDirection: "row", gap: 8 }}>
@@ -948,7 +950,7 @@ export default function AdminPortalScreen() {
               </View>
             )}
             ListEmptyComponent={
-              <Text style={{ color: "#666", textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
+              <Text style={{ color: colors.textMuted, textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
                 No groups yet. Tap Create Group.
               </Text>
             }
@@ -960,9 +962,9 @@ export default function AdminPortalScreen() {
             style={{
               marginTop: 4,
               marginBottom: 10,
-              backgroundColor: "#141414",
+              backgroundColor: colors.card,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               borderRadius: 12,
               paddingHorizontal: 12,
               paddingVertical: 11,
@@ -972,10 +974,10 @@ export default function AdminPortalScreen() {
             }}
           >
             <Flag size={14} color="#EAB308" />
-            <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 13, flex: 1 }}>
+            <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 13, flex: 1 }}>
               Review Reports
             </Text>
-            <Text style={{ color: "#888", fontFamily: "JetBrainsMono_600SemiBold", fontSize: 11 }}>
+            <Text style={{ color: colors.textMuted, fontFamily: "JetBrainsMono_600SemiBold", fontSize: 11 }}>
               {reviewReports.length}
             </Text>
           </View>
@@ -993,16 +995,16 @@ export default function AdminPortalScreen() {
                 <View
                   style={{
                     marginBottom: 10,
-                    backgroundColor: "#141414",
+                    backgroundColor: colors.card,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                     borderRadius: 12,
                     padding: 12,
                     gap: 8,
                   }}
                 >
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_700Bold", fontSize: 14, flex: 1 }} numberOfLines={1}>
+                    <Text style={{ color: colors.text, fontFamily: "Manrope_700Bold", fontSize: 14, flex: 1 }} numberOfLines={1}>
                       {item.restaurant?.name ?? `Restaurant #${item.restaurant_id}`}
                     </Text>
                     <View
@@ -1027,20 +1029,20 @@ export default function AdminPortalScreen() {
                     </View>
                   </View>
 
-                  <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                  <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
                     Owner: {item.ownerLabel}
                   </Text>
-                  <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                  <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
                     Reviewer: {item.review?.reviewer_name ?? "Anonymous"} · {item.review?.rating ?? "?"}★
                   </Text>
                   {item.reason ? (
-                    <Text style={{ color: "#b0b0b0", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                    <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
                       Owner note: {item.reason}
                     </Text>
                   ) : null}
                   {!!item.review?.body && (
                     <Text
-                      style={{ color: "#d5d5d5", fontFamily: "Manrope_500Medium", fontSize: 12, lineHeight: 18 }}
+                      style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium", fontSize: 12, lineHeight: 18 }}
                       numberOfLines={3}
                     >
                       “{item.review.body}”
@@ -1121,7 +1123,7 @@ export default function AdminPortalScreen() {
               );
             }}
             ListEmptyComponent={
-              <Text style={{ color: "#666", textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
+              <Text style={{ color: colors.textMuted, textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
                 No review reports yet.
               </Text>
             }
@@ -1130,7 +1132,7 @@ export default function AdminPortalScreen() {
       ) : (
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 }}>
-            <Text style={{ color: "#888", fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>RESTAURANTS</Text>
+            <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>RESTAURANTS</Text>
             <Pressable
               onPress={() => {
                 haptic();
@@ -1159,13 +1161,13 @@ export default function AdminPortalScreen() {
                   paddingHorizontal: 12,
                   borderRadius: 10,
                   marginBottom: 4,
-                  backgroundColor: "#141414",
+                  backgroundColor: colors.card,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                 }}
               >
-                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>{r.name}</Text>
-                <Text style={{ color: "#666", fontSize: 11, marginTop: 2 }}>ID {r.id}</Text>
+                <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }}>{r.name}</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>ID {r.id}</Text>
                 {r.chain_group_key ? (
                   <Text style={{ color: "#60A5FA", fontSize: 11, marginTop: 2, fontFamily: "JetBrainsMono_600SemiBold" }}>
                     Group: {r.chain_group_key}
@@ -1174,7 +1176,7 @@ export default function AdminPortalScreen() {
               </Pressable>
             )}
             ListEmptyComponent={
-              <Text style={{ color: "#666", textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
+              <Text style={{ color: colors.textMuted, textAlign: "center", marginTop: 24, fontFamily: "Manrope_500Medium" }}>
                 No restaurants loaded.
               </Text>
             }
@@ -1183,7 +1185,7 @@ export default function AdminPortalScreen() {
             <View
               style={{
                 flex: 1,
-                backgroundColor: "#0f0f0f",
+                backgroundColor: colors.background,
                 paddingTop: insets.top,
                 paddingBottom: insets.bottom,
               }}
@@ -1196,7 +1198,7 @@ export default function AdminPortalScreen() {
                   paddingHorizontal: 16,
                   paddingVertical: 14,
                   borderBottomWidth: 1,
-                  borderBottomColor: "#2a2a2a",
+                  borderBottomColor: colors.cardBorder,
                 }}
               >
                 <Text
@@ -1205,7 +1207,7 @@ export default function AdminPortalScreen() {
                     marginRight: 12,
                     fontFamily: "BricolageGrotesque_700Bold",
                     fontSize: 17,
-                    color: "#f5f5f5",
+                    color: colors.text,
                   }}
                   numberOfLines={1}
                 >
@@ -1216,7 +1218,7 @@ export default function AdminPortalScreen() {
                   hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
                   style={{ flexShrink: 0, padding: 4 }}
                 >
-                  <X size={24} color="#f5f5f5" />
+                  <X size={24} color={colors.text} />
                 </Pressable>
               </View>
               {selectedId !== null && (selectedId === "new" || selectedRestaurant) && (
@@ -1228,7 +1230,7 @@ export default function AdminPortalScreen() {
                 onPress={() => setOwnerPickerOpen(true)}
                 style={[inputStyle, { marginBottom: 12 }]}
               >
-                <Text style={{ color: draft.owner_id ? "#f5f5f5" : "#666" }}>
+                <Text style={{ color: draft.owner_id ? colors.text : colors.textMuted }}>
                   {(() => {
                     if (!draft.owner_id) return "No owner — tap to choose";
                     const op = profiles.find((p) => p.id === draft.owner_id);
@@ -1269,7 +1271,7 @@ export default function AdminPortalScreen() {
                 onChangeText={(t) => setDraft((d) => ({ ...d, chain_group_key: t }))}
                 autoCapitalize="none"
                 placeholder="e.g. saravanaa-bhavan"
-                placeholderTextColor="#555"
+                placeholderTextColor={colors.textMuted}
               />
               <Text style={labelStyle}>Stripe account ID</Text>
               <TextInput
@@ -1279,20 +1281,20 @@ export default function AdminPortalScreen() {
                 autoCapitalize="none"
               />
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#ccc", fontFamily: "Manrope_500Medium" }}>Listed / enabled</Text>
-                <Switch value={draft.is_enabled !== false} onValueChange={(v) => setDraft((d) => ({ ...d, is_enabled: v }))} trackColor={{ false: "#333", true: "rgba(234,179,8,0.4)" }} thumbColor={draft.is_enabled !== false ? "#EAB308" : "#666"} />
+                <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium" }}>Listed / enabled</Text>
+                <Switch value={draft.is_enabled !== false} onValueChange={(v) => setDraft((d) => ({ ...d, is_enabled: v }))} trackColor={{ false: colors.switchTrackOff, true: "rgba(234,179,8,0.4)" }} thumbColor={draft.is_enabled !== false ? "#EAB308" : colors.iconMuted} />
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#ccc", fontFamily: "Manrope_500Medium" }}>Waitlist open</Text>
-                <Switch value={draft.waitlist_open !== false} onValueChange={(v) => setDraft((d) => ({ ...d, waitlist_open: v }))} trackColor={{ false: "#333", true: "rgba(234,179,8,0.4)" }} thumbColor={draft.waitlist_open !== false ? "#EAB308" : "#666"} />
+                <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium" }}>Waitlist open</Text>
+                <Switch value={draft.waitlist_open !== false} onValueChange={(v) => setDraft((d) => ({ ...d, waitlist_open: v }))} trackColor={{ false: colors.switchTrackOff, true: "rgba(234,179,8,0.4)" }} thumbColor={draft.waitlist_open !== false ? "#EAB308" : colors.iconMuted} />
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#ccc", fontFamily: "Manrope_500Medium" }}>Coming soon</Text>
-                <Switch value={draft.is_coming_soon === true} onValueChange={(v) => setDraft((d) => ({ ...d, is_coming_soon: v }))} trackColor={{ false: "#333", true: "rgba(148,163,184,0.45)" }} thumbColor={draft.is_coming_soon ? "#94A3B8" : "#666"} />
+                <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium" }}>Coming soon</Text>
+                <Switch value={draft.is_coming_soon === true} onValueChange={(v) => setDraft((d) => ({ ...d, is_coming_soon: v }))} trackColor={{ false: colors.switchTrackOff, true: "rgba(148,163,184,0.45)" }} thumbColor={draft.is_coming_soon ? "#94A3B8" : colors.iconMuted} />
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <Text style={{ color: "#ccc", fontFamily: "Manrope_500Medium" }}>Featured</Text>
-                <Switch value={Boolean(draft.is_featured)} onValueChange={(v) => setDraft((d) => ({ ...d, is_featured: v }))} trackColor={{ false: "#333", true: "rgba(234,179,8,0.4)" }} thumbColor={draft.is_featured ? "#EAB308" : "#666"} />
+                <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium" }}>Featured</Text>
+                <Switch value={Boolean(draft.is_featured)} onValueChange={(v) => setDraft((d) => ({ ...d, is_featured: v }))} trackColor={{ false: colors.switchTrackOff, true: "rgba(234,179,8,0.4)" }} thumbColor={draft.is_featured ? "#EAB308" : colors.iconMuted} />
               </View>
               <Pressable
                 onPress={() => void handleSaveRestaurant()}
@@ -1322,7 +1324,7 @@ export default function AdminPortalScreen() {
       )}
 
       <Modal visible={showGroupEditorModal} animationType="slide" onRequestClose={() => setShowGroupEditorModal(false)}>
-        <View style={{ flex: 1, backgroundColor: "#0f0f0f", paddingTop: insets.top, paddingBottom: insets.bottom }}>
+        <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }}>
           <View
             style={{
               flexDirection: "row",
@@ -1331,14 +1333,14 @@ export default function AdminPortalScreen() {
               paddingHorizontal: 16,
               paddingVertical: 14,
               borderBottomWidth: 1,
-              borderBottomColor: "#2a2a2a",
+              borderBottomColor: colors.cardBorder,
             }}
           >
-            <Text style={{ color: "#f5f5f5", fontFamily: "BricolageGrotesque_700Bold", fontSize: 18 }}>
+            <Text style={{ color: colors.text, fontFamily: "BricolageGrotesque_700Bold", fontSize: 18 }}>
               {groupEditorMode === "create" ? "Create Group" : "Edit Group"}
             </Text>
             <Pressable onPress={() => setShowGroupEditorModal(false)} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
-              <X size={24} color="#f5f5f5" />
+              <X size={24} color={colors.text} />
             </Pressable>
           </View>
 
@@ -1348,7 +1350,7 @@ export default function AdminPortalScreen() {
               value={groupEditorName}
               onChangeText={setGroupEditorName}
               placeholder="e.g. saravanaa-bhavan"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               style={[inputStyle, { marginBottom: 8 }]}
             />
@@ -1373,16 +1375,16 @@ export default function AdminPortalScreen() {
                   }}
                   style={{
                     borderWidth: 1,
-                    borderColor: selected ? "rgba(96,165,250,0.45)" : "#2a2a2a",
-                    backgroundColor: selected ? "rgba(96,165,250,0.15)" : "#141414",
+                    borderColor: selected ? "rgba(96,165,250,0.45)" : colors.cardBorder,
+                    backgroundColor: selected ? "rgba(96,165,250,0.15)" : colors.card,
                     borderRadius: 10,
                     paddingHorizontal: 12,
                     paddingVertical: 12,
                     marginBottom: 6,
                   }}
                 >
-                  <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>{item.name}</Text>
-                  <Text style={{ color: "#666", fontSize: 11, marginTop: 2 }}>ID {item.id}</Text>
+                  <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }}>{item.name}</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>ID {item.id}</Text>
                 </Pressable>
               );
             }}
@@ -1395,8 +1397,8 @@ export default function AdminPortalScreen() {
               right: 0,
               bottom: 0,
               borderTopWidth: 1,
-              borderTopColor: "#2a2a2a",
-              backgroundColor: "#0f0f0f",
+              borderTopColor: colors.cardBorder,
+              backgroundColor: colors.background,
               paddingHorizontal: 16,
               paddingTop: 12,
               paddingBottom: 12 + insets.bottom,
@@ -1429,7 +1431,7 @@ export default function AdminPortalScreen() {
         <View
           style={{
             flex: 1,
-            backgroundColor: "#0f0f0f",
+            backgroundColor: colors.background,
             paddingTop: insets.top,
             paddingBottom: insets.bottom,
           }}
@@ -1442,10 +1444,10 @@ export default function AdminPortalScreen() {
               paddingHorizontal: 16,
               paddingVertical: 14,
               borderBottomWidth: 1,
-              borderBottomColor: "#2a2a2a",
+              borderBottomColor: colors.cardBorder,
             }}
           >
-            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5", flex: 1 }}>
+            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text, flex: 1 }}>
               Decline Review Report
             </Text>
             <Pressable
@@ -1453,21 +1455,21 @@ export default function AdminPortalScreen() {
               hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
               style={{ padding: 4 }}
             >
-              <X size={24} color="#f5f5f5" />
+              <X size={24} color={colors.text} />
             </Pressable>
           </View>
           <ScrollView style={{ flex: 1, padding: 16 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>
             <View
               style={{
-                backgroundColor: "#141414",
+                backgroundColor: colors.card,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
                 borderRadius: 12,
                 padding: 12,
                 marginBottom: 14,
               }}
             >
-              <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>
+              <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 13 }}>
                 {declineTarget?.restaurant?.name ?? `Restaurant #${declineTarget?.restaurant_id ?? "?"}`}
               </Text>
               <Text style={{ color: "#8a8a8a", fontFamily: "Manrope_500Medium", fontSize: 11, marginTop: 4 }}>
@@ -1475,14 +1477,14 @@ export default function AdminPortalScreen() {
               </Text>
             </View>
 
-            <Text style={{ color: "#999", fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 6 }}>
+            <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 12, marginBottom: 6 }}>
               Decline message for owner
             </Text>
             <TextInput
               value={declineMessage}
               onChangeText={setDeclineMessage}
               placeholder="Add a short reason (required)"
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.textMuted}
               multiline
               style={[
                 inputStyle,
@@ -1522,14 +1524,14 @@ export default function AdminPortalScreen() {
           <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }} onPress={() => setOwnerPickerOpen(false)} />
           <View
             style={{
-              backgroundColor: "#141414",
+              backgroundColor: colors.card,
               borderTopLeftRadius: 18,
               borderTopRightRadius: 18,
               maxHeight: "75%",
               paddingBottom: Math.max(insets.bottom, 16),
             }}
           >
-            <Text style={{ padding: 16, fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 17 }}>Select owner</Text>
+            <Text style={{ padding: 16, fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 17 }}>Select owner</Text>
             <Pressable
               onPress={() => {
                 setDraft((d) => ({ ...d, owner_id: null }));
@@ -1551,7 +1553,7 @@ export default function AdminPortalScreen() {
                   }}
                   style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#252525" }}
                 >
-                  <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold" }}>{profileLabel(item)}</Text>
+                  <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }}>{profileLabel(item)}</Text>
                 </Pressable>
               )}
             />

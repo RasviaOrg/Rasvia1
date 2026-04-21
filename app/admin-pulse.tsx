@@ -24,19 +24,22 @@ import {
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { useAppTheme, type AppColors } from "@/lib/app-theme";
+
+function pulseCard(colors: AppColors) {
+  return {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: 16,
+  };
+}
 
 type RestaurantRow = {
   id: number;
   name: string;
   current_wait_time: number;
   is_waitlist_open: boolean;
-};
-
-const CARD_STYLE = {
-  backgroundColor: "#1a1a1a",
-  borderWidth: 1,
-  borderColor: "#2a2a2a",
-  borderRadius: 16,
 };
 
 function getWaitColor(minutes: number): string {
@@ -47,6 +50,7 @@ function getWaitColor(minutes: number): string {
 
 export default function AdminPulseScreen() {
   const router = useRouter();
+  const { colors } = useAppTheme();
   const { isAdmin, loading: adminLoading } = useAdminMode();
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -168,14 +172,14 @@ export default function AdminPulseScreen() {
   // Access guard
   if (!adminLoading && !isAdmin) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
         <View style={{ flex: 1, padding: 24, justifyContent: "center", alignItems: "center" }}>
           <Ban size={48} color="#EF4444" style={{ marginBottom: 16 }} />
           <Text
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
               fontSize: 22,
-              color: "#f5f5f5",
+              color: colors.text,
               textAlign: "center",
               marginBottom: 24,
             }}
@@ -190,14 +194,14 @@ export default function AdminPulseScreen() {
               gap: 8,
               paddingVertical: 12,
               paddingHorizontal: 20,
-              backgroundColor: pressed ? "#2a2a2a" : "#1a1a1a",
+              backgroundColor: pressed ? colors.cardBorder : colors.card,
               borderRadius: 12,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
             })}
           >
-            <ArrowLeft size={20} color="#f5f5f5" />
-            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 16, color: "#f5f5f5" }}>
+            <ArrowLeft size={20} color={colors.text} />
+            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 16, color: colors.text }}>
               Back
             </Text>
           </Pressable>
@@ -207,7 +211,7 @@ export default function AdminPulseScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       {/* Header */}
       <View
@@ -218,7 +222,7 @@ export default function AdminPulseScreen() {
           paddingHorizontal: 20,
           paddingVertical: 16,
           borderBottomWidth: 1,
-          borderBottomColor: "#2a2a2a",
+          borderBottomColor: colors.cardBorder,
         }}
       >
         <Pressable
@@ -229,13 +233,13 @@ export default function AdminPulseScreen() {
             padding: 8,
           })}
         >
-          <ArrowLeft size={24} color="#f5f5f5" />
+          <ArrowLeft size={24} color={colors.text} />
         </Pressable>
         <Text
           style={{
             fontFamily: "BricolageGrotesque_800ExtraBold",
             fontSize: 20,
-            color: "#f5f5f5",
+            color: colors.text,
           }}
         >
           Admin Pulse
@@ -246,7 +250,7 @@ export default function AdminPulseScreen() {
               width: 8,
               height: 8,
               borderRadius: 4,
-              backgroundColor: "#FF9933",
+              backgroundColor: colors.saffron,
             }}
           />
         </View>
@@ -263,7 +267,8 @@ export default function AdminPulseScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#FF9933"
+            tintColor={colors.saffron}
+            colors={[colors.saffron]}
           />
         }
       >
@@ -274,7 +279,7 @@ export default function AdminPulseScreen() {
             router.push("/admin-orders" as any);
           }}
           style={({ pressed }) => ({
-            ...CARD_STYLE,
+            ...pulseCard(colors),
             padding: 16,
             marginBottom: 20,
             flexDirection: "row",
@@ -285,39 +290,39 @@ export default function AdminPulseScreen() {
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,153,51,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,153,51,0.3)" }}>
-              <ShoppingBag size={20} color="#FF9933" />
+              <ShoppingBag size={20} color={colors.saffron} />
             </View>
             <View>
-              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: "#f5f5f5" }}>Order Management</Text>
-              <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#777", marginTop: 2 }}>View, filter &amp; manage all orders</Text>
+              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: colors.text }}>Order Management</Text>
+              <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: colors.textMuted, marginTop: 2 }}>View, filter &amp; manage all orders</Text>
             </View>
           </View>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#FF9933" }} />
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.saffron }} />
         </Pressable>
 
         {/* Pulse Stats */}
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
-          <View style={{ ...CARD_STYLE, flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
-            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: "#f5f5f5" }}>
+          <View style={{ ...pulseCard(colors), flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
+            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: colors.text }}>
               {stats.total}
             </Text>
-            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
               Restaurants
             </Text>
           </View>
-          <View style={{ ...CARD_STYLE, flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
+          <View style={{ ...pulseCard(colors), flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
             <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: "#EF4444" }}>
               {stats.highWait}
             </Text>
-            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
               High Wait
             </Text>
           </View>
-          <View style={{ ...CARD_STYLE, flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
-            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: "#999" }}>
+          <View style={{ ...pulseCard(colors), flex: 1, paddingVertical: 12, paddingHorizontal: 10, alignItems: "center" }}>
+            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", fontSize: 22, color: colors.textMuted }}>
               {stats.closed}
             </Text>
-            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#777", marginTop: 2 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
               Closed
             </Text>
           </View>
@@ -334,26 +339,26 @@ export default function AdminPulseScreen() {
               marginBottom: 12,
             }}
           >
-            <Activity size={20} color="#FF9933" />
+            <Activity size={20} color={colors.saffron} />
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
                 fontSize: 18,
-                color: "#f5f5f5",
+                color: colors.text,
               }}
             >
               Queue Health
             </Text>
           </View>
-          <View style={{ ...CARD_STYLE, padding: 16 }}>
+          <View style={{ ...pulseCard(colors), padding: 16 }}>
             {loading ? (
-              <ActivityIndicator size="small" color="#FF9933" style={{ padding: 24 }} />
+              <ActivityIndicator size="small" color={colors.saffron} style={{ padding: 24 }} />
             ) : restaurants.length === 0 ? (
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
                   fontSize: 14,
-                  color: "#999999",
+                  color: colors.textMuted,
                   textAlign: "center",
                   padding: 24,
                 }}
@@ -366,7 +371,7 @@ export default function AdminPulseScreen() {
                 const isClosed = wait >= 999 || !r.is_waitlist_open;
                 const noWait = wait < 0;
 
-                const color = isClosed ? "#999999" : getWaitColor(wait);
+                const color = isClosed ? colors.textMuted : getWaitColor(wait);
                 const isHighWait = !isClosed && wait >= 45;
                 return (
                   <View
@@ -377,7 +382,7 @@ export default function AdminPulseScreen() {
                       justifyContent: "space-between",
                       paddingVertical: 12,
                       borderBottomWidth: index < restaurants.length - 1 ? 1 : 0,
-                      borderBottomColor: "#2a2a2a",
+                      borderBottomColor: colors.cardBorder,
                     }}
                   >
                     <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -385,7 +390,7 @@ export default function AdminPulseScreen() {
                         style={{
                           fontFamily: "JetBrainsMono_600SemiBold",
                           fontSize: 11,
-                          color: "#666",
+                          color: colors.textMuted,
                           width: 20,
                         }}
                       >
@@ -398,7 +403,7 @@ export default function AdminPulseScreen() {
                         style={{
                           fontFamily: "Manrope_600SemiBold",
                           fontSize: 15,
-                          color: "#f5f5f5",
+                          color: colors.text,
                         }}
                         numberOfLines={1}
                       >
@@ -409,7 +414,7 @@ export default function AdminPulseScreen() {
                           style={{
                             fontFamily: "Manrope_500Medium",
                             fontSize: 12,
-                            color: "#999999",
+                            color: colors.textMuted,
                           }}
                         >
                           (closed)
@@ -443,12 +448,12 @@ export default function AdminPulseScreen() {
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Bell size={20} color="#FF9933" />
+              <Bell size={20} color={colors.saffron} />
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
                   fontSize: 18,
-                  color: "#f5f5f5",
+                  color: colors.text,
                 }}
               >
                 Announcement Banner
@@ -469,11 +474,11 @@ export default function AdminPulseScreen() {
               </View>
             )}
           </View>
-          <View style={{ ...CARD_STYLE, padding: 16 }}>
+          <View style={{ ...pulseCard(colors), padding: 16 }}>
             <Text style={{
               fontFamily: "Manrope_600SemiBold",
               fontSize: 11,
-              color: "#555",
+              color: colors.textMuted,
               letterSpacing: 0.8,
               textTransform: "uppercase",
               marginBottom: 8,
@@ -484,20 +489,20 @@ export default function AdminPulseScreen() {
               value={announcementMessage}
               onChangeText={setAnnouncementMessage}
               placeholder="Type your announcement..."
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.textMuted}
               multiline
               numberOfLines={3}
               style={{
                 fontFamily: "Manrope_500Medium",
                 fontSize: 15,
-                color: "#f5f5f5",
-                backgroundColor: "#252525",
+                color: colors.text,
+                backgroundColor: colors.pressableBg,
                 borderRadius: 12,
                 paddingHorizontal: 16,
                 paddingVertical: 12,
                 marginBottom: 14,
                 borderWidth: 1,
-                borderColor: "#3a3a3a",
+                borderColor: colors.cardBorder,
                 minHeight: 80,
                 textAlignVertical: "top",
               }}
@@ -514,7 +519,7 @@ export default function AdminPulseScreen() {
                   paddingVertical: 10,
                 }}
               >
-                <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 13 }}>
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 13 }}>
                   Preview: {announcementMessage}
                 </Text>
               </View>
@@ -522,7 +527,7 @@ export default function AdminPulseScreen() {
             <Text style={{
               fontFamily: "Manrope_500Medium",
               fontSize: 11,
-              color: "#444",
+              color: colors.textSecondary,
               marginBottom: 14,
               marginLeft: 2,
             }}>
@@ -534,7 +539,7 @@ export default function AdminPulseScreen() {
                 disabled={bannerLoading}
                 style={({ pressed }) => ({
                   flex: 1,
-                  backgroundColor: pressed ? "#e69500" : "#FF9933",
+                  backgroundColor: pressed ? "#e69500" : colors.saffron,
                   borderRadius: 12,
                   paddingVertical: 14,
                   alignItems: "center",
@@ -560,12 +565,12 @@ export default function AdminPulseScreen() {
                 disabled={bannerLoading}
                 style={({ pressed }) => ({
                   flex: 1,
-                  backgroundColor: pressed ? "#252525" : "transparent",
+                  backgroundColor: pressed ? colors.pressableBg : "transparent",
                   borderRadius: 12,
                   paddingVertical: 14,
                   alignItems: "center",
                   borderWidth: 1,
-                  borderColor: "#333",
+                  borderColor: colors.cardBorder,
                   opacity: bannerLoading ? 0.7 : 1,
                 })}
               >
@@ -573,7 +578,7 @@ export default function AdminPulseScreen() {
                   style={{
                     fontFamily: "Manrope_600SemiBold",
                     fontSize: 15,
-                    color: "#999",
+                    color: colors.textMuted,
                   }}
                 >
                   Clear

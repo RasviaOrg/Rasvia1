@@ -9,6 +9,7 @@ import {
   type PartyPayment,
   formatCents,
 } from '../../lib/party-session';
+import { useAppTheme } from '../../lib/app-theme';
 
 const MEMBER_COLORS = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'];
 
@@ -36,7 +37,79 @@ type LedgerRowProps = {
   onPress?: () => void;
 };
 
+function usePartyLedgerStyles() {
+  const { colors } = useAppTheme();
+  return useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          backgroundColor: colors.card,
+          borderRadius: 16,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: colors.cardBorder,
+        },
+        headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+        headerTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+        headerSub: { color: colors.textMuted, fontSize: 11, fontWeight: '600', marginTop: 2 },
+        progressText: { fontSize: 13, fontWeight: '700' },
+        progressMeta: { color: colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
+        progressBar: { height: 6, backgroundColor: colors.pressableBg, borderRadius: 3, marginTop: 10, overflow: 'hidden' },
+        progressFill: { height: '100%', backgroundColor: '#22C55E', borderRadius: 3 },
+        row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+        avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+        avatarText: { color: '#0f0f0f', fontWeight: '800', fontSize: 13 },
+        crown: {
+          position: 'absolute',
+          top: -4,
+          right: -4,
+          width: 16,
+          height: 16,
+          borderRadius: 8,
+          backgroundColor: '#F59E0B',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 2,
+          borderColor: colors.card,
+        },
+        name: { color: colors.text, fontWeight: '700', fontSize: 14, maxWidth: 160 },
+        youPill: {
+          color: '#FF9933',
+          fontSize: 10,
+          fontWeight: '800',
+          paddingHorizontal: 6,
+          paddingVertical: 2,
+          borderRadius: 6,
+          backgroundColor: 'rgba(255,153,51,0.12)',
+        },
+        statusDot: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+        statusLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+        amount: { color: colors.text, fontWeight: '700', fontSize: 14 },
+        coverBtn: {
+          backgroundColor: 'rgba(255,153,51,0.16)',
+          borderWidth: 1,
+          borderColor: 'rgba(255,153,51,0.4)',
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 8,
+        },
+        coverBtnText: { color: '#FF9933', fontWeight: '700', fontSize: 11 },
+        retryBtn: {
+          backgroundColor: 'rgba(239,68,68,0.15)',
+          borderWidth: 1,
+          borderColor: 'rgba(239,68,68,0.4)',
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 8,
+        },
+        retryBtnText: { color: '#EF4444', fontWeight: '700', fontSize: 11 },
+      }),
+    [colors],
+  );
+}
+
 function StatusDot({ status }: { status: PartyPayment['status'] | 'idle' }) {
+  const styles = usePartyLedgerStyles();
   const map: Record<string, { color: string; Icon: typeof Check; label: string }> = {
     idle: { color: '#52525B', Icon: Clock, label: 'Not ready' },
     pending: { color: '#F59E0B', Icon: Clock, label: 'Awaiting payment' },
@@ -50,12 +123,14 @@ function StatusDot({ status }: { status: PartyPayment['status'] | 'idle' }) {
   const { Icon } = cfg;
   return (
     <View style={[styles.statusDot, { backgroundColor: cfg.color }]}>
-      <Icon size={12} color="#0f0f0f" strokeWidth={3} />
+      <Icon size={12} color="#ffffff" strokeWidth={3} />
     </View>
   );
 }
 
 function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, onCover, onRetry, onPress }: LedgerRowProps) {
+  const styles = usePartyLedgerStyles();
+  const { colors } = useAppTheme();
   const status = payment?.status ?? 'idle';
   const amount = payment?.amount_cents ?? 0;
   const color = MEMBER_COLORS[index % MEMBER_COLORS.length];
@@ -65,7 +140,7 @@ function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, on
   return (
     <Animated.View entering={FadeInDown.delay(index * 60)} layout={Layout.springify()}>
       <Pressable onPress={onPress} style={styles.row}>
-        <View style={[styles.avatar, { backgroundColor: member.avatar_url ? '#1f1f1f' : color, overflow: 'hidden' }]}>
+        <View style={[styles.avatar, { backgroundColor: member.avatar_url ? colors.pressableBg : color, overflow: 'hidden' }]}>
           {member.avatar_url ? (
             <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
           ) : (
@@ -125,6 +200,8 @@ export function PartyLedger(props: {
   onRetry?: () => void;
   onMemberTap?: (memberId: string) => void;
 }) {
+  const styles = usePartyLedgerStyles();
+  const { colors } = useAppTheme();
   const { members, payments, selfMemberId, isHost, onCoverMember, onRetry, onMemberTap } = props;
 
   const paidCount = useMemo(
@@ -144,7 +221,7 @@ export function PartyLedger(props: {
         <View style={{ alignItems: 'flex-end' }}>
           <Text style={styles.progressText}>
             <Text style={{ color: '#22C55E' }}>{paidCount}</Text>
-            <Text style={{ color: '#71717A' }}>{` of ${totalCount}`}</Text>
+            <Text style={{ color: colors.textMuted }}>{` of ${totalCount}`}</Text>
           </Text>
           <Text style={styles.progressMeta}>{progressPct}% there</Text>
         </View>
@@ -179,49 +256,3 @@ export function PartyLedger(props: {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#151515',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  headerTitle: { color: '#F4F4F5', fontSize: 16, fontWeight: '800' },
-  headerSub: { color: '#71717A', fontSize: 11, fontWeight: '600', marginTop: 2 },
-  progressText: { fontSize: 13, fontWeight: '700' },
-  progressMeta: { color: '#71717A', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
-  progressBar: { height: 6, backgroundColor: '#27272A', borderRadius: 3, marginTop: 10, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#22C55E', borderRadius: 3 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  avatarText: { color: '#0f0f0f', fontWeight: '800', fontSize: 13 },
-  crown: {
-    position: 'absolute', top: -4, right: -4,
-    width: 16, height: 16, borderRadius: 8,
-    backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: '#151515',
-  },
-  name: { color: '#F4F4F5', fontWeight: '700', fontSize: 14, maxWidth: 160 },
-  youPill: {
-    color: '#FF9933', fontSize: 10, fontWeight: '800',
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
-    backgroundColor: 'rgba(255,153,51,0.12)',
-  },
-  statusDot: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  statusLabel: { color: '#A1A1AA', fontSize: 12, fontWeight: '600' },
-  amount: { color: '#F4F4F5', fontWeight: '700', fontSize: 14 },
-  coverBtn: {
-    backgroundColor: 'rgba(255,153,51,0.16)',
-    borderWidth: 1, borderColor: 'rgba(255,153,51,0.4)',
-    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
-  },
-  coverBtnText: { color: '#FF9933', fontWeight: '700', fontSize: 11 },
-  retryBtn: {
-    backgroundColor: 'rgba(239,68,68,0.15)',
-    borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)',
-    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
-  },
-  retryBtnText: { color: '#EF4444', fontWeight: '700', fontSize: 11 },
-});

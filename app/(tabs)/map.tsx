@@ -136,6 +136,30 @@ const getNearbyOverlayHeight = (restaurantCount: number) => {
 const getBottomNavTopInset = (safeBottom: number) =>
   APP_BOTTOM_NAV_HEIGHT + 8 + Math.max(safeBottom, 8) - APP_BOTTOM_NAV_OFFSET - 1;
 
+/** Gap between the bottom of the map search FAB and the top of the selected-pin / nearby sheet (px). */
+const MAP_SEARCH_FAB_GAP_ABOVE_OVERLAY = 10;
+/**
+ * Height of `SelectedRestaurantCard` content above `cardBottom` (handle strip + main row).
+ * Keep in sync with that component’s layout.
+ */
+const SELECTED_PIN_OVERLAY_CONTENT_HEIGHT = 96;
+/** Extra height when the admin controls row is shown. */
+const SELECTED_PIN_OVERLAY_ADMIN_EXTRA = 46;
+
+/** Distance from the screen bottom to the top edge of the selected-restaurant bottom card. */
+function selectedRestaurantOverlayTopFromBottom(
+  safeBottom: number,
+  includeAdminRow: boolean,
+): number {
+  const cardBottom =
+    APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + Math.max(safeBottom, 8);
+  return (
+    cardBottom +
+    SELECTED_PIN_OVERLAY_CONTENT_HEIGHT +
+    (includeAdminRow ? SELECTED_PIN_OVERLAY_ADMIN_EXTRA : 0)
+  );
+}
+
 // ==============================
 // Cluster type
 // ==============================
@@ -663,7 +687,9 @@ export default function MapScreen() {
       // Keep search circle near top-right of the nearby sheet.
       target = nearbyOverlayHeight + bottomNavTopInset - 10 + FAB_EXTRA_LIFT;
     } else if (selectedRestaurant) {
-      target = CARD_HEIGHT + (isAdmin ? 65 : 20) + FAB_EXTRA_LIFT;
+      target =
+        selectedRestaurantOverlayTopFromBottom(insets.bottom, isAdmin) +
+        MAP_SEARCH_FAB_GAP_ABOVE_OVERLAY;
     }
     RNAnimated.timing(fabBottom, {
       toValue: target,
@@ -740,31 +766,31 @@ export default function MapScreen() {
           >
             {Platform.OS === "android" ? (
               <View style={{
-                backgroundColor: "#FF9933",
+                backgroundColor: isDark ? "#FF9933" : "#E8A26A",
                 width: 28,
                 height: 28,
                 borderRadius: 14,
                 borderWidth: 2.5,
-                borderColor: "#0f0f0f",
+                borderColor: isDark ? "#0f0f0f" : "#ffffff",
                 alignItems: "center",
                 justifyContent: "center",
               }}>
-                <MapPin size={14} color="#0f0f0f" strokeWidth={2.5} />
+                <MapPin size={14} color={isDark ? "#0f0f0f" : "#ffffff"} strokeWidth={2.5} />
               </View>
             ) : (
               <View style={{
-                backgroundColor: "#FF9933",
+                backgroundColor: isDark ? "#FF9933" : "#E8A26A",
                 padding: 6,
                 borderRadius: 16,
                 borderWidth: 2,
-                borderColor: "#0f0f0f",
+                borderColor: isDark ? "#0f0f0f" : "#ffffff",
                 shadowColor: "#000",
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.3,
                 shadowRadius: 4,
                 elevation: 5,
               }}>
-                <MapPin size={16} color="#0f0f0f" strokeWidth={2.5} />
+                <MapPin size={16} color={isDark ? "#0f0f0f" : "#ffffff"} strokeWidth={2.5} />
               </View>
             )}
           </Marker>
@@ -888,22 +914,22 @@ export default function MapScreen() {
                 handleDiscoverNearby();
               }}
               style={{
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.pressableBg,
                 flexDirection: "row",
                 alignItems: "center",
                 paddingHorizontal: 22,
                 paddingVertical: 14,
                 borderRadius: 28,
                 borderWidth: 1.5,
-                borderColor: isSettingLocation ? "#666" : "#FF9933",
+                borderColor: isSettingLocation ? colors.textMuted : (isDark ? "#FF9933" : colors.cardBorder),
                 opacity: isSettingLocation ? 0.5 : 1,
               }}
             >
-              <Compass size={18} color={isSettingLocation ? "#666" : "#FF9933"} />
+              <Compass size={18} color={isSettingLocation ? colors.textMuted : (isDark ? "#FF9933" : colors.textMuted)} />
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: isSettingLocation ? "#666" : "#FF9933",
+                  color: isSettingLocation ? colors.textMuted : (isDark ? "#FF9933" : colors.textSecondary),
                   fontSize: 15,
                   marginLeft: 8,
                 }}
@@ -916,17 +942,17 @@ export default function MapScreen() {
             <Pressable
               onPress={handleLocationPress}
               style={{
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.pressableBg,
                 width: 44,
                 height: 44,
                 borderRadius: 22,
                 alignItems: "center",
                 justifyContent: "center",
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
-              <LocateFixed size={20} color="#FF9933" />
+              <LocateFixed size={20} color={isDark ? "#FF9933" : colors.textMuted} />
             </Pressable>
           </View>
         </View>
@@ -937,17 +963,17 @@ export default function MapScreen() {
             <View style={{
               flexDirection: "row",
               alignItems: "center",
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderWidth: 1.5,
-              borderColor: "#FF9933",
+              borderColor: isDark ? "#FF9933" : colors.cardBorder,
               borderRadius: 20,
               paddingHorizontal: 14,
               paddingVertical: 7,
             }}>
-              <MapPin size={13} color="#FF9933" />
+              <MapPin size={13} color={isDark ? "#FF9933" : colors.textSecondary} />
               <Text style={{
                 fontFamily: "Manrope_600SemiBold",
-                color: "#FF9933",
+                color: isDark ? "#FF9933" : colors.textSecondary,
                 fontSize: 13,
                 marginLeft: 6,
               }}>
@@ -974,7 +1000,7 @@ export default function MapScreen() {
               <View style={{
                 flexDirection: "row",
                 alignItems: "center",
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderWidth: 1.5,
                 borderColor: "#5BB8F5",
                 borderRadius: 20,
@@ -1042,22 +1068,22 @@ export default function MapScreen() {
               setShowMapSearch(true);
             }}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               width: 50,
               height: 50,
               borderRadius: 25,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1.5,
-              borderColor: "#FF9933",
+              borderColor: isDark ? "#FF9933" : colors.cardBorder,
               shadowColor: "#000",
               shadowOffset: { width: 0, height: 3 },
-              shadowOpacity: 0.4,
+              shadowOpacity: isDark ? 0.4 : 0.12,
               shadowRadius: 6,
               elevation: 6,
             }}
           >
-            <Search size={22} color="#FF9933" />
+            <Search size={22} color={isDark ? "#FF9933" : colors.textMuted} />
           </Pressable>
         </RNAnimated.View>
       )}
@@ -1099,7 +1125,7 @@ export default function MapScreen() {
               handleAddRestaurantPress();
             }}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               width: 50,
               height: 50,
               borderRadius: 25,
@@ -1109,7 +1135,7 @@ export default function MapScreen() {
               borderColor: "#22C55E", // Green to distinguish admin action
               shadowColor: "#000",
               shadowOffset: { width: 0, height: 3 },
-              shadowOpacity: 0.4,
+              shadowOpacity: isDark ? 0.4 : 0.12,
               shadowRadius: 6,
               elevation: 6,
             }}
@@ -1156,18 +1182,18 @@ export default function MapScreen() {
                   consumedAdjustRouteRef.current = true;
                 }}
                 style={{
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.card,
                   paddingVertical: 10,
                   paddingHorizontal: 28,
                   borderRadius: 20,
                   borderWidth: 1,
-                  borderColor: "#3a3a3a",
+                  borderColor: colors.cardBorder,
                 }}
               >
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 15,
                   }}
                 >
@@ -1281,25 +1307,28 @@ export default function MapScreen() {
 // OWNER'S VENUE — persistent map pin at restaurant coords (not replaced by iOS zoomed-in cards)
 // ==========================================
 function OwnerVenueMarker({ isClosed }: { isClosed: boolean }) {
+  const { isDark } = useAppTheme();
   return (
     <View
       style={{
-        backgroundColor: isClosed ? "#555555" : "#FF9933",
+        backgroundColor: isClosed
+          ? (isDark ? "#555555" : "#d6d6de")
+          : (isDark ? "#FF9933" : "#E8A26A"),
         padding: 8,
         borderRadius: 22,
         borderWidth: 2.5,
-        borderColor: "#0f0f0f",
+        borderColor: isDark ? "#0f0f0f" : "#ffffff",
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.35,
         shadowRadius: 4,
         elevation: 6,
-        opacity: isClosed ? 0.65 : 1,
+        opacity: isClosed ? (isDark ? 0.65 : 0.82) : 1,
         alignItems: "center",
         justifyContent: "center",
       }}
     >
-      <Store size={18} color="#0f0f0f" strokeWidth={2.5} />
+      <Store size={18} color={isDark ? "#0f0f0f" : "#ffffff"} strokeWidth={2.5} />
     </View>
   );
 }
@@ -1318,20 +1347,21 @@ function ZoomedInMarker({
   isComingSoon?: boolean;
   isOwned?: boolean;
 }) {
+  const { colors, isDark } = useAppTheme();
   const displayStatus = (isClosed ? 'darkgrey' : restaurant.waitStatus) as typeof restaurant.waitStatus;
   return (
     <View
       style={{
         alignItems: "flex-start",
-        backgroundColor: "#1a1a1a",
+        backgroundColor: colors.card,
         borderRadius: 14,
         padding: 10,
         borderWidth: isOwned ? 2 : 1,
-        borderColor: isOwned ? "#5BB8F5" : "#2a2a2a",
+        borderColor: isOwned ? "#5BB8F5" : colors.cardBorder,
         maxWidth: 220,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.35,
+        shadowOpacity: isDark ? 0.35 : 0.2,
         shadowRadius: 6,
         elevation: 5,
       }}
@@ -1340,7 +1370,7 @@ function ZoomedInMarker({
         numberOfLines={1}
         style={{
           fontFamily: "BricolageGrotesque_700Bold",
-          color: "#f5f5f5",
+          color: colors.text,
           fontSize: 13,
           letterSpacing: -0.2,
           marginBottom: 2,
@@ -1352,7 +1382,7 @@ function ZoomedInMarker({
         numberOfLines={1}
         style={{
           fontFamily: "Manrope_500Medium",
-          color: "#999999",
+          color: colors.textMuted,
           fontSize: 10,
           marginBottom: 4,
         }}
@@ -1364,7 +1394,7 @@ function ZoomedInMarker({
         <Text
           style={{
             fontFamily: "JetBrainsMono_600SemiBold",
-            color: "#f5f5f5",
+            color: colors.text,
             fontSize: 10,
             marginLeft: 3,
           }}
@@ -1374,7 +1404,7 @@ function ZoomedInMarker({
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
-            color: "#999999",
+            color: colors.textMuted,
             fontSize: 9,
             marginLeft: 2,
           }}
@@ -1411,7 +1441,19 @@ function ZoomedInMarker({
 // Size scales with zoom level
 // ==========================================
 function DotMarker({ status, size = 20, isClosed, isOwned }: { status: WaitStatus | "purple"; size?: number; isClosed?: boolean; isOwned?: boolean }) {
-  const dotColor = isOwned ? '#5BB8F5' : isClosed ? '#555555' : STATUS_COLORS[status];
+  const { isDark } = useAppTheme();
+  const dotColor = isOwned
+    ? "#5BB8F5"
+    : isClosed
+      ? isDark
+        ? "#555555"
+        : "#d6d6de"
+      : isDark
+        ? STATUS_COLORS[status]
+        : status === "amber"
+          ? "#EAB308"
+          : STATUS_COLORS[status];
+  const outerBorder = isDark ? "#0f0f0f" : "#ffffff";
   return (
     <View
       style={{
@@ -1426,16 +1468,18 @@ function DotMarker({ status, size = 20, isClosed, isOwned }: { status: WaitStatu
         shadowOpacity: 0.4,
         shadowRadius: 3,
         elevation: 4,
-        opacity: isClosed ? 0.65 : 1,
+        opacity: isClosed ? (isDark ? 0.65 : 0.88) : 1,
+        borderWidth: isClosed ? 0 : 2,
+        borderColor: outerBorder,
       }}
     >
-      {/* Black middle ring */}
+      {/* Middle ring */}
       <View
         style={{
           width: size * 0.6,
           height: size * 0.6,
           borderRadius: size * 0.3,
-          backgroundColor: "#111111",
+          backgroundColor: isDark ? "#111111" : "#f5f5f8",
           alignItems: "center",
           justifyContent: "center",
         }}
@@ -1476,6 +1520,7 @@ function SelectedRestaurantCard({
   isAdmin?: boolean;
   onAdminPress?: () => void;
 }) {
+  const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   // Card must sit above the persistent app bottom nav; the old hard-coded
   // `bottom: 40` put part of the card (including the action row) behind the
@@ -1547,7 +1592,7 @@ function SelectedRestaurantCard({
           width: 36,
           height: 4,
           borderRadius: 2,
-          backgroundColor: "#555",
+          backgroundColor: isDark ? "#555" : "#c4c4c8",
           alignSelf: "center",
           marginBottom: 8,
         }}
@@ -1557,14 +1602,14 @@ function SelectedRestaurantCard({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          backgroundColor: "#1a1a1a",
+          backgroundColor: colors.card,
           borderRadius: 16,
           padding: 12,
           borderWidth: 1,
-          borderColor: "#2a2a2a",
+          borderColor: colors.cardBorder,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.4,
+          shadowOpacity: isDark ? 0.4 : 0.1,
           shadowRadius: 8,
           elevation: 6,
         }}
@@ -1577,7 +1622,7 @@ function SelectedRestaurantCard({
             height: 60,
             borderRadius: 14,
             borderWidth: 1,
-            borderColor: "#2a2a2a",
+            borderColor: colors.cardBorder,
           }}
           resizeMode="cover"
         />
@@ -1588,7 +1633,7 @@ function SelectedRestaurantCard({
             numberOfLines={1}
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 17,
               letterSpacing: -0.3,
               marginBottom: 3,
@@ -1600,7 +1645,7 @@ function SelectedRestaurantCard({
             numberOfLines={1}
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#999999",
+              color: colors.textMuted,
               fontSize: 12,
               marginBottom: 6,
             }}
@@ -1614,7 +1659,7 @@ function SelectedRestaurantCard({
               <Text
                 style={{
                   fontFamily: "JetBrainsMono_600SemiBold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 12,
                   marginLeft: 4,
                 }}
@@ -1624,7 +1669,7 @@ function SelectedRestaurantCard({
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 10,
                   marginLeft: 3,
                 }}
@@ -1666,11 +1711,11 @@ function SelectedRestaurantCard({
         {/* Distance */}
         <View style={{ alignItems: "flex-end", marginLeft: 8 }}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <MapPin size={11} color="#999999" />
+            <MapPin size={11} color={colors.textMuted} />
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: colors.textMuted,
                 fontSize: 11,
                 marginLeft: 3,
               }}
@@ -1684,7 +1729,7 @@ function SelectedRestaurantCard({
         <Pressable
           onPress={onAdminPress}
           style={{
-            backgroundColor: "#1a1a1a",
+            backgroundColor: colors.card,
             borderRadius: 12,
             padding: 10,
             marginTop: 8,
@@ -1718,6 +1763,7 @@ function NearbyListOverlay({
   onSelect: (r: UIRestaurant) => void;
   closedRestaurantIds: Set<string>;
 }) {
+  const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const overlayHeight = getNearbyOverlayHeight(restaurants.length);
   // Prefetch images for the overlay restaurants
@@ -1784,16 +1830,16 @@ function NearbyListOverlay({
         left: 0,
         right: 0,
         height: overlayHeight,
-        backgroundColor: "#1a1a1a",
+        backgroundColor: colors.card,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         paddingTop: 0,
         paddingBottom: 0,
         borderTopWidth: 1,
-        borderTopColor: "#2a2a2a",
+        borderTopColor: colors.cardBorder,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.4,
+        shadowOpacity: isDark ? 0.4 : 0.12,
         shadowRadius: 12,
         elevation: 10,
         transform: [{ translateY }],
@@ -1806,7 +1852,7 @@ function NearbyListOverlay({
             width: 40,
             height: 5,
             borderRadius: 3,
-            backgroundColor: "#555",
+            backgroundColor: isDark ? "#555" : "#c4c4c8",
           }}
         />
       </View>
@@ -1824,7 +1870,7 @@ function NearbyListOverlay({
           <Text
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 18,
             }}
           >
@@ -1847,7 +1893,7 @@ function NearbyListOverlay({
         <Pressable
           onPress={dismiss}
           style={{
-            backgroundColor: "#2a2a2a",
+            backgroundColor: colors.pressableBg,
             borderRadius: 14,
             paddingHorizontal: 12,
             paddingVertical: 5,
@@ -1894,7 +1940,7 @@ function NearbyListOverlay({
                 minHeight: NEARBY_ROW_HEIGHT,
                 paddingVertical: 12,
                 borderTopWidth: i > 0 ? 1 : 0,
-                borderTopColor: "#2a2a2a",
+                borderTopColor: colors.cardBorder,
               }}
             >
               {/* Image */}
@@ -1905,7 +1951,7 @@ function NearbyListOverlay({
                   height: 48,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                 }}
                 resizeMode="cover"
               />
@@ -1915,7 +1961,7 @@ function NearbyListOverlay({
                   numberOfLines={1}
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 15,
                     letterSpacing: -0.2,
                     marginBottom: 2,
@@ -1927,7 +1973,7 @@ function NearbyListOverlay({
                   numberOfLines={1}
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 12,
                   }}
                 >
@@ -1959,7 +2005,7 @@ function NearbyListOverlay({
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 11,
                   }}
                 >
@@ -1977,10 +2023,11 @@ function NearbyListOverlay({
 // CLUSTER MARKER: combined card for grouped restaurants
 // ==========================================
 function ClusterMarker({ restaurants }: { restaurants: UIRestaurant[] }) {
+  const { colors, isDark } = useAppTheme();
   return (
     <View
       style={{
-        backgroundColor: "#1a1a1a",
+        backgroundColor: colors.card,
         borderRadius: 14,
         padding: 10,
         borderWidth: 1,
@@ -1988,7 +2035,7 @@ function ClusterMarker({ restaurants }: { restaurants: UIRestaurant[] }) {
         width: 200,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.35,
+        shadowOpacity: isDark ? 0.35 : 0.2,
         shadowRadius: 6,
         elevation: 5,
       }}
@@ -2030,7 +2077,7 @@ function ClusterMarker({ restaurants }: { restaurants: UIRestaurant[] }) {
             alignItems: "center",
             paddingVertical: 4,
             borderTopWidth: i > 0 ? 1 : 0,
-            borderTopColor: "#2a2a2a",
+            borderTopColor: colors.cardBorder,
           }}
         >
           {/* Status dot */}
@@ -2047,7 +2094,7 @@ function ClusterMarker({ restaurants }: { restaurants: UIRestaurant[] }) {
             numberOfLines={1}
             style={{
               fontFamily: "Manrope_600SemiBold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 11,
               flex: 1,
             }}
@@ -2106,12 +2153,17 @@ function MapSearchOverlay({
   onClose: () => void;
   onSelect: (r: UIRestaurant) => void;
 }) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   type SortOption = "none" | "waitTime" | "distance";
   const [sortBy, setSortBy] = useState<SortOption>("none");
   const inputRef = useRef<TextInput>(null);
+  const sortChipInactiveBg = colors.card;
+  const sortChipInactiveBorder = colors.cardBorder;
+  const muted = colors.textMuted;
+  const accent = isDark ? "#FF9933" : colors.textSecondary;
+  const sortSelected = isDark ? "#FF9933" : "#9a3412";
 
   const parseDistance = (d: string | undefined) => parseFloat((d ?? "").replace(/[^0-9.]/g, "")) || Infinity;
 
@@ -2185,18 +2237,18 @@ function MapSearchOverlay({
               backgroundColor: colors.card,
               borderRadius: 16,
               borderWidth: 1.5,
-              borderColor: "#FF9933",
+              borderColor: isDark ? "#FF9933" : colors.cardBorder,
               paddingHorizontal: 14,
               height: 50,
             }}
           >
-            <Search size={20} color="#FF9933" />
+            <Search size={20} color={accent} />
             <TextInput
               ref={inputRef}
               value={query}
               onChangeText={setQuery}
               placeholder="Search restaurants..."
-              placeholderTextColor="#666666"
+              placeholderTextColor={muted}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
@@ -2204,14 +2256,14 @@ function MapSearchOverlay({
                 flex: 1,
                 marginLeft: 10,
                 fontFamily: "Manrope_500Medium",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 16,
                 height: 50,
               }}
             />
             {query.length > 0 && (
               <Pressable onPress={() => setQuery("")} hitSlop={8}>
-                <X size={16} color="#999999" />
+                <X size={16} color={muted} />
               </Pressable>
             )}
           </View>
@@ -2227,7 +2279,7 @@ function MapSearchOverlay({
             <Text
               style={{
                 fontFamily: "Manrope_600SemiBold",
-                color: "#FF9933",
+                color: accent,
                 fontSize: 15,
               }}
             >
@@ -2244,11 +2296,11 @@ function MapSearchOverlay({
             marginTop: 12,
           }}
         >
-          <ArrowUpDown size={14} color="#999999" />
+          <ArrowUpDown size={14} color={muted} />
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#999999",
+              color: muted,
               fontSize: 12,
               marginLeft: 6,
               marginRight: 10,
@@ -2262,21 +2314,24 @@ function MapSearchOverlay({
               setSortBy((prev) => (prev === "waitTime" ? "none" : "waitTime"));
             }}
             style={{
-              backgroundColor: sortBy === "waitTime" ? "rgba(255, 153, 51, 0.2)" : "#1a1a1a",
+              backgroundColor:
+                sortBy === "waitTime"
+                  ? (isDark ? "rgba(255, 153, 51, 0.2)" : "rgba(154, 52, 18, 0.1)")
+                  : sortChipInactiveBg,
               borderRadius: 20,
               paddingHorizontal: 14,
               paddingVertical: 7,
               marginRight: 8,
               borderWidth: 1,
-              borderColor: sortBy === "waitTime" ? "#FF9933" : "#2a2a2a",
+              borderColor: sortBy === "waitTime" ? sortSelected : sortChipInactiveBorder,
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Clock size={12} color={sortBy === "waitTime" ? "#FF9933" : "#999999"} />
+              <Clock size={12} color={sortBy === "waitTime" ? sortSelected : muted} />
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: sortBy === "waitTime" ? "#FF9933" : "#999999",
+                  color: sortBy === "waitTime" ? sortSelected : muted,
                   fontSize: 12,
                   lineHeight: 14,
                   marginLeft: 5,
@@ -2293,20 +2348,23 @@ function MapSearchOverlay({
               setSortBy((prev) => (prev === "distance" ? "none" : "distance"));
             }}
             style={{
-              backgroundColor: sortBy === "distance" ? "rgba(255, 153, 51, 0.2)" : "#1a1a1a",
+              backgroundColor:
+                sortBy === "distance"
+                  ? (isDark ? "rgba(255, 153, 51, 0.2)" : "rgba(154, 52, 18, 0.1)")
+                  : sortChipInactiveBg,
               borderRadius: 20,
               paddingHorizontal: 14,
               paddingVertical: 7,
               borderWidth: 1,
-              borderColor: sortBy === "distance" ? "#FF9933" : "#2a2a2a",
+              borderColor: sortBy === "distance" ? sortSelected : sortChipInactiveBorder,
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <MapPin size={12} color={sortBy === "distance" ? "#FF9933" : "#999999"} />
+              <MapPin size={12} color={sortBy === "distance" ? sortSelected : muted} />
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: sortBy === "distance" ? "#FF9933" : "#999999",
+                  color: sortBy === "distance" ? sortSelected : muted,
                   fontSize: 12,
                   lineHeight: 14,
                   marginLeft: 5,
@@ -2344,7 +2402,7 @@ function MapSearchOverlay({
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 18,
                 textAlign: "center",
                 marginBottom: 6,
@@ -2355,7 +2413,7 @@ function MapSearchOverlay({
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: muted,
                 fontSize: 14,
                 textAlign: "center",
               }}
@@ -2368,7 +2426,7 @@ function MapSearchOverlay({
             <Text
               style={{
                 fontFamily: "Manrope_600SemiBold",
-                color: "#999999",
+                color: muted,
                 fontSize: 12,
                 marginTop: 4,
                 marginBottom: 12,
@@ -2395,12 +2453,12 @@ function MapSearchOverlay({
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.card,
                     borderRadius: 16,
                     padding: 12,
                     marginBottom: 10,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                   }}
                 >
                   {/* Image */}
@@ -2411,7 +2469,7 @@ function MapSearchOverlay({
                       height: 52,
                       borderRadius: 12,
                       borderWidth: 1,
-                      borderColor: "#2a2a2a",
+                      borderColor: colors.cardBorder,
                     }}
                     resizeMode="cover"
                   />
@@ -2421,7 +2479,7 @@ function MapSearchOverlay({
                       numberOfLines={1}
                       style={{
                         fontFamily: "BricolageGrotesque_700Bold",
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontSize: 16,
                         letterSpacing: -0.3,
                         marginBottom: 2,
@@ -2433,7 +2491,7 @@ function MapSearchOverlay({
                       numberOfLines={1}
                       style={{
                         fontFamily: "Manrope_500Medium",
-                        color: "#999999",
+                        color: muted,
                         fontSize: 12,
                         marginBottom: 4,
                       }}
@@ -2478,11 +2536,11 @@ function MapSearchOverlay({
                   {/* Distance */}
                   <View style={{ marginLeft: 8 }}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <MapPin size={11} color="#999999" />
+                      <MapPin size={11} color={muted} />
                       <Text
                         style={{
                           fontFamily: "Manrope_500Medium",
-                          color: "#999999",
+                          color: muted,
                           fontSize: 11,
                           marginLeft: 3,
                         }}

@@ -16,8 +16,10 @@ import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { InAppNotification } from "@/components/InAppNotification";
+import { useAppTheme } from "@/lib/app-theme";
 
 export default function ResetPasswordScreen() {
+  const { colors, isDark } = useAppTheme();
   const router = useRouter();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -76,9 +78,13 @@ export default function ResetPasswordScreen() {
 
   if (success) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
         <LinearGradient
-          colors={["#1a0a00", "#0f0f0f", "#0f0f0f"]}
+          colors={
+            isDark
+              ? ["#1a0a00", "#0f0f0f", "#0f0f0f"]
+              : ["#fff7ed", colors.background, colors.background]
+          }
           locations={[0, 0.4, 1]}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         />
@@ -113,7 +119,7 @@ export default function ResetPasswordScreen() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999",
+                color: colors.textMuted,
                 fontSize: 15,
                 textAlign: "center",
                 lineHeight: 22,
@@ -128,7 +134,7 @@ export default function ResetPasswordScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <InAppNotification
         visible={notification.visible}
         message={notification.message}
@@ -137,7 +143,11 @@ export default function ResetPasswordScreen() {
       />
 
       <LinearGradient
-        colors={["#1a0a00", "#0f0f0f", "#0f0f0f"]}
+        colors={
+          isDark
+            ? ["#1a0a00", "#0f0f0f", "#0f0f0f"]
+            : ["#fff7ed", colors.background, colors.background]
+        }
         locations={[0, 0.4, 1]}
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
       />
@@ -190,7 +200,7 @@ export default function ResetPasswordScreen() {
             entering={FadeInUp.delay(250).duration(600)}
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 26,
               textAlign: "center",
               marginBottom: 8,
@@ -203,7 +213,7 @@ export default function ResetPasswordScreen() {
             entering={FadeInUp.delay(300).duration(600)}
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#999",
+              color: colors.textMuted,
               fontSize: 14,
               textAlign: "center",
               lineHeight: 20,
@@ -217,41 +227,41 @@ export default function ResetPasswordScreen() {
           <Animated.View
             entering={FadeInUp.delay(400).duration(600)}
             style={{
-              backgroundColor: "rgba(26,26,26,0.92)",
+              backgroundColor: isDark ? "rgba(26,26,26,0.92)" : colors.card,
               borderRadius: 24,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.06)",
+              borderColor: isDark ? "rgba(255,255,255,0.06)" : colors.cardBorder,
               padding: 24,
             }}
           >
             {/* New Password */}
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 12, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>
+            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>
               New Password
             </Text>
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                backgroundColor: "#262626",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: newPassword.length > 0 && !isPasswordValid ? "#EF4444" : "#333",
+                borderColor: newPassword.length > 0 && !isPasswordValid ? "#EF4444" : colors.cardBorder,
                 paddingHorizontal: 16,
                 height: 56,
                 marginBottom: 4,
               }}
             >
-              <Lock size={18} color="#999" />
+              <Lock size={18} color={colors.iconMuted} />
               <TextInput
                 style={{
                   flex: 1,
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontFamily: "Manrope_500Medium",
                   fontSize: 15,
                   marginLeft: 12,
                 }}
                 placeholder="At least 6 characters"
-                placeholderTextColor="#666"
+                placeholderTextColor={colors.textMuted}
                 value={newPassword}
                 onChangeText={setNewPassword}
                 secureTextEntry={!showPassword}
@@ -263,7 +273,7 @@ export default function ResetPasswordScreen() {
                 keyboardAppearance="dark"
               />
               <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
-                {showPassword ? <EyeOff size={18} color="#999" /> : <Eye size={18} color="#999" />}
+                {showPassword ? <EyeOff size={18} color={colors.iconMuted} /> : <Eye size={18} color={colors.iconMuted} />}
               </Pressable>
             </View>
             {newPassword.length > 0 && !isPasswordValid && (
@@ -274,33 +284,33 @@ export default function ResetPasswordScreen() {
             {(newPassword.length === 0 || isPasswordValid) && <View style={{ height: 16 }} />}
 
             {/* Confirm Password */}
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#999", fontSize: 12, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>
+            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>
               Confirm Password
             </Text>
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                backgroundColor: "#262626",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: confirmPassword.length > 0 && !doPasswordsMatch ? "#EF4444" : "#333",
+                borderColor: confirmPassword.length > 0 && !doPasswordsMatch ? "#EF4444" : colors.cardBorder,
                 paddingHorizontal: 16,
                 height: 56,
                 marginBottom: 4,
               }}
             >
-              <Lock size={18} color="#999" />
+              <Lock size={18} color={colors.iconMuted} />
               <TextInput
                 style={{
                   flex: 1,
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontFamily: "Manrope_500Medium",
                   fontSize: 15,
                   marginLeft: 12,
                 }}
                 placeholder="Re-enter password"
-                placeholderTextColor="#666"
+                placeholderTextColor={colors.textMuted}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showConfirm}
@@ -313,7 +323,7 @@ export default function ResetPasswordScreen() {
                 onSubmitEditing={handleResetPassword}
               />
               <Pressable onPress={() => setShowConfirm(!showConfirm)} hitSlop={10}>
-                {showConfirm ? <EyeOff size={18} color="#999" /> : <Eye size={18} color="#999" />}
+                {showConfirm ? <EyeOff size={18} color={colors.iconMuted} /> : <Eye size={18} color={colors.iconMuted} />}
               </Pressable>
             </View>
             {confirmPassword.length > 0 && !doPasswordsMatch && (
@@ -328,7 +338,7 @@ export default function ResetPasswordScreen() {
               onPress={handleResetPassword}
               disabled={!canSubmit}
               style={{
-                backgroundColor: canSubmit ? "#FF9933" : "#333",
+                backgroundColor: canSubmit ? (isDark ? "#FF9933" : "#b45309") : colors.switchTrackOff,
                 borderRadius: 16,
                 height: 56,
                 alignItems: "center",
@@ -341,12 +351,12 @@ export default function ResetPasswordScreen() {
               }}
             >
               {loading ? (
-                <ActivityIndicator color="#0f0f0f" />
+                <ActivityIndicator color={isDark ? "#0f0f0f" : "#ffffff"} />
               ) : (
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: canSubmit ? "#0f0f0f" : "#888",
+                    color: canSubmit ? (isDark ? "#0f0f0f" : "#ffffff") : colors.textMuted,
                     fontSize: 17,
                   }}
                 >

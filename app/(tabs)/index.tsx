@@ -5,7 +5,7 @@ import {
   ScrollView,
   FlatList,
   Pressable,
-  Dimensions,
+  useWindowDimensions,
   Alert,
   Platform,
   RefreshControl,
@@ -63,17 +63,7 @@ import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRec
 import { loadActiveParties, removeActiveParty, subscribeActiveParties } from "@/lib/party-active";
 import { loadPartyCreds } from "@/lib/party-credentials";
 import { fetchSnapshot } from "@/lib/party-session";
-
-let SCREEN_WIDTH = Dimensions.get("window").width;
-// Store the subscription so it's a tracked singleton (not a leaked anonymous
-// listener) — in production the module is imported once so this is registered
-// exactly once for the lifetime of the app. The real per-navigation leaks
-// that contributed to the sequential-crash were elsewhere (realtime channels,
-// timers, reanimated values) and are handled separately.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const __homeDimensionsSub = Dimensions.addEventListener("change", ({ window }) => {
-  SCREEN_WIDTH = window.width;
-});
+import { heroCarouselSnapInterval, HERO_FLATLIST_PADDING_H } from "@/lib/hero-carousel-layout";
 
 interface ActiveGroupOrder {
   sessionId: string;
@@ -145,7 +135,9 @@ function getHomeGreetingLine(fullName: string | null | undefined): string {
 
 export default function DiscoveryFeed() {
   const router = useRouter();
-  const { colors } = useAppTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const trendingHeroSnapInterval = heroCarouselSnapInterval(windowWidth);
+  const { colors, isDark } = useAppTheme();
   const { session, profile } = useAuth();
   const {
     isAdmin,
@@ -1368,16 +1360,19 @@ export default function DiscoveryFeed() {
               style={{
                 flexShrink: 1,
                 fontFamily: "Manrope_600SemiBold",
-                color: locationLabel && locationLabel !== "GPS Location" ? "#e2e2e2" : "#777",
+                color:
+                  locationLabel && locationLabel !== "GPS Location"
+                    ? colors.text
+                    : colors.textMuted,
                 fontSize: 13,
               }}
             >
               {locationLabel && locationLabel !== "GPS Location" ? locationLabel : "Unknown"}
             </Text>
             {addressBarExpanded ? (
-              <ChevronUp size={13} color="#999" />
+              <ChevronUp size={13} color={colors.textMuted} />
             ) : (
-              <ChevronDown size={13} color="#999" />
+              <ChevronDown size={13} color={colors.textMuted} />
             )}
           </Pressable>
         </View>
@@ -1407,7 +1402,7 @@ export default function DiscoveryFeed() {
             }}
           >
             {isOwnerDashboardMode ? (
-              <UtensilsCrossed size={16} color="#f5f5f5" />
+              <UtensilsCrossed size={16} color={colors.text} />
             ) : (
               <Search size={16} color="#FF9933" />
             )}
@@ -1415,7 +1410,7 @@ export default function DiscoveryFeed() {
               style={{
                 flex: 1,
                 fontFamily: "Manrope_500Medium",
-                color: "#888",
+                color: colors.textMuted,
                 fontSize: 14,
               }}
             >
@@ -1530,10 +1525,10 @@ export default function DiscoveryFeed() {
           {activeGroupOrder && (
             <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
               <View style={{
-                backgroundColor: "rgba(255,153,51,0.1)",
+                backgroundColor: isDark ? "rgba(255,153,51,0.1)" : "rgba(255,153,51,0.12)",
                 borderRadius: 20,
                 borderWidth: 1.5,
-                borderColor: "rgba(255,153,51,0.3)",
+                borderColor: isDark ? "rgba(255,153,51,0.3)" : "rgba(234,88,12,0.35)",
                 padding: 16,
                 flexDirection: "row",
                 alignItems: "center",
@@ -1553,9 +1548,9 @@ export default function DiscoveryFeed() {
                       width: 52,
                       height: 52,
                       borderRadius: 12,
-                      backgroundColor: "rgba(255,153,51,0.15)",
+                      backgroundColor: isDark ? "rgba(255,153,51,0.15)" : colors.homeSurface,
                       borderWidth: 1,
-                      borderColor: "rgba(255,153,51,0.4)",
+                      borderColor: isDark ? "rgba(255,153,51,0.4)" : "rgba(234,88,12,0.35)",
                       alignItems: "center",
                       justifyContent: "center",
                       overflow: "hidden",
@@ -1584,7 +1579,7 @@ export default function DiscoveryFeed() {
                     <Text
                       style={{
                         fontFamily: "BricolageGrotesque_700Bold",
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontSize: 16,
                         letterSpacing: -0.2,
                         lineHeight: 20,
@@ -1635,7 +1630,7 @@ export default function DiscoveryFeed() {
                 </View>
                 <Text style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 14,
                   flex: 1,
                   lineHeight: 20,
@@ -1649,7 +1644,7 @@ export default function DiscoveryFeed() {
           {(isVegSortMode || isHalalSortMode) && (
             <Animated.View entering={FadeInDown.duration(350)} style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 2 }}>
               <View style={{
-                backgroundColor: "rgba(26,26,26,0.95)",
+                backgroundColor: isDark ? "rgba(26,26,26,0.95)" : colors.card,
                 borderRadius: 14,
                 borderWidth: 1,
                 borderColor: isVegSortMode ? "rgba(34,197,94,0.3)" : "rgba(96,165,250,0.35)",
@@ -1665,7 +1660,7 @@ export default function DiscoveryFeed() {
                   <ShieldCheck size={14} color="#60A5FA" />
                 )}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12 }}>
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 12 }}>
                     {isVegSortMode
                       ? "Sorted for vegetarian-friendly options first."
                       : "Sorted for halal-friendly options first."}
@@ -1697,9 +1692,15 @@ export default function DiscoveryFeed() {
                     paddingVertical: 12,
                     paddingHorizontal: 14,
                     borderRadius: 18,
-                    backgroundColor: pressed ? "rgba(139,92,246,0.16)" : "rgba(139,92,246,0.10)",
+                    backgroundColor: pressed
+                      ? isDark
+                        ? "rgba(139,92,246,0.16)"
+                        : "rgba(139,92,246,0.14)"
+                      : isDark
+                        ? "rgba(139,92,246,0.10)"
+                        : colors.homeSurface,
                     borderWidth: 1,
-                    borderColor: "rgba(139,92,246,0.35)",
+                    borderColor: isDark ? "rgba(139,92,246,0.35)" : "rgba(109,40,217,0.28)",
                   })}
                 >
                   <View
@@ -1707,18 +1708,18 @@ export default function DiscoveryFeed() {
                       width: 40,
                       height: 40,
                       borderRadius: 20,
-                      backgroundColor: "rgba(139,92,246,0.18)",
+                      backgroundColor: isDark ? "rgba(139,92,246,0.18)" : "rgba(139,92,246,0.12)",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <Users size={20} color="#C4B5FD" />
+                    <Users size={20} color={isDark ? "#C4B5FD" : "#6D28D9"} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text
                       style={{
                         fontFamily: "BricolageGrotesque_700Bold",
-                        color: "#E9E4FF",
+                        color: isDark ? "#E9E4FF" : "#5b21b6",
                         fontSize: 14,
                         letterSpacing: 0.3,
                         textTransform: "uppercase",
@@ -1729,14 +1730,14 @@ export default function DiscoveryFeed() {
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontSize: 15,
                         marginTop: 2,
                       }}
                       numberOfLines={1}
                     >
                       {party.restaurantName}
-                      <Text style={{ color: "#9CA3AF", fontFamily: "Manrope_500Medium" }}>
+                      <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium" }}>
                         {"  ·  "}
                         {party.memberCount} {party.memberCount === 1 ? "member" : "members"}
                       </Text>
@@ -1747,13 +1748,13 @@ export default function DiscoveryFeed() {
                       paddingHorizontal: 10,
                       paddingVertical: 6,
                       borderRadius: 999,
-                      backgroundColor: "rgba(139,92,246,0.2)",
+                      backgroundColor: isDark ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.14)",
                     }}
                   >
                     <Text
                       style={{
                         fontFamily: "Manrope_700Bold",
-                        color: "#E9E4FF",
+                        color: isDark ? "#E9E4FF" : "#5b21b6",
                         fontSize: 12,
                         letterSpacing: 0.3,
                       }}
@@ -1865,7 +1866,7 @@ export default function DiscoveryFeed() {
                         <Text
                           style={{
                             fontFamily: "BricolageGrotesque_700Bold",
-                            color: "#f5f5f5",
+                            color: colors.text,
                             fontSize: 16,
                             letterSpacing: -0.2,
                           }}
@@ -1876,7 +1877,7 @@ export default function DiscoveryFeed() {
                         <Text
                           style={{
                             fontFamily: "Manrope_500Medium",
-                            color: "#d4d4d4",
+                            color: colors.textMuted,
                             fontSize: 12,
                             marginTop: 3,
                           }}
@@ -1964,7 +1965,7 @@ export default function DiscoveryFeed() {
                     <Text
                       style={{
                         fontFamily: "BricolageGrotesque_700Bold",
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontSize: 16,
                         letterSpacing: -0.2,
                       }}
@@ -1978,7 +1979,7 @@ export default function DiscoveryFeed() {
                         const done = idx < cur;
                         const active = idx === cur;
                         const accent = LIVE_ORDER_ACCENT_SOLID[idx] ?? "#555";
-                        const dim = "#333";
+                        const dim = isDark ? "#333" : colors.cardBorder;
                         const StepIcon = step.Icon;
                         const lineColor = cur >= idx ? LIVE_ORDER_ACCENT_SOLID[idx - 1] ?? dim : dim;
                         return (
@@ -2002,23 +2003,23 @@ export default function DiscoveryFeed() {
                                   backgroundColor:
                                     done || active
                                       ? `${accent}22`
-                                      : "#1a1a1a",
+                                      : colors.card,
                                   borderWidth: 1,
-                                  borderColor: done || active ? accent : "#333",
+                                  borderColor: done || active ? accent : colors.cardBorder,
                                   alignItems: "center",
                                   justifyContent: "center",
                                 }}
                               >
                                 <StepIcon
                                   size={active ? 14 : 12}
-                                  color={done || active ? accent : "#555"}
+                                  color={done || active ? accent : colors.textMuted}
                                 />
                               </View>
                               <Text
                                 style={{
                                   fontFamily: active ? "Manrope_700Bold" : "Manrope_500Medium",
                                   fontSize: 9,
-                                  color: active ? accent : done ? "#888" : "#444",
+                                  color: active ? accent : colors.textMuted,
                                   marginTop: 4,
                                   textAlign: "center",
                                 }}
@@ -2134,10 +2135,10 @@ export default function DiscoveryFeed() {
               alignItems: "center" as const,
               paddingVertical: 10,
               paddingHorizontal: 12,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 16,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
             };
             const cardBody = (
               <>
@@ -2179,7 +2180,7 @@ export default function DiscoveryFeed() {
                   <Text
                     style={{
                       fontFamily: "BricolageGrotesque_700Bold",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 16,
                       letterSpacing: -0.2,
                     }}
@@ -2191,7 +2192,7 @@ export default function DiscoveryFeed() {
                     <Text
                       style={{
                         fontFamily: "Manrope_500Medium",
-                        color: "#888888",
+                        color: colors.textMuted,
                         fontSize: 12,
                         marginTop: 4,
                       }}
@@ -2210,7 +2211,7 @@ export default function DiscoveryFeed() {
                       <Text
                         style={{
                           fontFamily: "JetBrainsMono_600SemiBold",
-                          color: "#f5f5f5",
+                          color: colors.text,
                           fontSize: 16,
                           marginLeft: 4,
                         }}
@@ -2221,7 +2222,7 @@ export default function DiscoveryFeed() {
                     <Text
                       style={{
                         fontFamily: "Manrope_500Medium",
-                        color: "#999999",
+                        color: colors.textMuted,
                         fontSize: 11,
                         marginTop: 3,
                       }}
@@ -2334,9 +2335,9 @@ export default function DiscoveryFeed() {
                         width: 36,
                         height: 36,
                         borderRadius: 18,
-                        backgroundColor: "#262629",
+                        backgroundColor: colors.pressableBg,
                         borderWidth: 1,
-                        borderColor: "#3d3d40",
+                        borderColor: colors.cardBorder,
                         alignItems: "center",
                         justifyContent: "center",
                       }}
@@ -2364,9 +2365,9 @@ export default function DiscoveryFeed() {
                 data={trendingRestaurants}
                 keyExtractor={(r) => r.id}
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+                contentContainerStyle={{ paddingHorizontal: HERO_FLATLIST_PADDING_H, paddingBottom: 4 }}
                 decelerationRate="fast"
-                snapToInterval={SCREEN_WIDTH - 48 + 16}
+                snapToInterval={trendingHeroSnapInterval}
                 snapToAlignment="start"
                 renderItem={({ item: restaurant, index }) => (
                   <HeroCard
@@ -2402,20 +2403,20 @@ export default function DiscoveryFeed() {
                       width: 36,
                       height: 36,
                       borderRadius: 18,
-                      backgroundColor: "#262629",
+                      backgroundColor: colors.pressableBg,
                       borderWidth: 1,
-                      borderColor: "#3d3d40",
+                      borderColor: colors.cardBorder,
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <ChevronRight size={18} color={colors.text} />
+                    <ChevronRight size={18} color={colors.textSecondary} />
                   </Pressable>
                 </View>
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 14,
                     marginTop: 2,
                   }}
@@ -2468,20 +2469,20 @@ export default function DiscoveryFeed() {
                       width: 36,
                       height: 36,
                       borderRadius: 18,
-                      backgroundColor: "#262629",
+                      backgroundColor: colors.pressableBg,
                       borderWidth: 1,
-                      borderColor: "#3d3d40",
+                      borderColor: colors.cardBorder,
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <ChevronRight size={18} color={colors.text} />
+                    <ChevronRight size={18} color={colors.textSecondary} />
                   </Pressable>
                 </View>
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 14,
                     marginTop: 2,
                   }}
@@ -2534,9 +2535,9 @@ export default function DiscoveryFeed() {
                         width: 36,
                         height: 36,
                         borderRadius: 18,
-                        backgroundColor: "#262629",
+                        backgroundColor: colors.pressableBg,
                         borderWidth: 1,
-                        borderColor: "#3d3d40",
+                        borderColor: colors.cardBorder,
                         alignItems: "center",
                         justifyContent: "center",
                       }}
@@ -2610,9 +2611,9 @@ export default function DiscoveryFeed() {
                         width: 36,
                         height: 36,
                         borderRadius: 18,
-                        backgroundColor: "#262629",
+                        backgroundColor: colors.pressableBg,
                         borderWidth: 1,
-                        borderColor: "#3d3d40",
+                        borderColor: colors.cardBorder,
                         alignItems: "center",
                         justifyContent: "center",
                       }}
@@ -2708,7 +2709,7 @@ export default function DiscoveryFeed() {
                             style={{
                               width: "100%",
                               height: 88,
-                              backgroundColor: "#1f1f1f",
+                              backgroundColor: colors.skeleton,
                             }}
                           />
                         ) : (
@@ -2716,20 +2717,20 @@ export default function DiscoveryFeed() {
                             style={{
                               width: "100%",
                               height: 88,
-                              backgroundColor: "#1b1b1b",
+                              backgroundColor: colors.skeletonLine,
                               alignItems: "center",
                               justifyContent: "center",
                               gap: 4,
                             }}
                           >
-                            <Camera size={22} color="#7a7a7a" />
-                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 11 }}>
+                            <Camera size={22} color={colors.iconMuted} />
+                            <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 11 }}>
                               No image available
                             </Text>
                           </View>
                         )}
                         <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
-                          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: restaurant.waitStatus === 'darkgrey' ? "#555" : "#f5f5f5", fontSize: 15 }} numberOfLines={1}>
+                          <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: restaurant.waitStatus === 'darkgrey' ? "#555" : colors.text, fontSize: 15 }} numberOfLines={1}>
                             {restaurant.name}
                           </Text>
                         </View>

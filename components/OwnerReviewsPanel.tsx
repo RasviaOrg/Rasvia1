@@ -13,6 +13,7 @@ import { Star, Flag, CheckCircle2, CircleX } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 
 type SortMode = "newest" | "highest" | "lowest";
 
@@ -43,14 +44,15 @@ function formatDate(iso: string) {
 }
 
 function StarRow({ rating }: { rating: number }) {
+  const { colors } = useAppTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
       {[1, 2, 3, 4, 5].map((value) => (
         <Star
           key={value}
           size={13}
-          color="#FF9933"
-          fill={value <= rating ? "#FF9933" : "transparent"}
+          color={colors.saffron}
+          fill={value <= rating ? colors.saffron : "transparent"}
         />
       ))}
     </View>
@@ -64,6 +66,7 @@ export function OwnerReviewsPanel({
   restaurantId: string;
   isAdminView: boolean;
 }) {
+  const { colors } = useAppTheme();
   const { session } = useAuth();
   const [reviews, setReviews] = useState<OwnerReview[]>([]);
   const [reportsByReviewId, setReportsByReviewId] = useState<Map<number, ReviewReportLite>>(new Map());
@@ -188,22 +191,22 @@ export function OwnerReviewsPanel({
     <View
       style={{
         flex: 1,
-        backgroundColor: "#171717",
+        backgroundColor: colors.card,
         borderWidth: 1,
-        borderColor: "#2f2f2f",
+        borderColor: colors.cardBorder,
         borderRadius: 18,
         overflow: "hidden",
       }}
     >
       <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>
-        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text }}>
           Reviews
         </Text>
-        <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#8a8a8a", marginTop: 4 }}>
+        <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginTop: 4 }}>
           Sort by stars and report low-star reviews for admin moderation.
         </Text>
         {isAdminView ? (
-          <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#999", marginTop: 8 }}>
+          <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 8 }}>
             Admin preview mode: submit actions are disabled.
           </Text>
         ) : null}
@@ -228,14 +231,14 @@ export function OwnerReviewsPanel({
                 paddingVertical: 8,
                 borderRadius: 999,
                 borderWidth: 1,
-                borderColor: active ? "rgba(255,153,51,0.38)" : "#303030",
-                backgroundColor: active ? "rgba(255,153,51,0.14)" : "#141414",
+                borderColor: active ? "rgba(255,153,51,0.38)" : colors.cardBorder,
+                backgroundColor: active ? "rgba(255,153,51,0.14)" : colors.background,
               }}
             >
               <Text
                 style={{
                   fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
-                  color: active ? "#FF9933" : "#888",
+                  color: active ? colors.saffron : colors.textMuted,
                   fontSize: 12,
                 }}
               >
@@ -248,7 +251,7 @@ export function OwnerReviewsPanel({
 
       {loading ? (
         <View style={{ paddingVertical: 30, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color="#FF9933" />
+          <ActivityIndicator color={colors.saffron} />
         </View>
       ) : (
         <ScrollView
@@ -260,8 +263,8 @@ export function OwnerReviewsPanel({
               onRefresh={() => {
                 void fetchReviewData(true);
               }}
-              tintColor="#FF9933"
-              colors={["#FF9933"]}
+              tintColor={colors.saffron}
+              colors={[colors.saffron]}
             />
           }
         >
@@ -269,7 +272,7 @@ export function OwnerReviewsPanel({
             <Text
               style={{
                 textAlign: "center",
-                color: "#777",
+                color: colors.textMuted,
                 fontFamily: "Manrope_500Medium",
                 paddingVertical: 24,
               }}
@@ -290,8 +293,8 @@ export function OwnerReviewsPanel({
                   style={{
                     borderRadius: 14,
                     borderWidth: 1,
-                    borderColor: "#2b2b2b",
-                    backgroundColor: "#131313",
+                    borderColor: colors.cardBorder,
+                    backgroundColor: colors.background,
                     padding: 14,
                     marginBottom: 10,
                   }}
@@ -301,20 +304,20 @@ export function OwnerReviewsPanel({
                       <Text
                         style={{
                           fontFamily: "Manrope_700Bold",
-                          color: "#f5f5f5",
+                          color: colors.text,
                           fontSize: 13,
                         }}
                         numberOfLines={1}
                       >
                         {review.reviewer_name || "Anonymous"}
                       </Text>
-                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 11, marginTop: 2 }}>
+                      <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                         {formatDate(review.created_at)}
                       </Text>
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 6 }}>
                       <StarRow rating={review.rating} />
-                      <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#aaa", fontSize: 11 }}>
+                      <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.textMuted, fontSize: 11 }}>
                         {review.rating.toFixed(1)}
                       </Text>
                     </View>
@@ -324,7 +327,7 @@ export function OwnerReviewsPanel({
                     <Text
                       style={{
                         marginTop: 10,
-                        color: "#d0d0d0",
+                        color: colors.textSecondary,
                         fontFamily: "Manrope_500Medium",
                         fontSize: 13,
                         lineHeight: 19,
@@ -369,7 +372,7 @@ export function OwnerReviewsPanel({
                             </Text>
                           </View>
                           {report?.admin_message ? (
-                            <Text style={{ color: "#a3a3a3", fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                            <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
                               Reason: {report.admin_message}
                             </Text>
                           ) : null}

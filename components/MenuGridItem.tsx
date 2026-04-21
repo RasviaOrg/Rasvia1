@@ -3,6 +3,7 @@ import { View, Text, Pressable, Image, Dimensions, Platform } from "react-native
 import { LinearGradient } from "expo-linear-gradient";
 import { Plus, Leaf, Flame, Camera } from "lucide-react-native";
 import type { UIMenuItem } from "@/lib/restaurant-types";
+import { useAppTheme } from "@/lib/app-theme";
 import Animated, {
   FadeInUp,
   useAnimatedStyle,
@@ -44,6 +45,7 @@ export function MenuGridItem({
   onContributeImage,
   ownerBadgeOffset = false,
 }: MenuGridItemProps) {
+  const { colors, isDark } = useAppTheme();
   const pressScale = useSharedValue(1);
   const isEven = index % 2 === 0;
   const imageHeight = isEven ? 180 : 220;
@@ -72,8 +74,8 @@ export function MenuGridItem({
           onPressOut={() => {
             if (item.isAvailable !== false) pressScale.value = withSpring(1);
           }}
-          className="rounded-xl overflow-hidden bg-rasvia-card"
-          style={{ opacity: item.isAvailable === false ? 0.45 : 1 }}
+          className="rounded-xl overflow-hidden"
+          style={{ opacity: item.isAvailable === false ? 0.45 : 1, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }}
         >
           <View style={{ height: imageHeight, position: "relative" }}>
             {hasImage ? (
@@ -89,17 +91,17 @@ export function MenuGridItem({
                   height: "100%",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "#1b1b1b",
+                  backgroundColor: isDark ? "#1b1b1b" : colors.pressableBg,
                 }}
               >
-                <Camera size={30} color="#767676" />
-                <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 12 }}>
+                <Camera size={30} color={colors.iconMuted} />
+                <Text style={{ marginTop: 8, fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 12 }}>
                   No image
                 </Text>
               </View>
             )}
             <LinearGradient
-              colors={["transparent", "rgba(34,34,34,0.95)"]}
+              colors={isDark ? ["transparent", "rgba(34,34,34,0.95)"] : ["transparent", "rgba(0,0,0,0.45)"]}
               style={{
                 position: "absolute",
                 bottom: 0,
@@ -123,22 +125,24 @@ export function MenuGridItem({
                 }}
                 className="absolute bottom-2 right-2"
                 style={{
-                  backgroundColor: quickAddMuted ? "#3a3a3a" : "#FF9933",
+                  backgroundColor: quickAddMuted
+                    ? colors.pressableBg
+                    : (isDark ? "#c2410c" : "#b45309"),
                   width: 34,
                   height: 34,
                   borderRadius: 17,
                   alignItems: "center",
                   justifyContent: "center",
                   borderWidth: quickAddMuted ? 1 : 0,
-                  borderColor: "rgba(255,255,255,0.08)",
-                  shadowColor: quickAddMuted ? "transparent" : "#FF9933",
+                  borderColor: quickAddMuted ? colors.cardBorder : "rgba(255,255,255,0.12)",
+                  shadowColor: quickAddMuted ? "transparent" : (isDark ? "#c2410c" : "#b45309"),
                   shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: quickAddMuted ? 0 : 0.4,
+                  shadowOpacity: quickAddMuted ? 0 : 0.25,
                   shadowRadius: 6,
                   elevation: quickAddMuted ? 0 : 5,
                 }}
               >
-                <Plus size={18} color={quickAddMuted ? "#737373" : "#0f0f0f"} strokeWidth={3} />
+                <Plus size={18} color={quickAddMuted ? colors.textMuted : "#ffffff"} strokeWidth={2.75} />
               </Pressable>
             )}
 
@@ -168,15 +172,15 @@ export function MenuGridItem({
                   // so the two don't overlap on the empty-image placeholder.
                   top: ownerBadgeOffset ? 42 : 8,
                   right: 8,
-                  backgroundColor: "rgba(15,15,15,0.72)",
+                  backgroundColor: isDark ? "rgba(15,15,15,0.72)" : "rgba(255,255,255,0.9)",
                   borderRadius: 8,
                   paddingHorizontal: 7,
                   paddingVertical: 4,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.18)",
+                  borderColor: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)",
                 }}
               >
-                <Text style={{ fontFamily: "Manrope_700Bold", color: "#d4d4d4", fontSize: 10 }}>
+                <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textSecondary, fontSize: 10 }}>
                   No Image
                 </Text>
               </View>
@@ -205,7 +209,7 @@ export function MenuGridItem({
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 14,
                 marginBottom: 2,
               }}
@@ -216,7 +220,7 @@ export function MenuGridItem({
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: colors.textMuted,
                 fontSize: 11,
                 lineHeight: 15,
                 marginBottom: 4,
@@ -271,7 +275,7 @@ export function MenuGridItem({
               <Text
                 style={{
                   fontFamily: "JetBrainsMono_600SemiBold",
-                  color: item.isAvailable === false ? "#888888" : "#FF9933",
+                  color: item.isAvailable === false ? colors.textMuted : "#FF9933",
                   fontSize: 14,
                 }}
               >

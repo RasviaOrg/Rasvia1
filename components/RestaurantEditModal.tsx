@@ -15,6 +15,7 @@ import {
 import { X, Check, MapPin, ChevronLeft, Clock3 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
+import { useAppTheme } from "@/lib/app-theme";
 
 interface RestaurantEditModalProps {
   restaurantId: string;
@@ -75,6 +76,10 @@ export function RestaurantEditModal({
   const [waitlistEarlyEnabled, setWaitlistEarlyEnabled] = useState(false);
   const [waitlistEarlyMinutes, setWaitlistEarlyMinutes] = useState("30");
   const [maxWaitlistSize, setMaxWaitlistSize] = useState("15");
+
+  const { colors, isDark } = useAppTheme();
+  const ctaOnSaffron = isDark ? "#0f0f0f" : "#ffffff";
+  const sheetBackdrop = isDark ? "rgba(0,0,0,0.56)" : "rgba(0,0,0,0.45)";
 
   const haptic = () => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -354,29 +359,29 @@ export function RestaurantEditModal({
 
   const inputStyle = useMemo(
     () => ({
-      backgroundColor: "#0f0f0f",
+      backgroundColor: colors.background,
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: "#2a2a2a",
+      borderColor: colors.cardBorder,
       paddingHorizontal: 14,
       paddingVertical: 12,
-      color: "#f5f5f5" as const,
+      color: colors.text as const,
       fontFamily: "Manrope_500Medium",
       fontSize: 15,
     }),
-    []
+    [colors]
   );
 
   const labelStyle = useMemo(
     () => ({
       fontFamily: "Manrope_600SemiBold" as const,
-      color: "#999999",
+      color: colors.textMuted,
       fontSize: 12,
       textTransform: "uppercase" as const,
       letterSpacing: 1,
       marginBottom: 8,
     }),
-    []
+    [colors.textMuted]
   );
 
   if (!visible) return null;
@@ -384,15 +389,15 @@ export function RestaurantEditModal({
   return (
     <Modal visible transparent animationType="slide" onRequestClose={handleClose}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.56)", justifyContent: "flex-end" }}>
+        <View style={{ flex: 1, backgroundColor: sheetBackdrop, justifyContent: "flex-end" }}>
           <Pressable style={{ flex: 1 }} onPress={handleClose} />
           <View
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.backgroundElevated,
               borderTopLeftRadius: 24,
               borderTopRightRadius: 24,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               paddingHorizontal: 20,
               paddingTop: 18,
               paddingBottom: Platform.OS === "ios" ? 24 : 14,
@@ -410,18 +415,21 @@ export function RestaurantEditModal({
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 {mode === "hours" && !openHoursOnMount && (
                   <Pressable onPress={backFromHours} hitSlop={8} style={{ padding: 4 }}>
-                    <ChevronLeft size={20} color="#aaa" />
+                    <ChevronLeft size={20} color={colors.textMuted} />
                   </Pressable>
                 )}
                 {mode === "hours" && openHoursOnMount && (
-                  <Clock3 size={18} color="#FF9933" />
+                  <Clock3 size={18} color={colors.saffron} />
                 )}
-                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>
+                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 20 }}>
                   {mode === "hours" ? "Restaurant Timings" : "Edit Restaurant"}
                 </Text>
               </View>
-              <Pressable onPress={mode === "hours" ? backFromHours : handleClose} style={{ padding: 8, backgroundColor: "#2a2a2a", borderRadius: 12 }}>
-                <X color="#999999" size={20} />
+              <Pressable
+                onPress={mode === "hours" ? backFromHours : handleClose}
+                style={{ padding: 8, backgroundColor: colors.pressableBg, borderRadius: 12 }}
+              >
+                <X color={colors.textMuted} size={20} />
               </Pressable>
             </View>
 
@@ -434,7 +442,7 @@ export function RestaurantEditModal({
                     onChangeText={setName}
                     style={inputStyle}
                     placeholder="Restaurant name"
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     autoCorrect={false}
                   />
                 </View>
@@ -446,7 +454,7 @@ export function RestaurantEditModal({
                     onChangeText={setAddress}
                     style={inputStyle}
                     placeholder="Full address"
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     autoCorrect={false}
                   />
                 </View>
@@ -458,7 +466,7 @@ export function RestaurantEditModal({
                     onChangeText={setDescription}
                     style={[inputStyle, { minHeight: 90, textAlignVertical: "top" }]}
                     placeholder="Short description"
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     multiline
                     numberOfLines={4}
                   />
@@ -471,10 +479,10 @@ export function RestaurantEditModal({
                     onChangeText={setCuisine}
                     style={inputStyle}
                     placeholder="e.g. Indian, Curry, Vegetarian"
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     autoCorrect={false}
                   />
-                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11, marginTop: 6, marginLeft: 2 }}>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginTop: 6, marginLeft: 2 }}>
                     Separate multiple tags with commas
                   </Text>
                 </View>
@@ -485,11 +493,11 @@ export function RestaurantEditModal({
                     onChangeText={setChainGroupKey}
                     style={inputStyle}
                     placeholder="e.g. saravanaa-bhavan"
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     autoCorrect={false}
                     autoCapitalize="none"
                   />
-                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11, marginTop: 6, marginLeft: 2 }}>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginTop: 6, marginLeft: 2 }}>
                     Restaurants with the same key are grouped as one chain.
                   </Text>
                 </View>
@@ -505,13 +513,13 @@ export function RestaurantEditModal({
                         flex: 1,
                         borderRadius: 12,
                         borderWidth: 1,
-                        borderColor: isHalalTagged ? "rgba(37,99,235,0.45)" : "#2a2a2a",
-                        backgroundColor: isHalalTagged ? "rgba(37,99,235,0.14)" : "#121212",
+                        borderColor: isHalalTagged ? "rgba(37,99,235,0.45)" : colors.cardBorder,
+                        backgroundColor: isHalalTagged ? "rgba(37,99,235,0.14)" : colors.background,
                         paddingVertical: 12,
                         alignItems: "center",
                       }}
                     >
-                      <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: isHalalTagged ? "#60A5FA" : "#888" }}>
+                      <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: isHalalTagged ? "#60A5FA" : colors.iconMuted }}>
                         HALAL {isHalalTagged ? "ON" : "OFF"}
                       </Text>
                     </Pressable>
@@ -524,13 +532,13 @@ export function RestaurantEditModal({
                         flex: 1,
                         borderRadius: 12,
                         borderWidth: 1,
-                        borderColor: isVegetarianTagged ? "rgba(34,197,94,0.45)" : "#2a2a2a",
-                        backgroundColor: isVegetarianTagged ? "rgba(34,197,94,0.14)" : "#121212",
+                        borderColor: isVegetarianTagged ? "rgba(34,197,94,0.45)" : colors.cardBorder,
+                        backgroundColor: isVegetarianTagged ? "rgba(34,197,94,0.14)" : colors.background,
                         paddingVertical: 12,
                         alignItems: "center",
                       }}
                     >
-                      <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: isVegetarianTagged ? "#22C55E" : "#888" }}>
+                      <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: isVegetarianTagged ? "#22C55E" : colors.iconMuted }}>
                         VEGETARIAN {isVegetarianTagged ? "ON" : "OFF"}
                       </Text>
                     </Pressable>
@@ -541,7 +549,7 @@ export function RestaurantEditModal({
                   onPress={handleSave}
                   disabled={saving}
                   style={{
-                    backgroundColor: "#FF9933",
+                    backgroundColor: colors.saffron,
                     borderRadius: 14,
                     padding: 16,
                     alignItems: "center",
@@ -552,11 +560,11 @@ export function RestaurantEditModal({
                   }}
                 >
                   {saving ? (
-                    <ActivityIndicator size="small" color="#0f0f0f" />
+                    <ActivityIndicator size="small" color={ctaOnSaffron} />
                   ) : (
                     <>
-                      <Check size={18} color="#0f0f0f" strokeWidth={2.5} />
-                      <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 16 }}>Save Changes</Text>
+                      <Check size={18} color={ctaOnSaffron} strokeWidth={2.5} />
+                      <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: ctaOnSaffron, fontSize: 16 }}>Save Changes</Text>
                     </>
                   )}
                 </Pressable>
@@ -602,9 +610,9 @@ export function RestaurantEditModal({
                   }}
                 >
                   {hoursLoading ? (
-                    <ActivityIndicator size="small" color="#FF9933" />
+                    <ActivityIndicator size="small" color={colors.saffron} />
                   ) : (
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#FF9933", fontSize: 15 }}>
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.saffron, fontSize: 15 }}>
                       Adjust Timings
                     </Text>
                   )}
@@ -612,39 +620,39 @@ export function RestaurantEditModal({
               </ScrollView>
             ) : (
               <>
-                <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 13, marginBottom: 12 }}>
+                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, marginBottom: 12 }}>
                   Set opening and closing hours (24-hour format).
                 </Text>
                 {hoursLoading ? (
                   <View style={{ paddingVertical: 48, alignItems: "center" }}>
-                    <ActivityIndicator size="large" color="#FF9933" />
+                    <ActivityIndicator size="large" color={colors.saffron} />
                   </View>
                 ) : (
                   <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
                     <View
                       style={{
                         borderWidth: 1,
-                        borderColor: "#2a2a2a",
+                        borderColor: colors.cardBorder,
                         borderRadius: 14,
                         padding: 14,
                         marginBottom: 14,
-                        backgroundColor: "#111",
+                        backgroundColor: colors.card,
                       }}
                     >
                       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#e5e5e5", fontSize: 14 }}>
+                          <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 14 }}>
                             Early waitlist window
                           </Text>
-                          <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 4 }}>
+                          <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
                             Allow opening the waitlist this many minutes before the first scheduled open (same day).
                           </Text>
                         </View>
                         <Switch
                           value={waitlistEarlyEnabled}
                           onValueChange={setWaitlistEarlyEnabled}
-                          trackColor={{ false: "#333", true: "rgba(255,153,51,0.45)" }}
-                          thumbColor={waitlistEarlyEnabled ? "#FF9933" : "#888"}
+                          trackColor={{ false: colors.switchTrackOff, true: "rgba(255,153,51,0.45)" }}
+                          thumbColor={waitlistEarlyEnabled ? colors.saffron : colors.iconMuted}
                         />
                       </View>
                       {waitlistEarlyEnabled && (
@@ -656,7 +664,7 @@ export function RestaurantEditModal({
                             keyboardType="number-pad"
                             style={inputStyle}
                             placeholder="30"
-                            placeholderTextColor="#555"
+                            placeholderTextColor={colors.textMuted}
                           />
                         </View>
                       )}
@@ -664,17 +672,17 @@ export function RestaurantEditModal({
                     <View
                       style={{
                         borderWidth: 1,
-                        borderColor: "#2a2a2a",
+                        borderColor: colors.cardBorder,
                         borderRadius: 14,
                         padding: 14,
                         marginBottom: 14,
-                        backgroundColor: "#111",
+                        backgroundColor: colors.card,
                       }}
                     >
-                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#e5e5e5", fontSize: 14 }}>
+                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 14 }}>
                         Max waitlist size
                       </Text>
-                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12, marginTop: 4 }}>
+                      <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
                         Once this many active parties are waiting, new guests will be asked to call the restaurant.
                       </Text>
                       <View style={{ marginTop: 12 }}>
@@ -685,7 +693,7 @@ export function RestaurantEditModal({
                           keyboardType="number-pad"
                           style={inputStyle}
                           placeholder="15"
-                          placeholderTextColor="#555"
+                          placeholderTextColor={colors.textMuted}
                         />
                       </View>
                     </View>
@@ -694,16 +702,16 @@ export function RestaurantEditModal({
                         key={row.day}
                         style={{
                           borderWidth: 1,
-                          borderColor: row.closed ? "#222" : "#2a2a2a",
+                          borderColor: colors.cardBorder,
                           borderRadius: 14,
-                          backgroundColor: row.closed ? "#0d0d0d" : "#111",
+                          backgroundColor: row.closed ? colors.background : colors.card,
                           padding: 14,
                           marginBottom: 8,
                           opacity: row.closed ? 0.72 : 1,
                         }}
                       >
                         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: row.closed ? 0 : 12 }}>
-                          <Text style={{ fontFamily: "Manrope_700Bold", color: row.closed ? "#666" : "#f5f5f5", fontSize: 15 }}>
+                          <Text style={{ fontFamily: "Manrope_700Bold", color: row.closed ? colors.textMuted : colors.text, fontSize: 15 }}>
                             {DAY_NAMES[row.day]}
                           </Text>
                           <Pressable
@@ -735,23 +743,32 @@ export function RestaurantEditModal({
                             {row.slots.map((slot, idx) => (
                               <View key={slot.id} style={{ flexDirection: "row", gap: 10, alignItems: "flex-end" }}>
                                 <View style={{ flex: 1 }}>
-                                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: "#555", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>
+                                  <Text
+                                    style={{
+                                      fontFamily: "Manrope_600SemiBold",
+                                      fontSize: 10,
+                                      color: colors.textMuted,
+                                      letterSpacing: 0.6,
+                                      textTransform: "uppercase",
+                                      marginBottom: 6,
+                                    }}
+                                  >
                                     Opens
                                   </Text>
                                   <TextInput
                                     value={slot.open}
                                     onChangeText={(t) => updateSlot(row.day, slot.id, { open: t.replace(/[^\d:]/g, "").slice(0, 5) })}
                                     placeholder="09:00"
-                                    placeholderTextColor="#444"
+                                    placeholderTextColor={colors.textMuted}
                                     keyboardType="numbers-and-punctuation"
                                     style={{
-                                      backgroundColor: "#0a0a0a",
-                                      borderColor: "#2a2a2a",
+                                      backgroundColor: colors.background,
+                                      borderColor: colors.cardBorder,
                                       borderWidth: 1,
                                       borderRadius: 10,
                                       paddingHorizontal: 14,
                                       paddingVertical: 11,
-                                      color: "#f5f5f5",
+                                      color: colors.text,
                                       fontFamily: "JetBrainsMono_600SemiBold",
                                       fontSize: 16,
                                       textAlign: "center",
@@ -759,26 +776,35 @@ export function RestaurantEditModal({
                                   />
                                 </View>
                                 <View style={{ justifyContent: "flex-end", paddingBottom: 14 }}>
-                                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#444", fontSize: 13 }}>to</Text>
+                                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>to</Text>
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                  <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 10, color: "#555", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>
+                                  <Text
+                                    style={{
+                                      fontFamily: "Manrope_600SemiBold",
+                                      fontSize: 10,
+                                      color: colors.textMuted,
+                                      letterSpacing: 0.6,
+                                      textTransform: "uppercase",
+                                      marginBottom: 6,
+                                    }}
+                                  >
                                     Closes
                                   </Text>
                                   <TextInput
                                     value={slot.close}
                                     onChangeText={(t) => updateSlot(row.day, slot.id, { close: t.replace(/[^\d:]/g, "").slice(0, 5) })}
                                     placeholder="21:00"
-                                    placeholderTextColor="#444"
+                                    placeholderTextColor={colors.textMuted}
                                     keyboardType="numbers-and-punctuation"
                                     style={{
-                                      backgroundColor: "#0a0a0a",
-                                      borderColor: "#2a2a2a",
+                                      backgroundColor: colors.background,
+                                      borderColor: colors.cardBorder,
                                       borderWidth: 1,
                                       borderRadius: 10,
                                       paddingHorizontal: 14,
                                       paddingVertical: 11,
-                                      color: "#f5f5f5",
+                                      color: colors.text,
                                       fontFamily: "JetBrainsMono_600SemiBold",
                                       fontSize: 16,
                                       textAlign: "center",
@@ -816,14 +842,14 @@ export function RestaurantEditModal({
                               style={{
                                 alignSelf: "flex-start",
                                 borderWidth: 1,
-                                borderColor: "#2a2a2a",
-                                backgroundColor: "#141414",
+                                borderColor: colors.cardBorder,
+                                backgroundColor: colors.pressableBg,
                                 borderRadius: 10,
                                 paddingHorizontal: 12,
                                 paddingVertical: 8,
                               }}
                             >
-                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#d4d4d4", fontSize: 11 }}>
+                              <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textSecondary, fontSize: 11 }}>
                                 + Add Time Period
                               </Text>
                             </Pressable>
@@ -837,20 +863,20 @@ export function RestaurantEditModal({
                 <View
                   style={{
                     borderTopWidth: 1,
-                    borderTopColor: "#2a2a2a",
+                    borderTopColor: colors.cardBorder,
                     marginHorizontal: -20,
                     marginTop: 6,
                     paddingTop: 12,
                     paddingHorizontal: 20,
                     paddingBottom: Platform.OS === "ios" ? 10 : 8,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.backgroundElevated,
                   }}
                 >
                   <Pressable
                     onPress={saveHours}
                     disabled={hoursSaving || hoursLoading}
                     style={{
-                      backgroundColor: "#FF9933",
+                      backgroundColor: colors.saffron,
                       borderRadius: 14,
                       paddingVertical: 15,
                       alignItems: "center",
@@ -861,11 +887,11 @@ export function RestaurantEditModal({
                     }}
                   >
                     {hoursSaving ? (
-                      <ActivityIndicator size="small" color="#0f0f0f" />
+                      <ActivityIndicator size="small" color={ctaOnSaffron} />
                     ) : (
                       <>
-                        <Check size={18} color="#0f0f0f" strokeWidth={2.5} />
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 16 }}>
+                        <Check size={18} color={ctaOnSaffron} strokeWidth={2.5} />
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: ctaOnSaffron, fontSize: 16 }}>
                           Save Timings
                         </Text>
                       </>

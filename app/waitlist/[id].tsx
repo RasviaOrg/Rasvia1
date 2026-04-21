@@ -1,4 +1,11 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
+
+function singleSearchParam(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  const s = Array.isArray(v) ? v[0] : v;
+  const t = String(s ?? "").trim();
+  return t.length ? t : undefined;
+}
 import {
   View,
   Text,
@@ -40,15 +47,26 @@ import {
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 import * as SecureStore from 'expo-secure-store';
 
 const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 
 export default function WaitlistStatus() {
-  const { id, entry_id, party_size } = useLocalSearchParams<{ id: string; entry_id?: string; party_size?: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    entry_id?: string | string[];
+    party_size?: string | string[];
+  }>();
+  const id = params.id != null ? String(params.id).trim() : "";
+  const entry_id = useMemo(() => singleSearchParam(params.entry_id), [params.entry_id]);
+  const party_size = useMemo(() => singleSearchParam(params.party_size), [params.party_size]);
   const router = useRouter();
   const { userCoords } = useLocation();
   const { session } = useAuth();
+  const { colors, isDark } = useAppTheme();
+  const ctaOnSaffron = isDark ? "#0f0f0f" : "#ffffff";
+  const waitlistStackOptions = useMemo(() => ({ gestureEnabled: false }), []);
   const { addEvent, dismissEntry } = useNotifications();
 
   const currentUserId = session?.user?.id;
@@ -406,11 +424,20 @@ export default function WaitlistStatus() {
               // realtime UPDATE handler doesn't re-fire "left" haptics /
               // banners when the DB echoes the cancellation back to us.
               leavingRef.current = true;
-              await supabase
+              let q = supabase
                 .from("waitlist_entries")
                 .update({ status: "cancelled" })
                 .eq("id", entry_id);
-              // Add "left" event and remove the active widget
+              if (session?.user?.id) {
+                q = q.eq("user_id", session.user.id);
+              }
+              const { error } = await q;
+              if (error) {
+                userLeftVoluntarilyRef.current = false;
+                leavingRef.current = false;
+                Alert.alert("Couldn't leave waitlist", error.message ?? "Please try again.");
+                return;
+              }
               addEvent({
                 type: "left",
                 restaurantName: restaurant?.name ?? "Restaurant",
@@ -426,7 +453,7 @@ export default function WaitlistStatus() {
         },
       ]
     );
-  }, [router, entry_id, restaurant?.name, id, myPartySize, addEvent, dismissEntry]);
+  }, [router, entry_id, restaurant?.name, id, myPartySize, addEvent, dismissEntry, session?.user?.id]);
 
   const [creatingParty, setCreatingParty] = useState(false);
   const [pushActive, setPushActive] = useState(true);
@@ -584,12 +611,12 @@ export default function WaitlistStatus() {
   // ==========================================
   if (loading) {
     return (
-      <View className="flex-1 bg-rasvia-black items-center justify-center">
-        <ActivityIndicator size="large" color="#FF9933" />
+      <View style={{ flex: 1, backgroundColor: colors.homeBg, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" color={colors.saffron} />
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
-            color: "#999999",
+            color: colors.textMuted,
             fontSize: 14,
             marginTop: 12,
           }}
@@ -602,11 +629,11 @@ export default function WaitlistStatus() {
 
   if (loadError || !restaurant) {
     return (
-      <View className="flex-1 bg-rasvia-black items-center justify-center" style={{ padding: 32 }}>
+      <View style={{ flex: 1, backgroundColor: colors.homeBg, alignItems: "center", justifyContent: "center", padding: 32 }}>
         <Text
           style={{
             fontFamily: "BricolageGrotesque_700Bold",
-            color: "#f5f5f5",
+            color: colors.text,
             fontSize: 20,
             marginBottom: 8,
             textAlign: "center",
@@ -617,7 +644,7 @@ export default function WaitlistStatus() {
         <Text
           style={{
             fontFamily: "Manrope_500Medium",
-            color: "#999999",
+            color: colors.textMuted,
             fontSize: 14,
             textAlign: "center",
             marginBottom: 24,
@@ -628,7 +655,7 @@ export default function WaitlistStatus() {
         <Pressable
           onPress={() => router.back()}
           style={{
-            backgroundColor: "#FF9933",
+            backgroundColor: colors.saffron,
             borderRadius: 14,
             paddingVertical: 14,
             paddingHorizontal: 32,
@@ -637,7 +664,7 @@ export default function WaitlistStatus() {
           <Text
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: "#0f0f0f",
+              color: ctaOnSaffron,
               fontSize: 16,
             }}
           >
@@ -649,9 +676,9 @@ export default function WaitlistStatus() {
   }
 
   return (
-    <View className="flex-1 bg-rasvia-black">
-      <Stack.Screen options={{ gestureEnabled: false }} />
-      <SafeAreaView className="flex-1" edges={["top"]}>
+    <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
+      <Stack.Screen options={waitlistStackOptions} />
+      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
         {/* Header */}
         <Animated.View
           entering={FadeIn.duration(400)}
@@ -660,22 +687,22 @@ export default function WaitlistStatus() {
           <Pressable
             onPress={() => router.back()}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               width: 44,
               height: 44,
               borderRadius: 22,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
             }}
           >
-            <ArrowLeft size={22} color="#f5f5f5" />
+            <ArrowLeft size={22} color={colors.text} />
           </Pressable>
           <Text
             style={{
               fontFamily: "BricolageGrotesque_700Bold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 18,
             }}
           >
@@ -710,7 +737,7 @@ export default function WaitlistStatus() {
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 32,
                 letterSpacing: -0.5,
               }}
@@ -718,11 +745,11 @@ export default function WaitlistStatus() {
               {restaurant.name}
             </Text>
             <View className="flex-row items-center mt-2">
-              <MapPin size={13} color="#999999" />
+              <MapPin size={13} color={colors.textMuted} />
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 13,
                   marginLeft: 4,
                 }}
@@ -732,11 +759,11 @@ export default function WaitlistStatus() {
             </View>
             {partyOwnerName !== "" && (
               <View className="flex-row items-center mt-1">
-                <UtensilsCrossed size={13} color="#FF9933" />
+                <UtensilsCrossed size={13} color={colors.saffron} />
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: "#FF9933",
+                    color: colors.saffron,
                     fontSize: 13,
                     marginLeft: 4,
                   }}
@@ -767,17 +794,17 @@ export default function WaitlistStatus() {
               <View
                 className="flex-1 mr-2 p-4 rounded-2xl"
                 style={{
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.card,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                 }}
               >
                 <View className="flex-row items-center mb-2">
-                  <UtensilsCrossed size={16} color="#FF9933" />
+                  <UtensilsCrossed size={16} color={colors.saffron} />
                   <Text
                     style={{
                       fontFamily: "Manrope_600SemiBold",
-                      color: "#999999",
+                      color: colors.textMuted,
                       fontSize: 12,
                       marginLeft: 6,
                     }}
@@ -788,7 +815,7 @@ export default function WaitlistStatus() {
                 <Text
                   style={{
                     fontFamily: "JetBrainsMono_600SemiBold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 28,
                   }}
                 >
@@ -797,7 +824,7 @@ export default function WaitlistStatus() {
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 12,
                     marginTop: 2,
                   }}
@@ -809,17 +836,17 @@ export default function WaitlistStatus() {
               <View
                 className="flex-1 ml-2 p-4 rounded-2xl"
                 style={{
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.card,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                 }}
               >
                 <View className="flex-row items-center mb-2">
-                  <Bell size={16} color="#FF9933" />
+                  <Bell size={16} color={colors.saffron} />
                   <Text
                     style={{
                       fontFamily: "Manrope_600SemiBold",
-                      color: "#999999",
+                      color: colors.textMuted,
                       fontSize: 12,
                       marginLeft: 6,
                     }}
@@ -839,7 +866,7 @@ export default function WaitlistStatus() {
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 12,
                     marginTop: 2,
                   }}
@@ -867,7 +894,7 @@ export default function WaitlistStatus() {
                       borderColor: "rgba(255,153,51,0.3)",
                     }}
                   >
-                    <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 12 }}>Enable Notifications</Text>
+                    <Text style={{ fontFamily: "Manrope_700Bold", color: colors.saffron, fontSize: 12 }}>Enable Notifications</Text>
                   </Pressable>
                 )}
               </View>
@@ -879,7 +906,7 @@ export default function WaitlistStatus() {
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 13,
                     lineHeight: 19,
                     marginBottom: 10,
@@ -900,11 +927,11 @@ export default function WaitlistStatus() {
                     borderColor: "rgba(255,153,51,0.3)",
                   }}
                 >
-                  <UtensilsCrossed size={16} color="#FF9933" />
+                  <UtensilsCrossed size={16} color={colors.saffron} />
                   <Text
                     style={{
                       fontFamily: "Manrope_700Bold",
-                      color: "#FF9933",
+                      color: colors.saffron,
                       fontSize: 14,
                       marginLeft: 8,
                     }}
@@ -921,20 +948,20 @@ export default function WaitlistStatus() {
               disabled={creatingParty}
               className="flex-row items-center justify-center mt-3 py-3 rounded-2xl"
               style={{
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
             >
               {creatingParty ? (
-                <ActivityIndicator color="#FF9933" />
+                <ActivityIndicator color={colors.saffron} />
               ) : (
                 <>
-                  <Share2 size={16} color="#FF9933" />
+                  <Share2 size={16} color={colors.saffron} />
                   <Text
                     style={{
                       fontFamily: "Manrope_700Bold",
-                      color: "#FF9933",
+                      color: colors.saffron,
                       fontSize: 14,
                       marginLeft: 8,
                     }}
@@ -953,8 +980,8 @@ export default function WaitlistStatus() {
           className="px-5 pt-3 pb-2"
           style={{
             borderTopWidth: 1,
-            borderTopColor: "#222222",
-            backgroundColor: "#0f0f0f",
+            borderTopColor: colors.cardBorder,
+            backgroundColor: colors.background,
           }}
         >
           <SafeAreaView edges={["bottom"]}>
@@ -971,16 +998,16 @@ export default function WaitlistStatus() {
               }}
               className="rounded-2xl py-4 items-center flex-row justify-center"
               style={{
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderWidth: 1,
-                borderColor: "#333333",
+                borderColor: colors.cardBorder,
               }}
             >
-              <UtensilsCrossed size={18} color="#FF9933" />
+              <UtensilsCrossed size={18} color={colors.saffron} />
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 16,
                   marginLeft: 8,
                 }}
@@ -997,7 +1024,7 @@ export default function WaitlistStatus() {
         <View
           style={{
             flex: 1,
-            backgroundColor: "#0f0f0f",
+            backgroundColor: colors.background,
             alignItems: "center",
             justifyContent: "center",
             padding: 32,
@@ -1017,12 +1044,12 @@ export default function WaitlistStatus() {
                 borderColor: "rgba(255,153,51,0.4)",
               }}
             >
-              <UtensilsCrossed size={44} color="#FF9933" />
+              <UtensilsCrossed size={44} color={colors.saffron} />
             </View>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 34,
                 textAlign: "center",
                 marginBottom: 12,
@@ -1034,7 +1061,7 @@ export default function WaitlistStatus() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: colors.textMuted,
                 fontSize: 16,
                 textAlign: "center",
                 lineHeight: 24,
@@ -1046,7 +1073,7 @@ export default function WaitlistStatus() {
             <Text
               style={{
                 fontFamily: "Manrope_400Regular",
-                color: "#555",
+                color: colors.textMuted,
                 fontSize: 13,
                 textAlign: "center",
               }}
@@ -1071,7 +1098,7 @@ export default function WaitlistStatus() {
           <Animated.View
             entering={FadeInDown.duration(380)}
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 28,
               padding: 32,
               alignItems: "center",
@@ -1105,7 +1132,7 @@ export default function WaitlistStatus() {
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 28,
                 textAlign: "center",
                 marginBottom: 8,
@@ -1116,7 +1143,7 @@ export default function WaitlistStatus() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: colors.textMuted,
                 fontSize: 15,
                 textAlign: "center",
                 marginBottom: 32,
@@ -1143,7 +1170,7 @@ export default function WaitlistStatus() {
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#0f0f0f",
+                  color: ctaOnSaffron,
                   fontSize: 18,
                 }}
               >
@@ -1165,7 +1192,7 @@ export default function WaitlistStatus() {
         >
           <View
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 22,
               padding: 24,
               borderWidth: 1.5,
@@ -1178,7 +1205,7 @@ export default function WaitlistStatus() {
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 22,
                 textAlign: "center",
                 marginBottom: 10,
@@ -1189,7 +1216,7 @@ export default function WaitlistStatus() {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999",
+                color: colors.textMuted,
                 fontSize: 15,
                 textAlign: "center",
                 lineHeight: 22,

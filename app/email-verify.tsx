@@ -6,8 +6,10 @@ import { Mail, CheckCircle } from "lucide-react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
+import { useAppTheme } from "@/lib/app-theme";
 
 export default function EmailVerifyScreen() {
+    const { colors, isDark } = useAppTheme();
     const router = useRouter();
     const { email } = useLocalSearchParams<{ email?: string }>();
 
@@ -19,9 +21,13 @@ export default function EmailVerifyScreen() {
     }
 
     return (
-        <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
             <LinearGradient
-                colors={["#1a0a00", "#0f0f0f", "#0f0f0f"]}
+                colors={
+                    isDark
+                        ? ["#1a0a00", "#0f0f0f", "#0f0f0f"]
+                        : ["#fff7ed", colors.background, colors.background]
+                }
                 locations={[0, 0.4, 1]}
                 style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
             />
@@ -64,7 +70,7 @@ export default function EmailVerifyScreen() {
                     entering={FadeInUp.delay(250).duration(600)}
                     style={{
                         fontFamily: "BricolageGrotesque_700Bold",
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontSize: 26,
                         textAlign: "center",
                         marginBottom: 14,
@@ -78,7 +84,7 @@ export default function EmailVerifyScreen() {
                     entering={FadeInUp.delay(350).duration(600)}
                     style={{
                         fontFamily: "Manrope_500Medium",
-                        color: "#999999",
+                        color: colors.textMuted,
                         fontSize: 15,
                         textAlign: "center",
                         lineHeight: 24,
@@ -107,10 +113,10 @@ export default function EmailVerifyScreen() {
                 <Animated.View
                     entering={FadeInUp.delay(500).duration(600)}
                     style={{
-                        backgroundColor: "rgba(26, 26, 26, 0.9)",
+                        backgroundColor: isDark ? "rgba(26, 26, 26, 0.9)" : colors.card,
                         borderRadius: 20,
                         borderWidth: 1,
-                        borderColor: "rgba(255, 255, 255, 0.07)",
+                        borderColor: isDark ? "rgba(255, 255, 255, 0.07)" : colors.cardBorder,
                         padding: 20,
                         width: "100%",
                         marginBottom: 32,
@@ -128,7 +134,7 @@ export default function EmailVerifyScreen() {
                                 style={{
                                     flex: 1,
                                     fontFamily: "Manrope_500Medium",
-                                    color: "#cccccc",
+                                    color: colors.textSecondary,
                                     fontSize: 14,
                                     lineHeight: 20,
                                 }}
@@ -144,7 +150,7 @@ export default function EmailVerifyScreen() {
                     <Pressable
                         onPress={handleBackToSignIn}
                         style={{
-                            backgroundColor: "#FF9933",
+                            backgroundColor: isDark ? "#FF9933" : "#b45309",
                             borderRadius: 16,
                             height: 56,
                             alignItems: "center",
@@ -159,7 +165,7 @@ export default function EmailVerifyScreen() {
                         <Text
                             style={{
                                 fontFamily: "BricolageGrotesque_700Bold",
-                                color: "#0f0f0f",
+                                color: isDark ? "#0f0f0f" : "#ffffff",
                                 fontSize: 17,
                             }}
                         >

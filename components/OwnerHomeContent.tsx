@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
     View,
     Text,
@@ -50,6 +50,16 @@ import {
     waitlistAllowedBySchedule,
 } from "@/lib/restaurant-hours";
 import type { RestaurantStatusResult, RestaurantHour } from "@/lib/restaurant-hours";
+import { useAppTheme, type AppColors } from "@/lib/app-theme";
+
+function cardSurface(colors: AppColors) {
+    return {
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+        borderRadius: 16,
+    };
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type RestaurantInfo = {
@@ -97,15 +107,6 @@ type PulseItemBreakdown = {
     lastSoldAt?: string;
 };
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const ORANGE = "#FF9933";
-const CARD: object = {
-    backgroundColor: "#1a1a1a",
-    borderWidth: 1,
-    borderColor: "#2a2a2a",
-    borderRadius: 16,
-};
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function getWaitColor(mins: number) {
     if (mins <= 0) return "#22C55E";
@@ -118,7 +119,7 @@ function statusColor(status: string) {
     switch (status) {
         case "pending":
         case "pending_payment":
-        case "active": return ORANGE;
+        case "active": return "#FF9933";
         case "preparing": return "#F59E0B";
         case "ready": return "#22C55E";
         case "served":
@@ -178,7 +179,7 @@ const ownerOrderListRowStyles = StyleSheet.create({
         width: "100%",
     },
     pressablePressed: {
-        backgroundColor: "rgba(255,255,255,0.05)",
+        opacity: 0.92,
     },
     inner: {
         flexDirection: "row",
@@ -189,7 +190,6 @@ const ownerOrderListRowStyles = StyleSheet.create({
         paddingLeft: 16,
         paddingRight: 14,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: "#2a2a2a",
     },
     innerLast: {
         borderBottomWidth: 0,
@@ -204,20 +204,17 @@ const ownerOrderListRowStyles = StyleSheet.create({
         fontFamily: "Manrope_600SemiBold",
         fontSize: 15,
         lineHeight: 20,
-        color: "#f5f5f5",
     },
     meta: {
         fontFamily: "Manrope_500Medium",
         fontSize: 12,
         lineHeight: 16,
-        color: "#9ca3af",
         marginTop: 3,
     },
     subMeta: {
         fontFamily: "Manrope_500Medium",
         fontSize: 11,
         lineHeight: 15,
-        color: "#6b7280",
         marginTop: 2,
     },
     rightCol: {
@@ -251,6 +248,7 @@ function OrderListRow({
     isLast: boolean;
     onPress: () => void;
 }) {
+    const { colors } = useAppTheme();
     const sc = statusColor(order.status);
     const typePrice = `${formatOrderType(order.order_type)} · $${(order.subtotal ?? 0).toFixed(2)}`;
     const timeMeta = formatOrderCreatedAt(order.created_at);
@@ -260,20 +258,26 @@ function OrderListRow({
             onPress={onPress}
             style={({ pressed }) => [
                 ownerOrderListRowStyles.pressable,
-                pressed && ownerOrderListRowStyles.pressablePressed,
+                pressed && [ownerOrderListRowStyles.pressablePressed, { backgroundColor: colors.iconTileBg }],
             ]}
         >
-            <View style={[ownerOrderListRowStyles.inner, isLast && ownerOrderListRowStyles.innerLast]}>
+            <View
+                style={[
+                    ownerOrderListRowStyles.inner,
+                    isLast && ownerOrderListRowStyles.innerLast,
+                    { borderBottomColor: colors.cardBorder },
+                ]}
+            >
                 <View style={ownerOrderListRowStyles.leftCol}>
                     <Text
-                        style={[ownerOrderListRowStyles.name, androidText]}
+                        style={[ownerOrderListRowStyles.name, androidText, { color: colors.text }]}
                         numberOfLines={1}
                         ellipsizeMode="tail"
                     >
                         {order.customer_name || `Order #${order.id}`}
                     </Text>
                     <Text
-                        style={[ownerOrderListRowStyles.meta, androidText]}
+                        style={[ownerOrderListRowStyles.meta, androidText, { color: colors.textSecondary }]}
                         numberOfLines={1}
                         ellipsizeMode="tail"
                     >
@@ -281,7 +285,7 @@ function OrderListRow({
                     </Text>
                     {!!timeMeta && (
                         <Text
-                            style={[ownerOrderListRowStyles.subMeta, androidText]}
+                            style={[ownerOrderListRowStyles.subMeta, androidText, { color: colors.textMuted }]}
                             numberOfLines={1}
                             ellipsizeMode="tail"
                         >
@@ -307,7 +311,7 @@ function OrderListRow({
                         </Text>
                     </View>
                     <View style={{ marginLeft: 6 }}>
-                        <ChevronRight size={18} color="#777" />
+                        <ChevronRight size={18} color={colors.textMuted} />
                     </View>
                 </View>
             </View>
@@ -329,6 +333,7 @@ function TimingsBanner({
     statusResult: RestaurantStatusResult | null;
     onSettingsPress: () => void;
 }) {
+    const { colors } = useAppTheme();
     if (!statusResult) return null;
     const { status, label } = statusResult;
 
@@ -369,7 +374,7 @@ function TimingsBanner({
                 hitSlop={10}
                 style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
             >
-                <Settings size={15} color="#FF9933" />
+                <Settings size={15} color={colors.saffron} />
             </Pressable>
         </View>
     );
@@ -385,6 +390,7 @@ function OrderDetailModal({
     onClose: () => void;
     onOrderUpdated?: (next: Order) => void;
 }) {
+    const { colors } = useAppTheme();
     const [currentOrder, setCurrentOrder] = useState<Order>(order);
     const [items, setItems] = useState<OrderItem[]>(order.items ?? []);
     const [loadingItems, setLoadingItems] = useState(!order.items);
@@ -477,33 +483,33 @@ function OrderDetailModal({
 
     return (
         <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top", "bottom"]}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "bottom"]}>
                 <View style={{
                     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
                     paddingHorizontal: 20, paddingVertical: 16,
-                    borderBottomWidth: 1, borderBottomColor: "#2a2a2a",
+                    borderBottomWidth: 1, borderBottomColor: colors.cardBorder,
                 }}>
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text }}>
                         Order #{currentOrder.id}
                     </Text>
                     <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
-                        <X size={22} color="#aaa" />
+                        <X size={22} color={colors.textMuted} />
                     </Pressable>
                 </View>
                 <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }}>
-                    <View style={{ ...CARD, padding: 16, marginBottom: 20 }}>
+                    <View style={{ ...cardSurface(colors), padding: 16, marginBottom: 20 }}>
                         {[
                             ["Customer", currentOrder.customer_name || "Guest"],
                             ["Type", formatOrderType(currentOrder.order_type)],
                             ["Time", new Date(currentOrder.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })],
                         ].map(([label, value]) => (
                             <View key={label} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#777" }}>{label}</Text>
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5" }}>{value}</Text>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: colors.textMuted }}>{label}</Text>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: colors.text }}>{value}</Text>
                             </View>
                         ))}
                         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#777" }}>Status</Text>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: colors.textMuted }}>Status</Text>
                             <View style={{ backgroundColor: `${statusColor(currentOrder.status)}20`, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${statusColor(currentOrder.status)}40` }}>
                                 <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 12, color: statusColor(currentOrder.status) }}>
                                     {formatOrderStatus(currentOrder.status)}
@@ -541,32 +547,32 @@ function OrderDetailModal({
                         )}
                     </View>
 
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: "#f5f5f5", marginBottom: 12 }}>Items</Text>
-                    <View style={CARD}>
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: colors.text, marginBottom: 12 }}>Items</Text>
+                    <View style={cardSurface(colors)}>
                         {loadingItems ? (
-                            <ActivityIndicator size="small" color={ORANGE} style={{ padding: 20 }} />
+                            <ActivityIndicator size="small" color={colors.saffron} style={{ padding: 20 }} />
                         ) : items.length === 0 ? (
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 20 }}>No items found</Text>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: colors.textMuted, textAlign: "center", padding: 20 }}>No items found</Text>
                         ) : items.map((item, idx) => (
                             <View key={item.id} style={{
                                 flexDirection: "row", justifyContent: "space-between", alignItems: "center",
                                 paddingVertical: 13, paddingHorizontal: 16,
-                                borderBottomWidth: idx < items.length - 1 ? 1 : 0, borderBottomColor: "#252525",
+                                borderBottomWidth: idx < items.length - 1 ? 1 : 0, borderBottomColor: colors.cardBorder,
                             }}>
                                 <View style={{ flex: 1, marginRight: 12 }}>
-                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5" }}>{item.name}</Text>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginTop: 2 }}>x{item.quantity}</Text>
+                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: colors.text }}>{item.name}</Text>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginTop: 2 }}>x{item.quantity}</Text>
                                 </View>
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5" }}>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: colors.text }}>
                                     ${(item.price * item.quantity).toFixed(2)}
                                 </Text>
                             </View>
                         ))}
                     </View>
 
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#2a2a2a" }}>
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: "#f5f5f5" }}>Total</Text>
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: ORANGE }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 16, color: colors.text }}>Total</Text>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.saffron }}>
                             ${(currentOrder.subtotal ?? 0).toFixed(2)}
                         </Text>
                     </View>
@@ -578,6 +584,7 @@ function OrderDetailModal({
 
 // ── All Orders Modal ─────────────────────────────────────────────────────────
 function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClose: () => void }) {
+    const { colors } = useAppTheme();
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -594,7 +601,7 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
     }, [restaurantId]);
 
     const statusTabs: Array<{ key: "pending" | "in_progress" | "cancelled" | "completed"; label: string; color: string }> = [
-        { key: "pending", label: "Pending", color: ORANGE },
+        { key: "pending", label: "Pending", color: colors.saffron },
         { key: "in_progress", label: "In Progress", color: "#F59E0B" },
         { key: "cancelled", label: "Cancelled", color: "#EF4444" },
         { key: "completed", label: "Completed", color: "#6B7280" },
@@ -613,25 +620,25 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
 
     return (
         <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top", "bottom"]}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "bottom"]}>
                 <View style={{
                     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
                     paddingHorizontal: 20, paddingVertical: 16,
-                    borderBottomWidth: 1, borderBottomColor: "#2a2a2a",
+                    borderBottomWidth: 1, borderBottomColor: colors.cardBorder,
                 }}>
-                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>All Orders</Text>
+                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text }}>All Orders</Text>
                     <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
-                        <X size={22} color="#aaa" />
+                        <X size={22} color={colors.textMuted} />
                     </Pressable>
                 </View>
                 {loading ? (
                     <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                        <ActivityIndicator size="large" color={ORANGE} />
+                        <ActivityIndicator size="large" color={colors.saffron} />
                     </View>
                 ) : (
                     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }}>
                         {orders.length === 0 ? (
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", marginTop: 40 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: colors.textMuted, textAlign: "center", marginTop: 40 }}>
                                 No orders yet
                             </Text>
                         ) : (
@@ -647,14 +654,14 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
                                                     width: "48.5%",
                                                     borderRadius: 12,
                                                     borderWidth: 1,
-                                                    borderColor: active ? `${tab.color}99` : "#2a2a2a",
-                                                    backgroundColor: active ? `${tab.color}22` : "#171717",
+                                                    borderColor: active ? `${tab.color}99` : colors.cardBorder,
+                                                    backgroundColor: active ? `${tab.color}22` : colors.background,
                                                     paddingVertical: 9,
                                                     alignItems: "center",
                                                     justifyContent: "center",
                                                 }}
                                             >
-                                                <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? tab.color : "#cfcfcf" }}>
+                                                <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? tab.color : colors.textSecondary }}>
                                                     {tab.label}
                                                 </Text>
                                             </Pressable>
@@ -663,11 +670,11 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
                                 </View>
 
                                 {filteredOrders.length === 0 ? (
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", marginTop: 24 }}>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: colors.textMuted, textAlign: "center", marginTop: 24 }}>
                                         No orders match this status
                                     </Text>
                                 ) : (
-                                    <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
+                                    <View style={{ ...cardSurface(colors), width: "100%", overflow: "hidden", paddingVertical: 2 }}>
                                         {filteredOrders.map((order, index) => (
                                             <OrderListRow
                                                 key={order.id}
@@ -701,6 +708,7 @@ function AllOrdersModal({ restaurantId, onClose }: { restaurantId: string; onClo
 }
 
 function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" }: { restaurantId: string; onClose: () => void; initialPeriod?: "All" | "Last Month" | "Last Week" | "Today" | "Custom" }) {
+    const { colors, isDark } = useAppTheme();
     const [period, setPeriod] = useState<"All" | "Last Month" | "Last Week" | "Today" | "Custom">(initialPeriod);
     const [customDate, setCustomDate] = useState<Date>(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
@@ -812,19 +820,19 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
 
     return (
         <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#0f0f0f" }} edges={["top", "bottom"]}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "bottom"]}>
                 <View style={{
                     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
                     paddingHorizontal: 20, paddingVertical: 16,
-                    borderBottomWidth: 1, borderBottomColor: "#2a2a2a",
+                    borderBottomWidth: 1, borderBottomColor: colors.cardBorder,
                 }}>
                     <View>
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text }}>
                             Overall Breakdown
                         </Text>
                     </View>
                     <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
-                        <X size={22} color="#aaa" />
+                        <X size={22} color={colors.textMuted} />
                     </Pressable>
                 </View>
 
@@ -845,9 +853,9 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                         paddingHorizontal: 16,
                                         paddingVertical: 8,
                                         borderRadius: 999,
-                                        backgroundColor: isSelected ? "rgba(255,153,51,0.15)" : "#1a1a1a",
+                                        backgroundColor: isSelected ? "rgba(255,153,51,0.15)" : colors.card,
                                         borderWidth: 1,
-                                        borderColor: isSelected ? ORANGE : "#2a2a2a",
+                                        borderColor: isSelected ? colors.saffron : colors.cardBorder,
                                         flexDirection: "row",
                                         alignItems: "center",
                                         gap: 6,
@@ -856,7 +864,7 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                     <Text style={{
                                         fontFamily: "Manrope_600SemiBold",
                                         fontSize: 13,
-                                        color: isSelected ? ORANGE : "#aaa"
+                                        color: isSelected ? colors.saffron : colors.textMuted
                                     }}>
                                         {p}
                                     </Text>
@@ -878,19 +886,19 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                         paddingHorizontal: 16,
                                         paddingVertical: 8,
                                         borderRadius: 999,
-                                        backgroundColor: isSelected ? "rgba(255,153,51,0.15)" : "#1a1a1a",
+                                        backgroundColor: isSelected ? "rgba(255,153,51,0.15)" : colors.card,
                                         borderWidth: 1,
-                                        borderColor: isSelected ? ORANGE : "#2a2a2a",
+                                        borderColor: isSelected ? colors.saffron : colors.cardBorder,
                                         flexDirection: "row",
                                         alignItems: "center",
                                         gap: 6,
                                     }}
                                 >
-                                    <Calendar size={14} color={isSelected ? ORANGE : "#888"} />
+                                    <Calendar size={14} color={isSelected ? colors.saffron : colors.iconMuted} />
                                     <Text style={{
                                         fontFamily: "Manrope_600SemiBold",
                                         fontSize: 13,
-                                        color: isSelected ? ORANGE : "#aaa"
+                                        color: isSelected ? colors.saffron : colors.textMuted
                                     }}>
                                         {period === "Custom" ? customDate.toLocaleDateString() : "Custom"}
                                     </Text>
@@ -906,7 +914,7 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                             value={customDate}
                             mode="date"
                             display={Platform.OS === "ios" ? "inline" : "default"}
-                            themeVariant="dark"
+                            themeVariant={isDark ? "dark" : "light"}
                             onChange={(event, date) => {
                                 if (Platform.OS === "android") setShowDatePicker(false);
                                 if (date) {
@@ -921,43 +929,43 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                 {Platform.OS === "ios" && showDatePicker && (
                     <Pressable
                         onPress={() => setShowDatePicker(false)}
-                        style={{ alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, backgroundColor: "#2a2a2a", borderRadius: 8, marginBottom: 10 }}
+                        style={{ alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, backgroundColor: colors.pressableBg, borderRadius: 8, marginBottom: 10 }}
                     >
-                        <Text style={{ color: "#fff", fontFamily: "Manrope_600SemiBold" }}>Done</Text>
+                        <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold" }}>Done</Text>
                     </Pressable>
                 )}
                 
                 <View style={{ display: "none" }}>
                     <View>
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text }}>
                             Overall Breakdown
                         </Text>
                     </View>
                     <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}>
-                        <X size={22} color="#aaa" />
+                        <X size={22} color={colors.textMuted} />
                     </Pressable>
                 </View>
 
                 {loading ? (
                     <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                        <ActivityIndicator size="large" color={ORANGE} />
+                        <ActivityIndicator size="large" color={colors.saffron} />
                     </View>
                 ) : (
                     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }}>
-                        <View style={{ ...CARD, padding: 16, marginBottom: 14 }}>
+                        <View style={{ ...cardSurface(colors), padding: 16, marginBottom: 14 }}>
                             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                                 <View>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#666" }}>Orders</Text>
-                                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 28, color: ORANGE }}>{orders.length}</Text>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted }}>Orders</Text>
+                                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 28, color: colors.saffron }}>{orders.length}</Text>
                                 </View>
                                 <View>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#666", textAlign: "right" }}>Revenue</Text>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, textAlign: "right" }}>Revenue</Text>
                                     <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 28, color: "#22C55E" }}>
                                         ${totalRevenue.toFixed(0)}
                                     </Text>
                                 </View>
                             </View>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#888", marginTop: 6 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginTop: 6 }}>
                                 {totalItems} items sold
                             </Text>
                         </View>
@@ -976,13 +984,13 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                             flex: 1,
                                             borderRadius: 12,
                                             borderWidth: 1,
-                                            borderColor: active ? "#FF9933" : "#2a2a2a",
-                                            backgroundColor: active ? "rgba(255,153,51,0.14)" : "#141414",
+                                            borderColor: active ? colors.saffron : colors.cardBorder,
+                                            backgroundColor: active ? "rgba(255,153,51,0.14)" : colors.background,
                                             paddingVertical: 10,
                                             alignItems: "center",
                                         }}
                                     >
-                                        <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? "#FF9933" : "#888" }}>
+                                        <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: active ? colors.saffron : colors.textMuted }}>
                                             {mode === "items" ? "BY ITEM" : "BY ORDER"}
                                         </Text>
                                     </Pressable>
@@ -991,7 +999,7 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                         </View>
 
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                            <SlidersHorizontal size={14} color="#777" />
+                            <SlidersHorizontal size={14} color={colors.textMuted} />
                             {viewMode === "items" ? (
                                 (["revenue", "quantity", "name"] as const).map((key) => {
                                     const active = itemSort === key;
@@ -1002,13 +1010,13 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                             style={{
                                                 borderRadius: 999,
                                                 borderWidth: 1,
-                                                borderColor: active ? "#FF9933" : "#2a2a2a",
-                                                backgroundColor: active ? "rgba(255,153,51,0.12)" : "#141414",
+                                                borderColor: active ? colors.saffron : colors.cardBorder,
+                                                backgroundColor: active ? "rgba(255,153,51,0.12)" : colors.background,
                                                 paddingHorizontal: 10,
                                                 paddingVertical: 6,
                                             }}
                                         >
-                                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: active ? "#FF9933" : "#888" }}>
+                                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: active ? colors.saffron : colors.textMuted }}>
                                                 {key === "revenue" ? "Revenue" : key === "quantity" ? "Qty" : "Name"}
                                             </Text>
                                         </Pressable>
@@ -1024,13 +1032,13 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                             style={{
                                                 borderRadius: 999,
                                                 borderWidth: 1,
-                                                borderColor: active ? "#FF9933" : "#2a2a2a",
-                                                backgroundColor: active ? "rgba(255,153,51,0.12)" : "#141414",
+                                                borderColor: active ? colors.saffron : colors.cardBorder,
+                                                backgroundColor: active ? "rgba(255,153,51,0.12)" : colors.background,
                                                 paddingHorizontal: 10,
                                                 paddingVertical: 6,
                                             }}
                                         >
-                                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: active ? "#FF9933" : "#888" }}>
+                                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: active ? colors.saffron : colors.textMuted }}>
                                                 {key === "amount" ? "Amount" : "Newest"}
                                             </Text>
                                         </Pressable>
@@ -1040,9 +1048,9 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                         </View>
 
                         {viewMode === "items" ? (
-                            <View style={{ ...CARD, overflow: "hidden", paddingVertical: 2 }}>
+                            <View style={{ ...cardSurface(colors), overflow: "hidden", paddingVertical: 2 }}>
                                 {sortedItems.length === 0 ? (
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: colors.textMuted, textAlign: "center", padding: 24 }}>
                                         No sold items yet today
                                     </Text>
                                 ) : sortedItems.map((item, index) => (
@@ -1052,21 +1060,21 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                             paddingHorizontal: 16,
                                             paddingVertical: 12,
                                             borderBottomWidth: index < sortedItems.length - 1 ? 1 : 0,
-                                            borderBottomColor: "#252525",
+                                            borderBottomColor: colors.cardBorder,
                                         }}
                                     >
-                                        <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5", fontSize: 14 }}>{item.name}</Text>
+                                        <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 14 }}>{item.name}</Text>
                                         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "stretch", marginTop: 5 }}>
                                             <View>
-                                                <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12 }}>
+                                                <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>
                                                     {item.quantity} sold · {item.orderCount} orders
                                                 </Text>
                                                 {item.lastSoldAt ? (
-                                                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 2 }}>
+                                                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
                                                         {formatLastSoldAt(item.lastSoldAt)}
                                                     </Text>
                                                 ) : item.dateOfOrder ? (
-                                                    <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12, marginTop: 2 }}>
+                                                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
                                                         {item.dateOfOrder}
                                                     </Text>
                                                 ) : null}
@@ -1081,9 +1089,9 @@ function OverallBreakdownModal({ restaurantId, onClose, initialPeriod = "Today" 
                                 ))}
                             </View>
                         ) : (
-                            <View style={{ ...CARD, overflow: "hidden", paddingVertical: 2 }}>
+                            <View style={{ ...cardSurface(colors), overflow: "hidden", paddingVertical: 2 }}>
                                 {sortedOrders.length === 0 ? (
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: colors.textMuted, textAlign: "center", padding: 24 }}>
                                         No qualifying orders yet today
                                     </Text>
                                 ) : sortedOrders.map((order, index) => (
@@ -1125,17 +1133,19 @@ function AdminRestaurantPickerModal({
     onClose: () => void;
     onSelect: (id: string | null) => void;
 }) {
+    const { colors, isDark } = useAppTheme();
+    const scrim = isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.45)";
     return (
         <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
             <View style={{ flex: 1, justifyContent: "flex-end" }}>
-                <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }} onPress={onClose} />
+                <Pressable style={{ flex: 1, backgroundColor: scrim }} onPress={onClose} />
                 <View
                     style={{
-                        backgroundColor: "#141414",
+                        backgroundColor: colors.backgroundElevated,
                         borderTopLeftRadius: 18,
                         borderTopRightRadius: 18,
                         borderWidth: 1,
-                        borderColor: "#2a2a2a",
+                        borderColor: colors.cardBorder,
                         maxHeight: "78%",
                         paddingBottom: Platform.OS === "ios" ? 28 : 16,
                     }}
@@ -1146,7 +1156,7 @@ function AdminRestaurantPickerModal({
                             paddingTop: 16,
                             paddingBottom: 8,
                             fontFamily: "Manrope_700Bold",
-                            color: "#f5f5f5",
+                            color: colors.text,
                             fontSize: 17,
                         }}
                     >
@@ -1166,15 +1176,15 @@ function AdminRestaurantPickerModal({
                                     paddingHorizontal: 18,
                                     paddingVertical: 14,
                                     borderBottomWidth: 1,
-                                    borderBottomColor: "#252525",
+                                    borderBottomColor: colors.cardBorder,
                                 }}
                             >
-                                <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 15 }}>
+                                <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 15 }}>
                                     {item.name}
                                 </Text>
                                 <Text
                                     style={{
-                                        color: "#666",
+                                        color: colors.textMuted,
                                         fontSize: 11,
                                         marginTop: 3,
                                         fontFamily: "Manrope_500Medium",
@@ -1232,6 +1242,7 @@ export function OwnerHomeContent({
         effectiveOwnerRestaurantId,
         setAdminOwnerRestaurantId,
     } = useAdminMode();
+    const { colors, isDark } = useAppTheme();
 
     const [restaurant, setRestaurant] = useState<RestaurantInfo | null>(null);
     const [adminRestaurants, setAdminRestaurants] = useState<{ id: number; name: string }[]>([]);
@@ -1482,22 +1493,22 @@ export function OwnerHomeContent({
                             flexDirection: "row",
                             alignItems: "center",
                             justifyContent: "space-between",
-                            backgroundColor: "#161616",
+                            backgroundColor: colors.homeSurface,
                             borderWidth: 1,
-                            borderColor: "#2d2d2d",
+                            borderColor: colors.homeBorder,
                             borderRadius: 14,
                             paddingHorizontal: 16,
                             paddingVertical: 14,
                         }}
                     >
                         <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 11, color: "#888", fontFamily: "Manrope_600SemiBold" }}>
+                            <Text style={{ fontSize: 11, color: colors.textMuted, fontFamily: "Manrope_600SemiBold" }}>
                                 Restaurant
                             </Text>
                             <Text
                                 style={{
                                     fontSize: 17,
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     marginTop: 4,
                                     fontFamily: "Manrope_700Bold",
                                 }}
@@ -1505,13 +1516,13 @@ export function OwnerHomeContent({
                                 None selected
                             </Text>
                         </View>
-                        <ChevronDown size={22} color="#888" />
+                        <ChevronDown size={22} color={colors.textMuted} />
                     </Pressable>
                     <Text
                         style={{
                             marginTop: 18,
                             textAlign: "center",
-                            color: "#666",
+                            color: colors.textMuted,
                             fontSize: 13,
                             fontFamily: "Manrope_500Medium",
                             lineHeight: 20,
@@ -1536,7 +1547,7 @@ export function OwnerHomeContent({
     if (!isAdmin && !effectiveOwnerRestaurantId) {
         return (
             <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 24 }}>
-                <Text style={{ color: "#888", textAlign: "center", fontFamily: "Manrope_500Medium", fontSize: 14 }}>
+                <Text style={{ color: colors.textMuted, textAlign: "center", fontFamily: "Manrope_500Medium", fontSize: 14 }}>
                     No restaurant is linked to your account.
                 </Text>
             </View>
@@ -1569,8 +1580,8 @@ export function OwnerHomeContent({
                     <RefreshControl
                         refreshing={refreshing}
                         onRefresh={onRefreshSignal}
-                        tintColor={ORANGE}
-                        colors={[ORANGE]}
+                        tintColor={colors.saffron}
+                        colors={[colors.saffron]}
                     />
                 }
             >
@@ -1584,9 +1595,7 @@ export function OwnerHomeContent({
                             flexDirection: "row",
                             alignItems: "center",
                             justifyContent: "space-between",
-                            backgroundColor: "#161616",
-                            borderWidth: 1,
-                            borderColor: "#2d2d2d",
+                            ...cardSurface(colors),
                             borderRadius: 14,
                             paddingHorizontal: 14,
                             paddingVertical: 12,
@@ -1594,13 +1603,13 @@ export function OwnerHomeContent({
                         }}
                     >
                         <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 10, color: "#888", fontFamily: "Manrope_600SemiBold" }}>
+                            <Text style={{ fontSize: 10, color: colors.textMuted, fontFamily: "Manrope_600SemiBold" }}>
                                 Admin · Owner Dashboard
                             </Text>
                             <Text
                                 style={{
                                     fontSize: 15,
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     marginTop: 3,
                                     fontFamily: "Manrope_700Bold",
                                 }}
@@ -1609,14 +1618,12 @@ export function OwnerHomeContent({
                                 {selectedAdminLabel ?? "None selected"}
                             </Text>
                         </View>
-                        <ChevronDown size={20} color="#888" />
+                        <ChevronDown size={20} color={colors.textMuted} />
                     </Pressable>
                 )}
                 {/* ── Owner Hub Hero ── */}
                 <View style={{
-                    backgroundColor: "#161616",
-                    borderWidth: 1,
-                    borderColor: "#2d2d2d",
+                    ...cardSurface(colors),
                     borderRadius: 18,
                     padding: 16,
                     marginBottom: 14,
@@ -1639,8 +1646,8 @@ export function OwnerHomeContent({
                                         marginBottom: 8,
                                     }}
                                 >
-                                    <Clock size={12} color="#9a9a9a" />
-                                    <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 11, color: "#a5a5a5", letterSpacing: 0.3 }}>
+                                    <Clock size={12} color={colors.textMuted} />
+                                    <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 11, color: colors.textMuted, letterSpacing: 0.3 }}>
                                         COMING SOON
                                     </Text>
                                 </View>
@@ -1648,12 +1655,12 @@ export function OwnerHomeContent({
                             <Text style={{
                                 fontFamily: "BricolageGrotesque_800ExtraBold",
                                 fontSize: 26,
-                                color: ORANGE,
+                                color: colors.saffron,
                                 letterSpacing: -0.3,
                             }} numberOfLines={1}>
                                 {restaurant?.name ?? ""}
                             </Text>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#888", marginTop: 3 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginTop: 3 }}>
                                 Owner Hub
                             </Text>
                         </View>
@@ -1665,7 +1672,7 @@ export function OwnerHomeContent({
                             paddingHorizontal: 10,
                             paddingVertical: 5,
                         }}>
-                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 10, color: ORANGE, letterSpacing: 0.4 }}>
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 10, color: colors.saffron, letterSpacing: 0.4 }}>
                                 LIVE
                             </Text>
                         </View>
@@ -1688,7 +1695,7 @@ export function OwnerHomeContent({
                                 opacity: pressed ? 0.85 : 1,
                             })}
                         >
-                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: ORANGE }}>
+                            <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: colors.saffron }}>
                                 Manage Timings
                             </Text>
                         </Pressable>
@@ -1724,16 +1731,16 @@ export function OwnerHomeContent({
                 {/* ── Section 1: Live Queue ── */}
                 <View style={{ marginBottom: 20 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                        <TrendingUp size={18} color={ORANGE} />
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                        <TrendingUp size={18} color={colors.saffron} />
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.text }}>
                             Live Queue
                         </Text>
                     </View>
 
-                    <View style={{ ...CARD, padding: 20 }}>
+                    <View style={{ ...cardSurface(colors), padding: 20 }}>
                         {/* Wait time controls — greyed when closed */}
                         <View style={{ marginBottom: 20, opacity: queueDisabled ? 0.45 : 1 }}>
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: "#555", letterSpacing: 0.8, textTransform: "uppercase", textAlign: "center", marginBottom: 12 }}>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: colors.textMuted, letterSpacing: 0.8, textTransform: "uppercase", textAlign: "center", marginBottom: 12 }}>
                                 Wait Time
                             </Text>
                             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 20 }}>
@@ -1747,14 +1754,14 @@ export function OwnerHomeContent({
                                         }}
                                         style={({ pressed }) => ({
                                             width: 46, height: 46, borderRadius: 23,
-                                            backgroundColor: pressed ? "#2a2a2a" : "#1f1f1f",
-                                            borderWidth: 1, borderColor: "#333",
+                                            backgroundColor: pressed ? colors.cardBorder : colors.pressableBg,
+                                            borderWidth: 1, borderColor: colors.cardBorder,
                                             alignItems: "center", justifyContent: "center",
                                         })}
                                     >
-                                        <Minus size={17} color={queueDisabled ? "#444" : "#aaa"} />
+                                        <Minus size={17} color={queueDisabled ? colors.iconMuted : colors.textSecondary} />
                                     </Pressable>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 9, color: queueDisabled ? "#333" : "#555", marginTop: 4 }}>5</Text>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 9, color: queueDisabled ? colors.iconMuted : colors.textMuted, marginTop: 4 }}>5</Text>
                                 </View>
 
                                 {/* Tappable number */}
@@ -1789,16 +1796,16 @@ export function OwnerHomeContent({
                                             />
                                         </KeyboardAvoidingView>
                                     ) : (
-                                        <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 56, color: queueDisabled ? "#444" : waitColor }}>
+                                        <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 56, color: queueDisabled ? colors.iconMuted : waitColor }}>
                                             {savingWait ? "…" : waitTime}
                                         </Text>
                                     )}
                                     {/* min label — prominent */}
-                                    <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 15, color: queueDisabled ? "#333" : "#888", marginTop: -6, letterSpacing: 0.3 }}>
+                                    <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 15, color: queueDisabled ? colors.iconMuted : colors.textMuted, marginTop: -6, letterSpacing: 0.3 }}>
                                         min
                                     </Text>
                                     {!queueDisabled && (
-                                        <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#444", marginTop: 4 }}>
+                                        <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 4 }}>
                                             tap to edit
                                         </Text>
                                     )}
@@ -1814,38 +1821,38 @@ export function OwnerHomeContent({
                                         }}
                                         style={({ pressed }) => ({
                                             width: 46, height: 46, borderRadius: 23,
-                                            backgroundColor: pressed ? "#2a2a2a" : "#1f1f1f",
-                                            borderWidth: 1, borderColor: "#333",
+                                            backgroundColor: pressed ? colors.cardBorder : colors.pressableBg,
+                                            borderWidth: 1, borderColor: colors.cardBorder,
                                             alignItems: "center", justifyContent: "center",
                                         })}
                                     >
-                                        <Plus size={17} color={queueDisabled ? "#444" : "#aaa"} />
+                                        <Plus size={17} color={queueDisabled ? colors.iconMuted : colors.textSecondary} />
                                     </Pressable>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 9, color: queueDisabled ? "#333" : "#555", marginTop: 4 }}>5</Text>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 9, color: queueDisabled ? colors.iconMuted : colors.textMuted, marginTop: 4 }}>5</Text>
                                 </View>
                             </View>
                         </View>
 
                         {/* Divider */}
-                        <View style={{ height: 1, backgroundColor: "#252525", marginBottom: 20 }} />
+                        <View style={{ height: 1, backgroundColor: colors.cardBorder, marginBottom: 20 }} />
 
                         {/* Queue count + Waitlist toggle */}
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                             {/* In Queue */}
                             <View style={{ alignItems: "center", flex: 1, opacity: restaurantClosed ? 0.4 : 1 }}>
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                    <Users size={16} color={restaurantClosed ? "#555" : ORANGE} />
-                                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 34, color: restaurantClosed ? "#444" : ORANGE }}>
+                                    <Users size={16} color={restaurantClosed ? colors.textMuted : colors.saffron} />
+                                    <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 34, color: restaurantClosed ? colors.textMuted : colors.saffron }}>
                                         {queueCount ?? "—"}
                                     </Text>
                                 </View>
-                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: "#666", marginTop: 2 }}>
+                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
                                     In Queue
                                 </Text>
                             </View>
 
                             {/* Vertical divider */}
-                            <View style={{ width: 1, height: 52, backgroundColor: "#252525" }} />
+                            <View style={{ width: 1, height: 52, backgroundColor: colors.cardBorder }} />
 
                             {/* Toggle */}
                             <Pressable
@@ -1864,7 +1871,7 @@ export function OwnerHomeContent({
                                         {(waitlistOpen && !restaurantClosed) ? "● OPEN" : "● CLOSED"}
                                     </Text>
                                 </View>
-                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#555", marginTop: 6, textAlign: "center", paddingHorizontal: 4 }}>
+                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 6, textAlign: "center", paddingHorizontal: 4 }}>
                                     {restaurantClosed
                                         ? "Restaurant is closed"
                                         : waitlistToggleDisabled && !waitlistOpen
@@ -1882,8 +1889,8 @@ export function OwnerHomeContent({
                 <View style={{ marginBottom: 20 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1, marginRight: 10 }}>
-                            <BarChart3 size={18} color={ORANGE} />
-                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                            <BarChart3 size={18} color={colors.saffron} />
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.text }}>
                                 Today&apos;s Pulse
                             </Text>
                         </View>
@@ -1903,20 +1910,18 @@ export function OwnerHomeContent({
                             })}
                         >
                             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-                                <Text numberOfLines={1} style={{ fontFamily: "Manrope_700Bold", fontSize: 12, lineHeight: 14, color: ORANGE }}>
+                                <Text numberOfLines={1} style={{ fontFamily: "Manrope_700Bold", fontSize: 12, lineHeight: 14, color: colors.saffron }}>
                                     Breakdown
                                 </Text>
                                 <View style={{ marginLeft: 4 }}>
-                                    <BarChart3 size={13} color={ORANGE} />
+                                    <BarChart3 size={13} color={colors.saffron} />
                                 </View>
                             </View>
                         </Pressable>
                     </View>
                     <View
                         style={{
-                            backgroundColor: "#171717",
-                            borderWidth: 1,
-                            borderColor: "#303030",
+                            ...cardSurface(colors),
                             borderRadius: 18,
                             padding: 16,
                         }}
@@ -1932,12 +1937,12 @@ export function OwnerHomeContent({
                                 paddingHorizontal: 12,
                             }}>
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                                    <ShoppingBag size={14} color={ORANGE} />
-                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: "#aaa" }}>
+                                    <ShoppingBag size={14} color={colors.saffron} />
+                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: colors.textMuted }}>
                                         Orders
                                     </Text>
                                 </View>
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: statValueFontSize, color: "#f5f5f5" }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: statValueFontSize, color: colors.text }}>
                                     {todayOrderCount ?? "—"}
                                 </Text>
                             </View>
@@ -1951,7 +1956,7 @@ export function OwnerHomeContent({
                                 paddingHorizontal: 12,
                                 alignItems: "flex-end",
                             }}>
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: "#8ad9b0", marginBottom: 2 }}>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 11, color: colors.textMuted, marginBottom: 2 }}>
                                     Revenue
                                 </Text>
                                 <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: statValueFontSize, color: "#22C55E" }}>
@@ -1968,8 +1973,8 @@ export function OwnerHomeContent({
                                 marginTop: 8,
                                 borderRadius: 14,
                                 borderWidth: 1,
-                                borderColor: pressed ? "#8a8a8a" : "#747474",
-                                backgroundColor: pressed ? "#434343" : "#3A3A3A",
+                                borderColor: pressed ? colors.textMuted : colors.cardBorder,
+                                backgroundColor: pressed ? colors.pressableBg : colors.iconTileBg,
                                 paddingHorizontal: 14,
                                 paddingVertical: 12,
                             })}
@@ -1977,15 +1982,15 @@ export function OwnerHomeContent({
                             <View style={{
                                 borderRadius: 10,
                                 borderWidth: 1,
-                                borderColor: "#8A8A8A",
-                                backgroundColor: "rgba(20,20,20,0.26)",
+                                borderColor: colors.cardBorder,
+                                backgroundColor: isDark ? "rgba(20,20,20,0.26)" : colors.background,
                                 paddingHorizontal: 12,
                                 paddingVertical: 10,
                             }}>
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: "#f5f5f5", marginBottom: 3 }}>
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 15, color: colors.text, marginBottom: 3 }}>
                                     Open combined breakdown
                                 </Text>
-                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: "#D0D0D0" }}>
+                                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textSecondary }}>
                                     Item + order insights in one place
                                 </Text>
                             </View>
@@ -1997,8 +2002,8 @@ export function OwnerHomeContent({
                 <View style={{ marginBottom: 20 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                            <ShoppingBag size={18} color={ORANGE} />
-                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                            <ShoppingBag size={18} color={colors.saffron} />
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.text }}>
                                 Recent Orders
                             </Text>
                         </View>
@@ -2010,13 +2015,13 @@ export function OwnerHomeContent({
                             hitSlop={10}
                             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                         >
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: ORANGE }}>See All</Text>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: colors.saffron }}>See All</Text>
                         </Pressable>
                     </View>
 
-                    <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
+                    <View style={{ ...cardSurface(colors), width: "100%", overflow: "hidden", paddingVertical: 2 }}>
                         {recentOrders.length === 0 ? (
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: colors.textMuted, textAlign: "center", padding: 24 }}>
                                 No orders yet
                             </Text>
                         ) : recentOrders.map((order, index) => (
@@ -2037,8 +2042,8 @@ export function OwnerHomeContent({
                 <View style={{ marginBottom: 20 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                            <TrendingUp size={18} color={ORANGE} />
-                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                            <TrendingUp size={18} color={colors.saffron} />
+                            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.text }}>
                                 Recent Reviews
                             </Text>
                         </View>
@@ -2050,13 +2055,13 @@ export function OwnerHomeContent({
                             hitSlop={10}
                             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                         >
-                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: ORANGE }}>See All</Text>
+                            <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 13, color: colors.saffron }}>See All</Text>
                         </Pressable>
                     </View>
 
-                    <View style={{ ...CARD, width: "100%", overflow: "hidden", paddingVertical: 2 }}>
+                    <View style={{ ...cardSurface(colors), width: "100%", overflow: "hidden", paddingVertical: 2 }}>
                         {recentReviews.length === 0 ? (
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: "#666", textAlign: "center", padding: 24 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 14, color: colors.textMuted, textAlign: "center", padding: 24 }}>
                                 No reviews yet
                             </Text>
                         ) : recentReviews.map((review, index) => (
@@ -2066,18 +2071,18 @@ export function OwnerHomeContent({
                                     paddingVertical: 12,
                                     paddingHorizontal: 16,
                                     borderBottomWidth: index === recentReviews.length - 1 ? 0 : StyleSheet.hairlineWidth,
-                                    borderBottomColor: "#2a2a2a",
+                                    borderBottomColor: colors.cardBorder,
                                 }}
                             >
                                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                    <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_600SemiBold", fontSize: 14 }} numberOfLines={1}>
+                                    <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 14 }} numberOfLines={1}>
                                         {review.reviewer_name || "Anonymous"}
                                     </Text>
-                                    <Text style={{ color: ORANGE, fontFamily: "Manrope_700Bold", fontSize: 12 }}>
+                                    <Text style={{ color: colors.saffron, fontFamily: "Manrope_700Bold", fontSize: 12 }}>
                                         {review.rating.toFixed(1)}★
                                     </Text>
                                 </View>
-                                <Text style={{ color: "#9ca3af", fontFamily: "Manrope_500Medium", fontSize: 12 }} numberOfLines={2}>
+                                <Text style={{ color: colors.textSecondary, fontFamily: "Manrope_500Medium", fontSize: 12 }} numberOfLines={2}>
                                     {review.body?.trim() || "No written comment"}
                                 </Text>
                             </View>
@@ -2090,12 +2095,12 @@ export function OwnerHomeContent({
                     <View style={{ marginBottom: 24, gap: 24 }}>
                         <View>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                                <Users size={18} color={ORANGE} />
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                <Users size={18} color={colors.saffron} />
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.text }}>
                                     Roles & permissions
                                 </Text>
                             </View>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#888", marginBottom: 12, lineHeight: 18 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: colors.textMuted, marginBottom: 12, lineHeight: 18 }}>
                                 Invite hosts and staff, and control who can manage your venue in Rasvia.
                             </Text>
                             <Pressable
@@ -2107,37 +2112,33 @@ export function OwnerHomeContent({
                                     flexDirection: "row",
                                     alignItems: "center",
                                     justifyContent: "space-between",
-                                    backgroundColor: "#161616",
-                                    borderWidth: 1,
-                                    borderColor: "#2d2d2d",
+                                    ...cardSurface(colors),
                                     borderRadius: 14,
                                     paddingHorizontal: 16,
                                     paddingVertical: 14,
                                 }}
                             >
-                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 15, color: "#f5f5f5" }}>
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 15, color: colors.text }}>
                                     Open roles
                                 </Text>
-                                <ChevronRight size={20} color="#888" />
+                                <ChevronRight size={20} color={colors.textMuted} />
                             </Pressable>
                         </View>
 
                         <View
                             style={{
-                                borderWidth: 1,
-                                borderColor: "#2d2d2d",
-                                backgroundColor: "#161616",
+                                ...cardSurface(colors),
                                 borderRadius: 16,
                                 padding: 14,
                             }}
                         >
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                <Camera size={18} color={ORANGE} />
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                <Camera size={18} color={colors.saffron} />
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.text }}>
                                     Community menu photos
                                 </Text>
                             </View>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#888", marginBottom: 12, lineHeight: 18 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: colors.textMuted, marginBottom: 12, lineHeight: 18 }}>
                                 Let guests submit photos for menu items. You can approve or reject them from your venue tools.
                             </Text>
                             <View
@@ -2149,7 +2150,7 @@ export function OwnerHomeContent({
                                 }}
                             >
                                 <View style={{ flex: 1 }}>
-                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5" }}>
+                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: colors.text }}>
                                         Accept submissions
                                     </Text>
                                     <Text
@@ -2157,10 +2158,10 @@ export function OwnerHomeContent({
                                             fontFamily: "Manrope_500Medium",
                                             fontSize: 12,
                                             color: !communityImagesSettingAvailable
-                                                ? "#A1A1AA"
+                                                ? colors.iconMuted
                                                 : communityImagesEnabled
-                                                  ? "#71717A"
-                                                  : "#52525B",
+                                                  ? colors.textMuted
+                                                  : colors.textSecondary,
                                             marginTop: 4,
                                         }}
                                     >
@@ -2198,20 +2199,20 @@ export function OwnerHomeContent({
                                             setCommunityImagesSaving(false);
                                         }
                                     }}
-                                    trackColor={{ false: "#333333", true: "rgba(255,153,51,0.4)" }}
-                                    thumbColor={communityImagesEnabled ? "#FF9933" : "#666666"}
+                                    trackColor={{ false: colors.switchTrackOff, true: "rgba(255,153,51,0.4)" }}
+                                    thumbColor={communityImagesEnabled ? colors.saffron : colors.iconMuted}
                                 />
                             </View>
                         </View>
 
                         <View>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                                <Images size={18} color={ORANGE} />
-                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                <Images size={18} color={colors.saffron} />
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: colors.text }}>
                                     Restaurant media carousel
                                 </Text>
                             </View>
-                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#888", marginBottom: 12, lineHeight: 18 }}>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: colors.textMuted, marginBottom: 12, lineHeight: 18 }}>
                                 Images shown on restaurant cards in Discover and search. Edits save to your venue.
                             </Text>
                             <OwnerMediaCarouselPanel
@@ -2260,7 +2261,7 @@ export function OwnerHomeContent({
                 transparent
                 onRequestClose={() => setShowAllReviews(false)}
             >
-                <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }}>
+                <View style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }}>
                     <Pressable
                         style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
                         onPress={() => setShowAllReviews(false)}
@@ -2268,12 +2269,12 @@ export function OwnerHomeContent({
                     <View
                         style={{
                             height: reviewOverlayHeight,
-                            backgroundColor: "#0f0f0f",
+                            backgroundColor: colors.backgroundElevated,
                             borderTopLeftRadius: 20,
                             borderTopRightRadius: 20,
                             overflow: "hidden",
                             borderWidth: 1,
-                            borderColor: "#2a2a2a",
+                            borderColor: colors.cardBorder,
                             marginTop: "auto",
                         }}
                     >
@@ -2286,10 +2287,10 @@ export function OwnerHomeContent({
                             paddingTop: 10,
                             paddingBottom: 12,
                             borderBottomWidth: 1,
-                            borderBottomColor: "#2a2a2a",
+                            borderBottomColor: colors.cardBorder,
                         }}
                     >
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: "#f5f5f5" }}>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 18, color: colors.text }}>
                             All Reviews
                         </Text>
                         <Pressable
@@ -2297,7 +2298,7 @@ export function OwnerHomeContent({
                             hitSlop={12}
                             style={{ padding: 4 }}
                         >
-                            <X size={24} color="#f5f5f5" />
+                            <X size={24} color={colors.text} />
                         </Pressable>
                     </View>
                     <View style={{ flex: 1, padding: 16, paddingBottom: 16 }}>

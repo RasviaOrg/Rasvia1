@@ -25,6 +25,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { useAppTheme } from "@/lib/app-theme";
 
 type SubmissionStatus = "pending" | "approved" | "rejected";
 
@@ -52,6 +53,7 @@ const STATUS_FILTERS: { key: SubmissionStatus | "all"; label: string }[] = [
 
 export default function AdminMenuImages() {
   const router = useRouter();
+  const { colors } = useAppTheme();
   const { isAdmin } = useAdminMode();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,8 +157,8 @@ export default function AdminMenuImages() {
 
   if (!isAdmin) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 14 }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 14 }}>
           Admin access required.
         </Text>
       </View>
@@ -171,7 +173,7 @@ export default function AdminMenuImages() {
   const pendingCount = submissions.filter((s) => s.status === "pending").length;
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <SafeAreaView edges={["top"]}>
         {/* Header */}
         <View
@@ -181,7 +183,7 @@ export default function AdminMenuImages() {
             paddingHorizontal: 16,
             paddingVertical: 12,
             borderBottomWidth: 1,
-            borderBottomColor: "#1e1e1e",
+            borderBottomColor: colors.cardBorder,
           }}
         >
           <Pressable
@@ -189,18 +191,18 @@ export default function AdminMenuImages() {
             style={{
               width: 40, height: 40, borderRadius: 20,
               alignItems: "center", justifyContent: "center",
-              backgroundColor: "#1a1a1a",
-              borderWidth: 1, borderColor: "#2a2a2a",
+              backgroundColor: colors.card,
+              borderWidth: 1, borderColor: colors.cardBorder,
               marginRight: 12,
             }}
           >
-            <ArrowLeft size={20} color="#f5f5f5" />
+            <ArrowLeft size={20} color={colors.text} />
           </Pressable>
 
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Camera size={18} color="#FF9933" />
-              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>
+              <Camera size={18} color={colors.saffron} />
+              <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 20 }}>
                 Menu Image Review
               </Text>
               {pendingCount > 0 && (
@@ -221,7 +223,7 @@ export default function AdminMenuImages() {
                 </View>
               )}
             </View>
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>
               Community-submitted food photos
             </Text>
           </View>
@@ -231,7 +233,7 @@ export default function AdminMenuImages() {
             hitSlop={12}
             style={{ padding: 8 }}
           >
-            <RefreshCw size={18} color="#888" />
+            <RefreshCw size={18} color={colors.textMuted} />
           </Pressable>
         </View>
 
@@ -243,7 +245,7 @@ export default function AdminMenuImages() {
             paddingVertical: 10,
             gap: 8,
             borderBottomWidth: 1,
-            borderBottomColor: "#1a1a1a",
+            borderBottomColor: colors.cardBorder,
           }}
         >
           {STATUS_FILTERS.map((f) => {
@@ -260,9 +262,9 @@ export default function AdminMenuImages() {
                   borderRadius: 20,
                   paddingHorizontal: 14,
                   paddingVertical: 7,
-                  backgroundColor: active ? "rgba(255,153,51,0.14)" : "#1a1a1a",
+                  backgroundColor: active ? "rgba(255,153,51,0.14)" : colors.card,
                   borderWidth: 1,
-                  borderColor: active ? "rgba(255,153,51,0.5)" : "#2a2a2a",
+                  borderColor: active ? "rgba(255,153,51,0.5)" : colors.cardBorder,
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 5,
@@ -271,7 +273,7 @@ export default function AdminMenuImages() {
                 <Text
                   style={{
                     fontFamily: active ? "Manrope_700Bold" : "Manrope_500Medium",
-                    color: active ? "#FF9933" : "#888",
+                    color: active ? colors.saffron : colors.textMuted,
                     fontSize: 13,
                   }}
                 >
@@ -281,7 +283,7 @@ export default function AdminMenuImages() {
                   <Text
                     style={{
                       fontFamily: "JetBrainsMono_600SemiBold",
-                      color: active ? "#FF9933" : "#666",
+                      color: active ? colors.saffron : colors.textMuted,
                       fontSize: 11,
                     }}
                   >
@@ -296,12 +298,12 @@ export default function AdminMenuImages() {
 
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator size="large" color="#FF9933" />
+          <ActivityIndicator size="large" color={colors.saffron} />
         </View>
       ) : filtered.length === 0 ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }}>
-          <Camera size={40} color="#333" style={{ marginBottom: 16 }} />
-          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#555", fontSize: 15, textAlign: "center" }}>
+          <Camera size={40} color={colors.iconMuted} style={{ marginBottom: 16 }} />
+          <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 15, textAlign: "center" }}>
             No {activeFilter === "all" ? "" : activeFilter} submissions
           </Text>
         </View>
@@ -370,24 +372,25 @@ function SubmissionCard({
   onApprove: () => void;
   onReject: () => void;
 }) {
+  const { colors } = useAppTheme();
   const isPending = submission.status === "pending";
   const isApproved = submission.status === "approved";
 
-  const statusColor = isApproved ? "#22C55E" : submission.status === "rejected" ? "#EF4444" : "#FF9933";
+  const statusColor = isApproved ? "#22C55E" : submission.status === "rejected" ? "#EF4444" : colors.saffron;
   const statusLabel = isApproved ? "Approved" : submission.status === "rejected" ? "Rejected" : "Pending review";
 
   return (
     <View
       style={{
-        backgroundColor: "#141414",
+        backgroundColor: colors.card,
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: "#1e1e1e",
+        borderColor: colors.cardBorder,
         overflow: "hidden",
       }}
     >
       {/* Photo */}
-      <View style={{ height: 220, backgroundColor: "#1a1a1a" }}>
+      <View style={{ height: 220, backgroundColor: colors.pressableBg }}>
         <Image
           source={{ uri: submission.image_url }}
           style={{ width: "100%", height: "100%" }}
@@ -417,31 +420,31 @@ function SubmissionCard({
         {/* Meta info */}
         <View style={{ gap: 6, marginBottom: 14 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Store size={13} color="#888" />
-            <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 14 }}>
+            <Store size={13} color={colors.textMuted} />
+            <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 14 }}>
               {submission.restaurant_name}
             </Text>
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 13 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
               ·
             </Text>
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#aaa", fontSize: 13 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textSecondary, fontSize: 13 }}>
               {submission.menu_item_name}
             </Text>
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <User size={13} color="#888" />
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#aaa", fontSize: 13 }}>
+            <User size={13} color={colors.textMuted} />
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textSecondary, fontSize: 13 }}>
               Submitted by{" "}
-              <Text style={{ fontFamily: "Manrope_700Bold", color: "#f5f5f5" }}>
+              <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text }}>
                 {submission.submitter_name}
               </Text>
             </Text>
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Clock size={12} color="#666" />
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#666", fontSize: 12 }}>
+            <Clock size={12} color={colors.textMuted} />
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>
               {new Date(submission.created_at).toLocaleDateString("en-US", {
                 month: "short", day: "numeric", year: "numeric",
                 hour: "2-digit", minute: "2-digit",
@@ -456,17 +459,17 @@ function SubmissionCard({
             value={note}
             onChangeText={onNoteChange}
             placeholder="Optional note for contributor…"
-            placeholderTextColor="#444"
+            placeholderTextColor={colors.textMuted}
             multiline
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.background,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               borderRadius: 10,
               paddingHorizontal: 12,
               paddingVertical: 10,
               fontFamily: "Manrope_500Medium",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 13,
               minHeight: 56,
               marginBottom: 14,
@@ -475,15 +478,15 @@ function SubmissionCard({
         ) : submission.admin_note ? (
           <View
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.background,
               borderRadius: 10,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               padding: 10,
               marginBottom: 12,
             }}
           >
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 12 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>
               Admin note: {submission.admin_note}
             </Text>
           </View>
@@ -497,9 +500,9 @@ function SubmissionCard({
               disabled={actioning}
               style={{
                 flex: 1,
-                backgroundColor: actioning ? "#1a1a1a" : "rgba(34,197,94,0.12)",
+                backgroundColor: actioning ? colors.card : "rgba(34,197,94,0.12)",
                 borderWidth: 1.5,
-                borderColor: actioning ? "#2a2a2a" : "rgba(34,197,94,0.5)",
+                borderColor: actioning ? colors.cardBorder : "rgba(34,197,94,0.5)",
                 borderRadius: 14,
                 paddingVertical: 13,
                 flexDirection: "row",
@@ -525,9 +528,9 @@ function SubmissionCard({
               disabled={actioning}
               style={{
                 flex: 1,
-                backgroundColor: actioning ? "#1a1a1a" : "rgba(239,68,68,0.10)",
+                backgroundColor: actioning ? colors.card : "rgba(239,68,68,0.10)",
                 borderWidth: 1.5,
-                borderColor: actioning ? "#2a2a2a" : "rgba(239,68,68,0.45)",
+                borderColor: actioning ? colors.cardBorder : "rgba(239,68,68,0.45)",
                 borderRadius: 14,
                 paddingVertical: 13,
                 flexDirection: "row",

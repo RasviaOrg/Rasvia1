@@ -23,6 +23,7 @@ import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineD
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
+import { useAppTheme } from "@/lib/app-theme";
 
 // ── Chain grouping helpers ────────────────────────────────────────────────────
 
@@ -100,6 +101,8 @@ interface SearchOverlayProps {
 
 export function SearchOverlay({ onClose }: SearchOverlayProps) {
   const router = useRouter();
+  const { colors } = useAppTheme();
+  const muted = colors.textMuted;
   const { userCoords } = useLocation();
   const { isAdmin } = useAdminMode();
   const closedRestaurantIds = useClosedRestaurantIds();
@@ -272,7 +275,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: "#0f0f0f",
+        backgroundColor: colors.background,
         zIndex: 1000,
       }}
     >
@@ -282,9 +285,9 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
           paddingTop: insets.top + 8,
           paddingHorizontal: 16,
           paddingBottom: 12,
-          backgroundColor: "#0f0f0f",
+          backgroundColor: colors.background,
           borderBottomWidth: 1,
-          borderBottomColor: "#1a1a1a",
+          borderBottomColor: colors.cardBorder,
         }}
       >
         <View
@@ -298,7 +301,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
               flex: 1,
               flexDirection: "row",
               alignItems: "center",
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 16,
               borderWidth: 1.5,
               borderColor: "#FF9933",
@@ -312,7 +315,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
               value={query}
               onChangeText={setQuery}
               placeholder="Search restaurants..."
-              placeholderTextColor="#666666"
+              placeholderTextColor={muted}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
@@ -320,14 +323,14 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                 flex: 1,
                 marginLeft: 10,
                 fontFamily: "Manrope_500Medium",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 16,
                 height: 50,
               }}
             />
             {query.length > 0 && (
               <Pressable onPress={() => setQuery("")} hitSlop={8}>
-                <X size={16} color="#999999" />
+                <X size={16} color={muted} />
               </Pressable>
             )}
           </View>
@@ -364,11 +367,11 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
             marginTop: 12,
           }}
         >
-          <ArrowUpDown size={14} color="#999999" />
+          <ArrowUpDown size={14} color={muted} />
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#999999",
+              color: muted,
               fontSize: 12,
               marginLeft: 6,
               marginRight: 10,
@@ -379,21 +382,21 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
           <Pressable
             onPress={() => handleSortPress("waitTime")}
             style={{
-              backgroundColor: sortBy === "waitTime" ? "rgba(255, 153, 51, 0.2)" : "#1a1a1a",
+              backgroundColor: sortBy === "waitTime" ? "rgba(255, 153, 51, 0.2)" : colors.card,
               borderRadius: 20,
               paddingHorizontal: 14,
               paddingVertical: 7,
               marginRight: 8,
               borderWidth: 1,
-              borderColor: sortBy === "waitTime" ? "#FF9933" : "#2a2a2a",
+              borderColor: sortBy === "waitTime" ? "#FF9933" : colors.cardBorder,
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Clock size={12} color={sortBy === "waitTime" ? "#FF9933" : "#999999"} />
+              <Clock size={12} color={sortBy === "waitTime" ? "#FF9933" : muted} />
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: sortBy === "waitTime" ? "#FF9933" : "#999999",
+                  color: sortBy === "waitTime" ? "#FF9933" : muted,
                   fontSize: 12,
                   marginLeft: 5,
                 }}
@@ -405,20 +408,20 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
           <Pressable
             onPress={() => handleSortPress("distance")}
             style={{
-              backgroundColor: sortBy === "distance" ? "rgba(255, 153, 51, 0.2)" : "#1a1a1a",
+              backgroundColor: sortBy === "distance" ? "rgba(255, 153, 51, 0.2)" : colors.card,
               borderRadius: 20,
               paddingHorizontal: 14,
               paddingVertical: 7,
               borderWidth: 1,
-              borderColor: sortBy === "distance" ? "#FF9933" : "#2a2a2a",
+              borderColor: sortBy === "distance" ? "#FF9933" : colors.cardBorder,
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <MapPin size={12} color={sortBy === "distance" ? "#FF9933" : "#999999"} />
+              <MapPin size={12} color={sortBy === "distance" ? "#FF9933" : muted} />
               <Text
                 style={{
                   fontFamily: "Manrope_600SemiBold",
-                  color: sortBy === "distance" ? "#FF9933" : "#999999",
+                  color: sortBy === "distance" ? "#FF9933" : muted,
                   fontSize: 12,
                   marginLeft: 5,
                 }}
@@ -454,7 +457,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 18,
                 textAlign: "center",
                 marginBottom: 6,
@@ -465,7 +468,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: muted,
                 fontSize: 14,
                 textAlign: "center",
               }}
@@ -478,7 +481,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
             <Text
               style={{
                 fontFamily: "Manrope_600SemiBold",
-                color: "#999999",
+                color: muted,
                 fontSize: 12,
                 marginTop: 4,
                 marginBottom: 12,
@@ -518,7 +521,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                         marginTop: -4,
                         marginBottom: 6,
                         borderLeftWidth: 2,
-                        borderLeftColor: "#2a2a2a",
+                        borderLeftColor: colors.cardBorder,
                         paddingLeft: 12,
                       }}
                     >
@@ -537,12 +540,12 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
-                              backgroundColor: isNearest ? "rgba(255,153,51,0.07)" : "#161616",
+                              backgroundColor: isNearest ? "rgba(255,153,51,0.07)" : colors.pressableBg,
                               borderRadius: 12,
                               padding: 10,
                               marginBottom: 6,
                               borderWidth: 1,
-                              borderColor: isNearest ? "rgba(255,153,51,0.25)" : "#222",
+                              borderColor: isNearest ? "rgba(255,153,51,0.25)" : colors.cardBorder,
                             }}
                           >
                             <View style={{ flex: 1 }}>
@@ -566,7 +569,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                                   numberOfLines={1}
                                   style={{
                                     fontFamily: "Manrope_600SemiBold",
-                                    color: "#f5f5f5",
+                                    color: colors.text,
                                     fontSize: 13,
                                     flex: 1,
                                   }}
@@ -575,12 +578,12 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                                 </Text>
                               </View>
                               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                                <MapPin size={10} color="#999" />
+                                <MapPin size={10} color={muted} />
                                 <Text
                                   numberOfLines={1}
                                   style={{
                                     fontFamily: "Manrope_500Medium",
-                                    color: "#999",
+                                    color: muted,
                                     fontSize: 11,
                                     marginLeft: 4,
                                     flex: 1,
@@ -591,7 +594,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
                               </View>
                             </View>
                             <View style={{ alignItems: "flex-end", marginLeft: 10 }}>
-                              <Text style={{ fontFamily: "Manrope_500Medium", color: "#aaa", fontSize: 11 }}>
+                              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11 }}>
                                 {loc.distance}
                               </Text>
                               {locWithStatus.waitStatus !== "darkgrey" ? (
@@ -628,6 +631,8 @@ function SearchResultCard({
   onPress: () => void;
   chainInfo?: { count: number; isExpanded: boolean; onToggle: () => void };
 }) {
+  const { colors } = useAppTheme();
+  const muted = colors.textMuted;
   return (
     <Animated.View entering={FadeInDown.duration(220)} style={{ marginBottom: 10 }}>
       <Pressable
@@ -635,11 +640,11 @@ function SearchResultCard({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          backgroundColor: "#1a1a1a",
+          backgroundColor: colors.card,
           borderRadius: 16,
           padding: 12,
           borderWidth: 1,
-          borderColor: "#2a2a2a",
+          borderColor: colors.cardBorder,
         }}
       >
         <Image
@@ -649,7 +654,7 @@ function SearchResultCard({
             height: 60,
             borderRadius: 14,
             borderWidth: 1,
-            borderColor: "#2a2a2a",
+            borderColor: colors.cardBorder,
           }}
           resizeMode="cover"
         />
@@ -661,7 +666,7 @@ function SearchResultCard({
               numberOfLines={1}
               style={{
                 fontFamily: "BricolageGrotesque_700Bold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 17,
                 letterSpacing: -0.3,
                 flex: 1,
@@ -680,7 +685,7 @@ function SearchResultCard({
             numberOfLines={1}
             style={{
               fontFamily: "Manrope_500Medium",
-              color: "#999999",
+              color: muted,
               fontSize: 12,
               marginBottom: 5,
             }}
@@ -694,7 +699,7 @@ function SearchResultCard({
               <Text
                 style={{
                   fontFamily: "JetBrainsMono_600SemiBold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 12,
                   marginLeft: 4,
                 }}
@@ -704,7 +709,7 @@ function SearchResultCard({
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: muted,
                   fontSize: 10,
                   marginLeft: 3,
                 }}
@@ -714,9 +719,9 @@ function SearchResultCard({
             </View>
             {restaurant.waitStatus === "darkgrey" ? (
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Clock size={12} color="#999999" />
+                <Clock size={12} color={muted} />
                 <View style={{ backgroundColor: "rgba(153,153,153,0.15)", borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 4 }}>
-                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#999999", fontSize: 10 }}>
+                  <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: muted, fontSize: 10 }}>
                     {restaurant.isComingSoon ? "Coming soon" : "Closed"}
                   </Text>
                 </View>
@@ -737,11 +742,11 @@ function SearchResultCard({
         {/* Right side: distance + chain toggle */}
         <View style={{ alignItems: "flex-end", marginLeft: 8, gap: 6 }}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <MapPin size={11} color="#999999" />
+            <MapPin size={11} color={muted} />
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#999999",
+                color: muted,
                 fontSize: 11,
                 marginLeft: 3,
               }}
@@ -776,7 +781,7 @@ function SearchResultCard({
               <Text
                 style={{
                   fontFamily: "Manrope_700Bold",
-                  color: chainInfo.isExpanded ? "#FF9933" : "#aaa",
+                  color: chainInfo.isExpanded ? "#FF9933" : muted,
                   fontSize: 10,
                 }}
               >
@@ -784,7 +789,7 @@ function SearchResultCard({
               </Text>
               {chainInfo.isExpanded
                 ? <ChevronUp size={11} color="#FF9933" />
-                : <ChevronDown size={11} color="#aaa" />}
+                : <ChevronDown size={11} color={muted} />}
             </Pressable>
           )}
         </View>
