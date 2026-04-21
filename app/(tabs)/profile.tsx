@@ -29,7 +29,6 @@ import {
   ShoppingBag,
   Bell,
   ShieldCheck,
-  MapPin,
   Check,
   Utensils,
   Edit2,
@@ -49,22 +48,24 @@ import {
   X,
   Plus,
   Mail,
+  Moon,
 } from "lucide-react-native";
 import { PhoneVerifyModal } from "@/components/PhoneVerifyModal";
+import { TabScreenEntrance } from "@/components/TabScreenEntrance";
 import { AccountsManagementSection } from "@/components/AccountsManagementSection";
 import { getSwitchedInFrom, clearSwitchedInFrom } from "@/lib/accounts-store";
 import Animated, {
-  FadeIn,
   FadeInDown,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
+
 import * as Haptics from "expo-haptics";
-import * as Location from "expo-location";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
-import { useLocation } from "@/lib/location-context";
+import { useAppTheme } from "@/lib/app-theme";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { setDebugTime, getDebugTime } from "@/lib/restaurant-hours";
 import {
@@ -83,7 +84,6 @@ import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBo
 
 // ── CST day names used by debug picker ──
 const DEBUG_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const SAVED_ADDRESS_OVERRIDE_KEY = "saved_address_overrides_gps";
 
 /** Format a fake debug date (already in CST) to readable string */
 function formatDebugDisplay(iso: string | null): string {
@@ -100,17 +100,9 @@ function formatDebugDisplay(iso: string | null): string {
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { session, profile: bootProfile, refreshProfile } = useAuth();
-  const { isAdmin, isRestaurantOwner, effectiveOwnerRestaurantId } = useAdminMode();
-  const {
-    reloadLocationPrefs,
-    setUserCoordsOverride,
-    isUsingDiningPreferenceFallback,
-    diningPreferenceAreaLabel,
-    savedAddressOverridesGps,
-    setSavedAddressOverridePersisted,
-    setLiveLocationEnabledPersisted,
-  } = useLocation();
+  const { colors, isDark, setAppearance } = useAppTheme();
+  const { session, profile: bootProfile } = useAuth();
+  const { isAdmin, isRestaurantOwner } = useAdminMode();
   const userEmail = session?.user?.email ?? "";
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -120,9 +112,6 @@ export default function ProfileSettingsScreen() {
   const [tempLastName, setTempLastName] = useState("");
   const [tempPhone, setTempPhone] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [communityImagesEnabled, setCommunityImagesEnabled] = useState(true);
-  const [communityImagesSaving, setCommunityImagesSaving] = useState(false);
-  const [communityImagesSettingAvailable, setCommunityImagesSettingAvailable] = useState(true);
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -130,9 +119,9 @@ export default function ProfileSettingsScreen() {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
 
-  // Tab state. Admins keep the old 4-tab strip (including "debug"); owners and
-  // switched-in users get a slimmer strip without "debug".
-  const [activeTab, setActiveTab] = useState<'preferences' | 'location' | 'debug' | 'accounts'>('preferences');
+  // Tab state. Admins get a 3-tab strip (preferences / debug / accounts); owners and
+  // switched-in users get no strip and use the Settings list + /my-accounts.
+  const [activeTab, setActiveTab] = useState<'preferences' | 'debug' | 'accounts'>('preferences');
 
   // Tracks whether the current user was switched into this session by an
   // admin/owner. Drives the "My Accounts" settings row visibility so a user
@@ -152,34 +141,6 @@ export default function ProfileSettingsScreen() {
 
   const [loadingPrefs, setLoadingPrefs] = useState(true);
 
-  // Location Settings State
-  const [savedAddress, setSavedAddress] = useState("");
-  const [origSavedAddress, setOrigSavedAddress] = useState("");
-  const [liveLocationEnabled, setLiveLocationEnabled] = useState(true);
-  const [origLiveLocationEnabled, setOrigLiveLocationEnabled] = useState(true);
-  const [savedAddressOverrideEnabled, setSavedAddressOverrideEnabled] = useState(true);
-  const [origSavedAddressOverrideEnabled, setOrigSavedAddressOverrideEnabled] = useState(true);
-  const [isSavingLocation, setIsSavingLocation] = useState(false);
-  const [locationPrefsChanged, setLocationPrefsChanged] = useState(false);
-  const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
-  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
-
-  type Coordinates = { lat: string | number | null, lon: string | number | null } | null;
-  const [selectedCoords, setSelectedCoords] = useState<Coordinates>(null);
-  const [origSelectedCoords, setOrigSelectedCoords] = useState<Coordinates>(null);
-
-
-  useEffect(() => {
-    if (loadingPrefs) return;
-    setSavedAddressOverrideEnabled(savedAddressOverridesGps);
-    setOrigSavedAddressOverrideEnabled(savedAddressOverridesGps);
-  }, [savedAddressOverridesGps, loadingPrefs]);
-
-  const hasSavedAddressInput = savedAddress.trim().length > 0;
-  const canUseSavedAddressOverride = hasSavedAddressInput && liveLocationEnabled;
-  const effectiveSavedAddressOverrideEnabled =
-    canUseSavedAddressOverride && savedAddressOverrideEnabled;
-
   // Hydrate profile card immediately from app-start prefetch to prevent
   // showing fallback/email-only values before profile fetch resolves.
   useEffect(() => {
@@ -189,16 +150,6 @@ export default function ProfileSettingsScreen() {
     setCreatedAt(bootProfile.created_at || null);
     setPhoneVerified(!!bootProfile.phone_verified);
     if (bootProfile.avatar_url) setAvatarUrl(bootProfile.avatar_url);
-    if (bootProfile.saved_address != null) {
-      const sAddr = bootProfile.saved_address || "";
-      setSavedAddress(sAddr);
-      setOrigSavedAddress(sAddr);
-    }
-    if (bootProfile.home_lat && bootProfile.home_long) {
-      const coords = { lat: bootProfile.home_lat, lon: bootProfile.home_long };
-      setSelectedCoords(coords);
-      setOrigSelectedCoords(coords);
-    }
   }, [bootProfile]);
 
   // Hydrate just the `switched_in_from` marker here so the settings list
@@ -231,21 +182,10 @@ export default function ProfileSettingsScreen() {
         const { data, error } = await supabase
           .from("profiles")
           .select(
-            "full_name, created_at, saved_address, home_lat, home_long, phone_number, phone_verified, avatar_url",
+            "full_name, created_at, phone_number, phone_verified, avatar_url",
           )
           .eq("id", session.user.id)
           .maybeSingle();
-
-        const localToggle = await SecureStore.getItemAsync("live_location_enabled");
-        if (localToggle !== null) {
-          const isLive = JSON.parse(localToggle);
-          setLiveLocationEnabled(isLive);
-          setOrigLiveLocationEnabled(isLive);
-        }
-        const overrideToggle = await SecureStore.getItemAsync(SAVED_ADDRESS_OVERRIDE_KEY);
-        const overrideEnabled = overrideToggle !== null ? JSON.parse(overrideToggle) : true;
-        setSavedAddressOverrideEnabled(overrideEnabled);
-        setOrigSavedAddressOverrideEnabled(overrideEnabled);
 
         // Check actual push notification status
         const pushStatus = await isPushEnabled();
@@ -259,106 +199,12 @@ export default function ProfileSettingsScreen() {
           if ((data as any).avatar_url) {
             setAvatarUrl((data as any).avatar_url);
           }
-
-          const sAddr = data.saved_address || "";
-          setSavedAddress(sAddr);
-          setOrigSavedAddress(sAddr);
-
-          if (data.home_lat && data.home_long) {
-            const coords = { lat: data.home_lat, lon: data.home_long };
-            setSelectedCoords(coords);
-            setOrigSelectedCoords(coords);
-          }
         }
       } catch { }
       setLoadingPrefs(false);
     }
     loadPrefs();
   }, [session?.user?.id]);
-
-  useEffect(() => {
-    async function loadCommunityImageSetting() {
-      if (!isRestaurantOwner || !effectiveOwnerRestaurantId) return;
-      try {
-        const { data, error } = await supabase
-          .from("restaurants")
-          .select("accept_community_image_contributions")
-          .eq("id", Number(effectiveOwnerRestaurantId))
-          .maybeSingle();
-        if (error) {
-          if (error.message?.toLowerCase().includes("column") && error.message?.includes("accept_community_image_contributions")) {
-            setCommunityImagesSettingAvailable(false);
-          }
-          return;
-        }
-        setCommunityImagesSettingAvailable(true);
-        setCommunityImagesEnabled((data as any)?.accept_community_image_contributions !== false);
-      } catch {
-        // noop
-      }
-    }
-    loadCommunityImageSetting();
-  }, [isRestaurantOwner, effectiveOwnerRestaurantId]);
-
-  // Track Location Changes
-  useEffect(() => {
-    if (loadingPrefs) return;
-    const changed =
-      savedAddress !== origSavedAddress ||
-      liveLocationEnabled !== origLiveLocationEnabled ||
-      effectiveSavedAddressOverrideEnabled !== origSavedAddressOverrideEnabled;
-    setLocationPrefsChanged(changed);
-  }, [
-    savedAddress,
-    liveLocationEnabled,
-    effectiveSavedAddressOverrideEnabled,
-    origSavedAddress,
-    origLiveLocationEnabled,
-    origSavedAddressOverrideEnabled,
-    loadingPrefs,
-  ]);
-
-  // Autocomplete fetch — guarded against stale responses via AbortController
-  // so that fast typing doesn't overwrite current suggestions with results
-  // from an earlier, slower request.
-  useEffect(() => {
-    const controller = new AbortController();
-    let isActive = true;
-
-    const timer = setTimeout(async () => {
-      if (savedAddress && savedAddress.trim().length > 4 && savedAddress !== origSavedAddress) {
-        setIsSearchingAddress(true);
-        try {
-          const query = savedAddress.toLowerCase().includes("tx") || savedAddress.toLowerCase().includes("texas")
-            ? savedAddress
-            : `${savedAddress}, Texas`;
-
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=10`, {
-            headers: { "User-Agent": "RasviaApp/1.0" },
-            signal: controller.signal,
-          });
-          const data = await res.json();
-          if (!isActive) return;
-
-          const filtered = (data || []).filter((item: any) => item.address?.state === "Texas");
-          setAddressSuggestions(filtered.slice(0, 5));
-        } catch (e: any) {
-          if (e?.name === "AbortError") return;
-        } finally {
-          if (isActive) setIsSearchingAddress(false);
-        }
-      } else if (isActive) {
-        setAddressSuggestions([]);
-      }
-    }, 600);
-
-    return () => {
-      isActive = false;
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [savedAddress, origSavedAddress]);
-
 
   const handleSaveProfile = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -401,6 +247,23 @@ export default function ProfileSettingsScreen() {
     }
   }, [session, tempFirstName, tempLastName, tempPhone, phoneNumber]);
 
+  const openProfileEditor = useCallback(() => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    const parts = fullName.trim().split(/\s+/).filter(Boolean);
+    const first = parts[0] ?? "";
+    const last = parts.length > 1 ? parts.slice(1).join(" ") : "";
+    setTempFirstName(first);
+    setTempLastName(last);
+    setTempPhone(phoneNumber);
+    setEditingProfile(true);
+  }, [fullName, phoneNumber]);
+
+  const hasEmailOnAccount = !!userEmail.trim();
+  const hasCompletePhone = phoneNumber.replace(/\D/g, "").length >= 10;
+  const profileNeedsContact =
+    !loadingPrefs && (!hasEmailOnAccount || !hasCompletePhone);
 
   function formatPhoneNumber(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 10);
@@ -604,73 +467,6 @@ export default function ProfileSettingsScreen() {
     transform: [{ scale: logoutScale.value }],
   }));
 
-
-  const handleSaveLocationSettings = useCallback(async () => {
-    if (!session?.user?.id || isSavingLocation) return;
-    setIsSavingLocation(true);
-
-    try {
-      let lat = null;
-      let lng = null;
-      const addressToSave = savedAddress.trim();
-
-      if (addressToSave) {
-        if (selectedCoords && selectedCoords.lat && selectedCoords.lon) {
-          lat = parseFloat(selectedCoords.lat.toString());
-          lng = parseFloat(selectedCoords.lon.toString());
-        } else {
-          Alert.alert("Address Required", "Please select a specific address from the suggestions dropdown to ensure map accuracy.");
-          setIsSavingLocation(false);
-          return;
-        }
-      }
-
-      // Save toggles to local storage/context
-      await setLiveLocationEnabledPersisted(liveLocationEnabled);
-      await setSavedAddressOverridePersisted(effectiveSavedAddressOverrideEnabled);
-
-      // Save the address and coords to supabase
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          saved_address: addressToSave,
-          home_lat: lat,
-          home_long: lng,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", session.user.id);
-
-      if (error) throw error;
-
-      // Optimistic location update for immediate Map sync (only if not using live GPS)
-      if (lat && lng && !liveLocationEnabled) {
-        setUserCoordsOverride({ latitude: lat, longitude: lng });
-      }
-
-      setOrigSavedAddress(addressToSave);
-      setOrigSelectedCoords({ lat: lat ?? null, lon: lng ?? null });
-      setOrigLiveLocationEnabled(liveLocationEnabled);
-      setOrigSavedAddressOverrideEnabled(effectiveSavedAddressOverrideEnabled);
-      setAddressSuggestions([]);
-
-      await reloadLocationPrefs();
-      await refreshProfile();
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      Alert.alert("Saved!", "Your location settings have been updated.");
-    } catch (err: any) {
-      Alert.alert("Error", err.message || "Could not save location settings.");
-    }
-    setIsSavingLocation(false);
-  }, [session, savedAddress, liveLocationEnabled, effectiveSavedAddressOverrideEnabled, isSavingLocation, selectedCoords, setUserCoordsOverride, reloadLocationPrefs, setLiveLocationEnabledPersisted, setSavedAddressOverridePersisted, refreshProfile]);
-
-  const saveLocScale = useSharedValue(1);
-  const saveLocStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: saveLocScale.value }],
-  }));
-
   // ── Debug time helpers ──
   function applyDebugOverride() {
     const now = new Date();
@@ -726,11 +522,12 @@ export default function ProfileSettingsScreen() {
   }
 
   return (
-    <View className="flex-1 bg-rasvia-black">
-      <SafeAreaView className="flex-1" edges={["top"]}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+        <TabScreenEntrance>
+        <View style={{ flex: 1 }}>
         {/* Header */}
-        <Animated.View
-          entering={FadeIn.duration(400)}
+        <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
@@ -745,7 +542,7 @@ export default function ProfileSettingsScreen() {
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 28,
                 letterSpacing: -0.5,
               }}
@@ -781,56 +578,110 @@ export default function ProfileSettingsScreen() {
               fontSize: 13,
             }}>Log Out</Text>
           </Pressable>
-        </Animated.View>
+        </View>
 
         {/* ── Tab pills (admin only) ──
              Only admins see the inline tab strip. Owners and switched-in
              users get a dedicated "My Accounts" page via the Settings list
              so their profile view stays uncluttered. */}
         {isAdmin && (
-          <View style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            marginHorizontal: 20,
-            marginBottom: 10,
-            gap: 8,
-          }}>
-            {(['preferences', 'location', 'debug', 'accounts'] as const).map((tab) => {
-              const isActive = activeTab === tab;
-              const label = tab === 'preferences' ? 'Preferences' : tab === 'location' ? 'Location' : tab === 'accounts' ? 'Accounts' : 'Debug';
-              return (
-                <Pressable
-                  key={tab}
-                  onPress={() => {
-                    if (Platform.OS !== 'web') Haptics.selectionAsync();
-                    setActiveTab(tab);
-                  }}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 14,
-                    borderRadius: 999,
-                    backgroundColor: isActive
-                      ? tab === 'debug' ? 'rgba(245,158,11,0.2)' : 'rgba(255,153,51,0.2)'
-                      : 'rgba(255,255,255,0.06)',
-                    borderWidth: 1,
-                    borderColor: isActive
-                      ? tab === 'debug' ? 'rgba(245,158,11,0.45)' : 'rgba(255,153,51,0.4)'
-                      : 'rgba(255,255,255,0.08)',
-                  }}
-                >
-                  <Text style={{
-                    fontFamily: isActive ? 'BricolageGrotesque_700Bold' : 'Manrope_600SemiBold',
-                    fontSize: 12,
-                    lineHeight: 18,
-                    color: isActive
-                      ? tab === 'debug' ? '#F59E0B' : '#FF9933'
-                      : '#888888',
-                  }}>
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View
+            style={{
+              marginHorizontal: 20,
+              marginBottom: 12,
+              backgroundColor: colors.card,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              paddingVertical: 8,
+              paddingHorizontal: 8,
+              ...(Platform.OS === 'ios'
+                ? {
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 3 },
+                    shadowOpacity: 0.22,
+                    shadowRadius: 8,
+                  }
+                : {}),
+              elevation: 2,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                rowGap: 7,
+                columnGap: 7,
+              }}
+            >
+              {(['preferences', 'debug', 'accounts'] as const).map((tab, tabIndex) => {
+                const isActive = activeTab === tab;
+                const label = tab === 'preferences' ? 'Preferences' : tab === 'accounts' ? 'Accounts' : 'Debug';
+                const activeDebug = isActive && tab === 'debug';
+                const activeSaffron = isActive && tab !== 'debug';
+                return (
+                  <Animated.View
+                    key={tab}
+                    entering={FadeInDown.delay(40 + tabIndex * 55).duration(380)}
+                    layout={LinearTransition.springify().damping(20).stiffness(220)}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                        setActiveTab(tab);
+                      }}
+                      style={({ pressed }) => ({
+                        borderRadius: 999,
+                        transform: [{ scale: pressed ? 0.96 : 1 }],
+                        opacity: pressed ? 0.92 : 1,
+                      })}
+                    >
+                      <View
+                        style={{
+                          paddingVertical: 6,
+                          paddingHorizontal: 12,
+                          minHeight: 32,
+                          justifyContent: 'center',
+                          borderRadius: 999,
+                          backgroundColor: activeDebug
+                            ? 'rgba(245,158,11,0.35)'
+                            : activeSaffron
+                              ? 'rgba(255,153,51,0.32)'
+                              : '#333333',
+                          borderWidth: 1,
+                          borderColor: activeDebug
+                            ? '#F59E0B'
+                            : activeSaffron
+                              ? '#FF9933'
+                              : '#525252',
+                          ...(Platform.OS === 'ios'
+                            ? {
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 1 },
+                                shadowOpacity: isActive ? 0.18 : 0.1,
+                                shadowRadius: isActive ? 4 : 2,
+                              }
+                            : {}),
+                          elevation: isActive ? 2 : 1,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontFamily: isActive ? 'BricolageGrotesque_700Bold' : 'Manrope_600SemiBold',
+                            fontSize: 11,
+                            lineHeight: 15,
+                            color: isActive ? '#fafafa' : '#e5e5e5',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {label}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  </Animated.View>
+                );
+              })}
+            </View>
           </View>
         )}
 
@@ -843,27 +694,16 @@ export default function ProfileSettingsScreen() {
             entering={FadeInDown.delay(100).duration(500)}
             className="mx-5 mt-4 mb-8"
             style={{
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 20,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.cardBorder,
               padding: 24,
               alignItems: "center",
             }}
           >
             <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-                const parts = fullName.trim().split(/\s+/).filter(Boolean);
-                const first = parts[0] ?? "";
-                const last = parts.length > 1 ? parts.slice(1).join(" ") : "";
-                setTempFirstName(first);
-                setTempLastName(last);
-                setTempPhone(phoneNumber);
-                setEditingProfile(true);
-              }}
+              onPress={openProfileEditor}
               style={{
                 position: "absolute",
                 top: 16,
@@ -937,40 +777,41 @@ export default function ProfileSettingsScreen() {
               }}
               numberOfLines={1}
             >
-              {fullName || (loadingPrefs ? " " : userEmail) || "User"}
+              {fullName.trim() ? fullName : loadingPrefs ? " " : "User"}
             </Text>
-            <Text
-              style={{
-                fontFamily: "Manrope_500Medium",
-                color: "#999999",
-                fontSize: 13,
-                marginBottom: 2,
-              }}
-            >
-              {loadingPrefs ? "" : (userEmail || "")}
-            </Text>
-
-            {/* Phone row — read-only display, tap edit button above to change */}
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 4,
-              }}
-            >
-              <Phone size={11} color="#666666" style={{ marginRight: 4 }} />
+            {!loadingPrefs && hasEmailOnAccount ? (
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: phoneNumber ? "#999999" : "#555555",
+                  color: "#999999",
                   fontSize: 13,
-                  marginRight: 4,
+                  marginBottom: 2,
                 }}
               >
-                {phoneNumber || "Tap ✏️ to add phone number"}
+                {userEmail}
               </Text>
-              {phoneNumber ? (
-                phoneVerified ? (
+            ) : null}
+
+            {hasCompletePhone ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
+                <Phone size={11} color="#666666" style={{ marginRight: 4 }} />
+                <Text
+                  style={{
+                    fontFamily: "Manrope_500Medium",
+                    color: "#999999",
+                    fontSize: 13,
+                    marginRight: 4,
+                  }}
+                >
+                  {phoneNumber}
+                </Text>
+                {phoneVerified ? (
                   <View style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -1002,9 +843,9 @@ export default function ProfileSettingsScreen() {
                     <ShieldCheck size={10} color="#FF9933" />
                     <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 10 }}>Verify</Text>
                   </Pressable>
-                )
-              ) : null}
-            </View>
+                )}
+              </View>
+            ) : null}
 
             <Text
               style={{
@@ -1014,8 +855,8 @@ export default function ProfileSettingsScreen() {
               }}
             >
               {createdAt
-                ? `Foodie since ${new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
-                : "Foodie since 2026"}
+                ? `Rasvia user since ${new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
+                : "Rasvia user since 2026"}
             </Text>
           </Animated.View>
 
@@ -1057,19 +898,21 @@ export default function ProfileSettingsScreen() {
           {/* Settings List — My Orders / Roles, Notifications */}
           {(!isAdmin || activeTab === 'preferences') && (
             <Animated.View
-              entering={FadeInDown.delay(150).duration(500)}
+              key="preferences-settings-card"
+              layout={LinearTransition.springify().damping(18).stiffness(200)}
               className="mx-5 mb-8"
               style={{
-                backgroundColor: "#1a1a1a",
+                backgroundColor: colors.card,
                 borderRadius: 20,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
                 overflow: "hidden",
               }}
             >
               <>
                 <SettingsRow
-                  icon={<Heart size={20} color="#EF4444" />}
+                  animDelay={72}
+                  icon={<Heart size={20} color={colors.iconMuted} />}
                   label="Favorites"
                   hasChevron
                   onPress={() => {
@@ -1079,7 +922,8 @@ export default function ProfileSettingsScreen() {
                 />
                 <Divider />
                 <SettingsRow
-                  icon={<ShoppingBag size={20} color="#FF9933" />}
+                  animDelay={132}
+                  icon={<ShoppingBag size={20} color={colors.iconMuted} />}
                   label="My Orders"
                   hasChevron
                   onPress={() => {
@@ -1089,7 +933,8 @@ export default function ProfileSettingsScreen() {
                 />
                 <Divider />
                 <SettingsRow
-                  icon={<Utensils size={20} color="#10B981" />}
+                  animDelay={192}
+                  icon={<Utensils size={20} color={colors.iconMuted} />}
                   label="Dining Preferences"
                   hasChevron
                   onPress={() => {
@@ -1099,37 +944,72 @@ export default function ProfileSettingsScreen() {
                 />
                 <Divider />
               </>
-              {isRestaurantOwner && (
-                <>
-                  <SettingsRow
-                    icon={<Camera size={20} color="#60A5FA" />}
-                    label="Restaurant Media Carousel"
-                    hasChevron
-                    onPress={() => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/owner-media-carousel" as any);
+              <Animated.View
+                entering={FadeInDown.delay(222).duration(450).springify()}
+                layout={LinearTransition.springify().damping(18).stiffness(200)}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingHorizontal: 20,
+                    paddingVertical: 16,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 12,
+                      backgroundColor: colors.iconTileBg,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginRight: 14,
                     }}
-                  />
-                  <Divider />
-                  <SettingsRow
-                    icon={<Users size={20} color="#A78BFA" />}
-                    label="Roles"
-                    hasChevron
-                    onPress={() => {
+                  >
+                    <Moon size={20} color={colors.iconMuted} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_600SemiBold",
+                        color: colors.text,
+                        fontSize: 15,
+                      }}
+                    >
+                      Dark mode
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: "Manrope_500Medium",
+                        color: colors.textMuted,
+                        fontSize: 11,
+                        marginTop: 2,
+                      }}
+                    >
+                      {isDark ? "On" : "Off"}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isDark}
+                    onValueChange={(val) => {
                       if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/roles" as any);
+                      setAppearance(val ? "dark" : "light");
                     }}
+                    trackColor={{ false: colors.switchTrackOff, true: "rgba(255,153,51,0.4)" }}
+                    thumbColor={isDark ? colors.saffron : "#666666"}
                   />
-                  <Divider />
-                </>
-              )}
+                </View>
+              </Animated.View>
+              <Divider />
               {/* Dedicated accounts screen for non-admin personas
                   (owners + users who were switched into this session). Admin
                   accesses the same panel via the inline tab strip. */}
               {!isAdmin && canUseAccounts && (
                 <>
                   <SettingsRow
-                    icon={<Users size={20} color="#60A5FA" />}
+                    animDelay={282}
+                    icon={<Users size={20} color={colors.iconMuted} />}
                     label="My Accounts"
                     hasChevron
                     onPress={() => {
@@ -1140,439 +1020,79 @@ export default function ProfileSettingsScreen() {
                   <Divider />
                 </>
               )}
-              <Divider />
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingHorizontal: 20,
-                  paddingVertical: 16,
-                }}
+              <Animated.View
+                entering={FadeInDown.delay(!isAdmin && canUseAccounts ? 342 : 312)
+                  .duration(450)
+                  .springify()}
+                layout={LinearTransition.springify().damping(18).stiffness(200)}
               >
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    backgroundColor: "rgba(255, 153, 51, 0.12)",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginRight: 14,
-                  }}
-                >
-                  <Bell size={20} color="#FF9933" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_600SemiBold",
-                      color: "#f5f5f5",
-                      fontSize: 15,
-                    }}
-                  >
-                    Notifications
-                  </Text>
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_500Medium",
-                      color: notificationsEnabled ? "#22C55E" : "#EF4444",
-                      fontSize: 11,
-                      marginTop: 2,
-                    }}
-                  >
-                    {notificationsEnabled ? "Active" : "Inactive"}
-                  </Text>
-                </View>
-                <Switch
-                  value={notificationsEnabled}
-                  onValueChange={async (val) => {
-                    if (Platform.OS !== "web") Haptics.selectionAsync();
-                    if (val) {
-                      const granted = await enablePushNotifications();
-                      setNotificationsEnabled(granted);
-                      if (!granted) {
-                        Alert.alert(
-                          "Notifications Blocked",
-                          "Please enable notifications in your device settings.",
-                        );
-                      }
-                    } else {
-                      await disablePushNotifications();
-                      setNotificationsEnabled(false);
-                    }
-                  }}
-                  trackColor={{ false: "#333333", true: "rgba(255,153,51,0.4)" }}
-                  thumbColor={notificationsEnabled ? "#FF9933" : "#666666"}
-                />
-              </View>
-
-              {isRestaurantOwner && (
-                <>
-                  <Divider />
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      paddingHorizontal: 20,
-                      paddingVertical: 16,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 12,
-                        backgroundColor: "rgba(167, 139, 250, 0.14)",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginRight: 14,
-                      }}
-                    >
-                      <Camera size={20} color="#A78BFA" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          fontFamily: "Manrope_600SemiBold",
-                          color: "#f5f5f5",
-                          fontSize: 15,
-                        }}
-                      >
-                        Community Menu Photos
-                      </Text>
-                      <Text
-                        style={{
-                          fontFamily: "Manrope_500Medium",
-                          color: !communityImagesSettingAvailable
-                            ? "#F59E0B"
-                            : communityImagesEnabled
-                              ? "#22C55E"
-                              : "#EF4444",
-                          fontSize: 11,
-                          marginTop: 2,
-                        }}
-                      >
-                        {!communityImagesSettingAvailable
-                          ? "Setting unavailable (run DB migration)"
-                          : communityImagesEnabled
-                            ? "Accepting submissions"
-                            : "Submissions disabled"}
-                      </Text>
-                    </View>
-                    <Switch
-                      value={communityImagesEnabled}
-                      disabled={communityImagesSaving || !communityImagesSettingAvailable || !effectiveOwnerRestaurantId}
-                      onValueChange={async (val) => {
-                        if (!effectiveOwnerRestaurantId) return;
-                        if (Platform.OS !== "web") Haptics.selectionAsync();
-                        const prev = communityImagesEnabled;
-                        setCommunityImagesEnabled(val);
-                        setCommunityImagesSaving(true);
-                        try {
-                          const { error } = await supabase
-                            .from("restaurants")
-                            .update({ accept_community_image_contributions: val })
-                            .eq("id", Number(effectiveOwnerRestaurantId));
-                          if (error) throw error;
-                          if (Platform.OS !== "web") {
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                          }
-                        } catch (err: any) {
-                          setCommunityImagesEnabled(prev);
-                          Alert.alert("Error", err?.message || "Could not update community image setting.");
-                        } finally {
-                          setCommunityImagesSaving(false);
-                        }
-                      }}
-                      trackColor={{ false: "#333333", true: "rgba(167,139,250,0.45)" }}
-                      thumbColor={communityImagesEnabled ? "#A78BFA" : "#666666"}
-                    />
-                  </View>
-                </>
-              )}
-            </Animated.View>
-          )}
-
-
-
-
-
-          {(!isAdmin || activeTab === 'location') && (
-            <Animated.View
-              entering={FadeInDown.delay(200).duration(500)}
-              className="mx-5 mb-8"
-            >
-              {/* Section Header */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  marginBottom: 14,
-                }}
-              >
-                <MapPin size={18} color="#FF9933" />
-                <Text
-                  style={{
-                    fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
-                    fontSize: 18,
-                    marginLeft: 8,
-                  }}
-                >
-                  Location Settings
-                </Text>
-              </View>
-
-              <View
-                style={{
-                  backgroundColor: "#1a1a1a",
-                  borderRadius: 20,
-                  borderWidth: 1,
-                  borderColor: "#2a2a2a",
-                  padding: 20,
-                }}
-              >
-                {/* === Live Location Toggle === */}
                 <View
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 16,
+                    paddingHorizontal: 20,
+                    paddingVertical: 16,
                   }}
                 >
-                  <View style={{ flex: 1, marginRight: 16 }}>
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 12,
+                      backgroundColor: colors.iconTileBg,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginRight: 14,
+                    }}
+                  >
+                    <Bell size={20} color={colors.iconMuted} />
+                  </View>
+                  <View style={{ flex: 1 }}>
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: "#f5f5f5",
+                        color: colors.text,
                         fontSize: 15,
-                        marginBottom: 4,
                       }}
                     >
-                      Live Location Tracking
+                      Notifications
                     </Text>
                     <Text
                       style={{
                         fontFamily: "Manrope_500Medium",
-                        color: "#999",
-                        fontSize: 12,
+                        color: colors.textMuted,
+                        fontSize: 11,
+                        marginTop: 2,
+                        opacity: notificationsEnabled ? 1 : 0.75,
                       }}
                     >
-                      Automatically find nearby restaurants using device GPS
+                      {notificationsEnabled ? "Active" : "Inactive"}
                     </Text>
                   </View>
                   <Switch
-                    value={liveLocationEnabled}
+                    value={notificationsEnabled}
                     onValueChange={async (val) => {
                       if (Platform.OS !== "web") Haptics.selectionAsync();
-                      if (val && Platform.OS !== "web") {
-                        const { status } = await Location.requestForegroundPermissionsAsync();
-                        if (status !== "granted") {
-                          setLiveLocationEnabled(false);
+                      if (val) {
+                        const granted = await enablePushNotifications();
+                        setNotificationsEnabled(granted);
+                        if (!granted) {
                           Alert.alert(
-                            "Location Blocked",
-                            "Please enable location access in your device settings to use live location tracking.",
+                            "Notifications Blocked",
+                            "Please enable notifications in your device settings.",
                           );
-                          return;
                         }
+                      } else {
+                        await disablePushNotifications();
+                        setNotificationsEnabled(false);
                       }
-                      setLiveLocationEnabled(val);
                     }}
-                    trackColor={{
-                      false: "#333333",
-                      true: "rgba(255,153,51,0.4)",
-                    }}
-                    thumbColor={liveLocationEnabled ? "#FF9933" : "#666666"}
+                    trackColor={{ false: colors.switchTrackOff, true: "rgba(255,153,51,0.4)" }}
+                    thumbColor={notificationsEnabled ? colors.saffron : "#666666"}
                   />
                 </View>
+              </Animated.View>
 
-                <Divider />
-
-                {/* === Saved Address Input === */}
-                <View style={{ marginTop: 16 }}>
-                  {isUsingDiningPreferenceFallback && (
-                    <View
-                      style={{
-                        marginBottom: 10,
-                        borderRadius: 10,
-                        borderWidth: 1,
-                        borderColor: "rgba(255,153,51,0.24)",
-                        backgroundColor: "rgba(255,153,51,0.08)",
-                        paddingHorizontal: 10,
-                        paddingVertical: 8,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontFamily: "Manrope_500Medium",
-                          color: "#FFB566",
-                          fontSize: 12,
-                          lineHeight: 16,
-                        }}
-                      >
-                        {`No saved location found — currently using your dining preference area${diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.`}
-                      </Text>
-                    </View>
-                  )}
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_600SemiBold",
-                      color: "#999",
-                      fontSize: 12,
-                      letterSpacing: 1,
-                      textTransform: "uppercase",
-                      marginBottom: 8,
-                    }}
-                  >
-                    {effectiveSavedAddressOverrideEnabled
-                      ? "Saved Address (Overrides GPS)"
-                      : "Saved Address"}
-                  </Text>
-                  <TextInput
-                    value={savedAddress}
-                    onChangeText={(val) => {
-                      setSavedAddress(val);
-                      setSelectedCoords(null);
-                    }}
-                    style={{
-                      backgroundColor: "#262626",
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: "#333",
-                      paddingHorizontal: 14,
-                      height: 48,
-                      color: "#f5f5f5",
-                      fontFamily: "Manrope_500Medium",
-                      fontSize: 15,
-                    }}
-                    placeholder="Enter full address, e.g. 123 Main St..."
-                    placeholderTextColor="#666"
-                    autoCorrect={false}
-                  />
-
-                  <View
-                    style={{
-                      marginTop: 10,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      backgroundColor: "#222222",
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: "#333333",
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                    }}
-                  >
-                    <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 13 }}>
-                        Saved Address Overrides GPS
-                      </Text>
-                      <Text style={{ fontFamily: "Manrope_500Medium", color: "#888", fontSize: 9, marginTop: 2 }}>
-                        {effectiveSavedAddressOverrideEnabled
-                          ? "Using saved address instead of live location"
-                          : "Saved Address will not override Live Location"}
-                      </Text>
-                    </View>
-                    <Switch
-                      value={effectiveSavedAddressOverrideEnabled}
-                      disabled={!canUseSavedAddressOverride}
-                      onValueChange={(val) => {
-                        if (Platform.OS !== "web") Haptics.selectionAsync();
-                        setSavedAddressOverrideEnabled(val);
-                      }}
-                      trackColor={{ false: "#333333", true: "rgba(255,153,51,0.4)" }}
-                      thumbColor={effectiveSavedAddressOverrideEnabled ? "#FF9933" : "#666666"}
-                    />
-                  </View>
-
-                  {/* Autocomplete Suggestions */}
-                  {addressSuggestions.length > 0 && (
-                    <View style={{
-                      backgroundColor: "#2a2a2a",
-                      borderRadius: 12,
-                      marginTop: 8,
-                      borderWidth: 1,
-                      borderColor: "#333",
-                      overflow: 'hidden'
-                    }}>
-                      {addressSuggestions.map((item, idx) => (
-                        <Pressable
-                          key={idx}
-                          style={{
-                            padding: 12,
-                            borderBottomWidth: idx < addressSuggestions.length - 1 ? 1 : 0,
-                            borderColor: "#3a3a3a"
-                          }}
-                          onPress={() => {
-                            setSavedAddress(item.display_name);
-                            setSelectedCoords({ lat: item.lat, lon: item.lon });
-                            setAddressSuggestions([]);
-                            if (Platform.OS !== "web") Haptics.selectionAsync();
-                          }}
-                        >
-                          <Text style={{ color: "#f5f5f5", fontFamily: "Manrope_500Medium", fontSize: 13, lineHeight: 18 }}>
-                            {item.display_name}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-                  {isSearchingAddress && (
-                    <Text style={{ color: "#666", fontSize: 11, fontFamily: "Manrope_500Medium", marginTop: 6, marginLeft: 4 }}>Searching...</Text>
-                  )}
-                </View>
-
-                {/* === Save Location Button === */}
-                {locationPrefsChanged && (
-                  <Animated.View style={saveLocStyle}>
-                    <Pressable
-                      onPress={handleSaveLocationSettings}
-                      onPressIn={() => {
-                        saveLocScale.value = withSpring(0.96);
-                      }}
-                      onPressOut={() => {
-                        saveLocScale.value = withSpring(1);
-                      }}
-                      disabled={isSavingLocation}
-                      style={{
-                        backgroundColor: "#FF9933",
-                        borderRadius: 14,
-                        height: 48,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexDirection: "row",
-                        marginTop: 16,
-                        shadowColor: "#FF9933",
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.3,
-                        shadowRadius: 12,
-                        elevation: 8,
-                        opacity: isSavingLocation ? 0.7 : 1,
-                      }}
-                    >
-                      {isSavingLocation ? (
-                        <ActivityIndicator color="#0f0f0f" />
-                      ) : (
-                        <>
-                          <MapPin size={16} color="#0f0f0f" />
-                          <Text
-                            style={{
-                              fontFamily: "BricolageGrotesque_700Bold",
-                              color: "#0f0f0f",
-                              fontSize: 15,
-                              marginLeft: 6,
-                            }}
-                          >
-                            Save Location Settings
-                          </Text>
-                        </>
-                      )}
-                    </Pressable>
-                  </Animated.View>
-                )}
-              </View>
             </Animated.View>
           )}
 
@@ -1822,7 +1342,7 @@ export default function ProfileSettingsScreen() {
               Hidden for admins and restaurant owners (owners shouldn't
               be able to self-delete a business-owning account). For
               tabbed personas (switched-in users) it only shows on the
-              Preferences tab so it doesn't follow you to Location /
+              Preferences tab so it doesn't follow you to Debug /
               Accounts. Regular users have no tab strip and always see
               it at the bottom.
               ========================================== */}
@@ -1907,23 +1427,25 @@ export default function ProfileSettingsScreen() {
             <AccountsManagementSection onLoggingOutChange={setLoggingOut} />
           )}
 
-          {/* Legal Links — visible only on preferences tab (not location/debug/accounts) */}
+          {/* Legal Links — visible only on preferences tab (not debug/accounts) */}
           {(!isAdmin || activeTab === 'preferences') && (
             <Animated.View
-              entering={FadeInDown.delay(350).duration(500)}
+              entering={FadeInDown.delay(320).duration(500)}
+              layout={LinearTransition.springify().damping(18).stiffness(200)}
               className="mx-5 mb-8"
             >
               <View
                 style={{
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: colors.card,
                   borderRadius: 16,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: colors.cardBorder,
                   overflow: "hidden",
                 }}
               >
                 <SettingsRow
-                  icon={<Shield size={20} color="#888888" />}
+                  animDelay={340}
+                  icon={<Shield size={20} color={colors.iconMuted} />}
                   label="Privacy Policy"
                   hasChevron
                   onPress={() => {
@@ -1933,7 +1455,8 @@ export default function ProfileSettingsScreen() {
                 />
                 <Divider />
                 <SettingsRow
-                  icon={<FileText size={20} color="#888888" />}
+                  animDelay={395}
+                  icon={<FileText size={20} color={colors.iconMuted} />}
                   label="Terms of Service"
                   hasChevron
                   onPress={() => {
@@ -1989,7 +1512,7 @@ export default function ProfileSettingsScreen() {
                         <Edit2 size={16} color="#FF9933" />
                       </View>
                       <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 20 }}>
-                        Edit Profile
+                        {profileNeedsContact ? "Finish your profile" : "Edit Profile"}
                       </Text>
                     </View>
 
@@ -2060,7 +1583,9 @@ export default function ProfileSettingsScreen() {
                       </Text>
                     </View>
                     <Text style={{ fontFamily: "Manrope_500Medium", color: "#555", fontSize: 11, marginTop: -10, marginBottom: 16 }}>
-                      Email cannot be changed here
+                      {hasEmailOnAccount
+                        ? "Email cannot be changed here"
+                        : "No email on file. If you signed in with phone only, email isn’t added to your account yet."}
                     </Text>
 
                     {/* Phone Number */}
@@ -2138,6 +1663,8 @@ export default function ProfileSettingsScreen() {
           </KeyboardAvoidingView>
         </Modal>
 
+        </View>
+        </TabScreenEntrance>
       </SafeAreaView>
 
       {/* Phone Verification Modal */}
@@ -2164,13 +1691,17 @@ function SettingsRow({
   label,
   hasChevron,
   onPress,
+  animDelay = 0,
 }: {
   icon: React.ReactNode;
   label: string;
   hasChevron?: boolean;
   onPress?: () => void;
+  /** Staggered list entrance delay (ms). */
+  animDelay?: number;
 }) {
-  return (
+  const { colors } = useAppTheme();
+  const row = (
     <Pressable
       onPress={onPress}
       style={{
@@ -2185,7 +1716,7 @@ function SettingsRow({
           width: 40,
           height: 40,
           borderRadius: 12,
-          backgroundColor: "rgba(255, 153, 51, 0.12)",
+          backgroundColor: colors.iconTileBg,
           alignItems: "center",
           justifyContent: "center",
           marginRight: 14,
@@ -2196,32 +1727,48 @@ function SettingsRow({
       <Text
         style={{
           flex: 1,
+          flexShrink: 1,
           fontFamily: "Manrope_600SemiBold",
-          color: "#f5f5f5",
+          color: colors.text,
           fontSize: 15,
+          marginRight: 8,
         }}
+        numberOfLines={2}
       >
         {label}
       </Text>
       {hasChevron && (
-        // Nudge the submenu chevron 8px down so it visually reads lower than
-        // the row's vertical centre (matches the other small indicators).
-        <ChevronRight
-          size={18}
-          color="#666666"
-          style={{ transform: [{ translateY: 8 }] }}
-        />
+        <View
+          style={{
+            flexShrink: 0,
+            width: 22,
+            height: 22,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ChevronRight size={20} color="#737373" />
+        </View>
       )}
     </Pressable>
+  );
+  return (
+    <Animated.View
+      entering={FadeInDown.delay(animDelay).duration(450).springify()}
+      layout={LinearTransition.springify().damping(18).stiffness(200)}
+    >
+      {row}
+    </Animated.View>
   );
 }
 
 function Divider() {
+  const { colors } = useAppTheme();
   return (
     <View
       style={{
         height: 1,
-        backgroundColor: "#2a2a2a",
+        backgroundColor: colors.cardBorder,
         marginHorizontal: 20,
       }}
     />

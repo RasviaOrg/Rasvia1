@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,16 +11,90 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { ArrowLeft, MapPin, Clock } from "lucide-react-native";
-import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { parseFavorites } from "@/lib/restaurant-types";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
-import { BrandedLoader } from "@/components/BrandedLoader";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { useAppTheme } from "@/lib/app-theme";
+
+function FavoritesLoadingSkeleton() {
+  const pulse = useSharedValue(0.28);
+  useEffect(() => {
+    pulse.value = withRepeat(withTiming(0.52, { duration: 720 }), -1, true);
+  }, [pulse]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  const rows = useMemo(() => [0, 1, 2, 3], []);
+
+  return (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{
+        paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 32,
+        paddingHorizontal: 20,
+      }}
+    >
+      {rows.map((i) => (
+        <Animated.View
+          key={i}
+          entering={FadeInDown.delay(36 + i * 58).duration(420)}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              backgroundColor: "#1a1a1a",
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+              padding: 12,
+              marginBottom: 16,
+              alignItems: "center",
+            }}
+          >
+            <Animated.View
+              style={[
+                { width: 80, height: 80, borderRadius: 12, backgroundColor: "#262626" },
+                pulseStyle,
+              ]}
+            />
+            <View style={{ flex: 1, marginLeft: 16, gap: 10 }}>
+              <Animated.View
+                style={[
+                  { height: 18, width: "76%", borderRadius: 8, backgroundColor: "#262626" },
+                  pulseStyle,
+                ]}
+              />
+              <Animated.View
+                style={[
+                  { height: 12, width: "92%", borderRadius: 6, backgroundColor: "#262626" },
+                  pulseStyle,
+                ]}
+              />
+              <Animated.View
+                style={[
+                  { height: 12, width: "38%", borderRadius: 6, backgroundColor: "#262626" },
+                  pulseStyle,
+                ]}
+              />
+            </View>
+          </View>
+        </Animated.View>
+      ))}
+    </ScrollView>
+  );
+}
 
 export default function FavoritesScreen() {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const { session } = useAuth();
   const closedRestaurantIds = useClosedRestaurantIds();
@@ -96,8 +170,8 @@ export default function FavoritesScreen() {
   };
 
   return (
-    <View className="flex-1 bg-rasvia-black">
-      <SafeAreaView className="flex-1" edges={["top"]}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
         {/* Header */}
         <Animated.View
           entering={FadeIn.duration(400)}
@@ -127,7 +201,7 @@ export default function FavoritesScreen() {
           <Text
             style={{
               fontFamily: "BricolageGrotesque_800ExtraBold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 28,
               letterSpacing: -0.5,
             }}
@@ -137,7 +211,7 @@ export default function FavoritesScreen() {
         </Animated.View>
 
         {loading ? (
-          <BrandedLoader message="Loading favorites..." />
+          <FavoritesLoadingSkeleton />
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}

@@ -14,6 +14,7 @@ import {
     StyleSheet,
     FlatList,
     useWindowDimensions,
+    Switch,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { getStartDate, getEndDate } from "../dateTools";
@@ -32,7 +33,11 @@ import {
     BarChart3,
     Settings,
     SlidersHorizontal,
+    Camera,
+    Images,
 } from "lucide-react-native";
+import { useRouter } from "expo-router";
+import { OwnerMediaCarouselPanel } from "@/components/OwnerMediaCarouselPanel";
 import { RestaurantEditModal } from "@/components/RestaurantEditModal";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import * as Haptics from "expo-haptics";
@@ -1220,8 +1225,10 @@ export function OwnerHomeContent({
     const statValueFontSize = isCompactOwnerUi ? 20 : 24;
     const statCardVerticalPadding = isCompactOwnerUi ? 8 : 10;
     const combinedBreakdownVerticalPadding = isCompactOwnerUi ? 12 : 14;
+    const router = useRouter();
     const {
         isAdmin,
+        isRestaurantOwner,
         effectiveOwnerRestaurantId,
         setAdminOwnerRestaurantId,
     } = useAdminMode();
@@ -1255,6 +1262,42 @@ export function OwnerHomeContent({
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [showHoursSettings, setShowHoursSettings] = useState(false);
     const [showPulseBreakdown, setShowPulseBreakdown] = useState<false | "All" | "Today">(false);
+
+    const [communityImagesEnabled, setCommunityImagesEnabled] = useState(true);
+    const [communityImagesSaving, setCommunityImagesSaving] = useState(false);
+    const [communityImagesSettingAvailable, setCommunityImagesSettingAvailable] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function loadCommunityImageSetting() {
+            if (!effectiveOwnerRestaurantId || (!isRestaurantOwner && !isAdmin)) return;
+            try {
+                const { data, error } = await supabase
+                    .from("restaurants")
+                    .select("accept_community_image_contributions")
+                    .eq("id", Number(effectiveOwnerRestaurantId))
+                    .maybeSingle();
+                if (cancelled) return;
+                if (error) {
+                    if (
+                        error.message?.toLowerCase().includes("column") &&
+                        error.message?.includes("accept_community_image_contributions")
+                    ) {
+                        setCommunityImagesSettingAvailable(false);
+                    }
+                    return;
+                }
+                setCommunityImagesSettingAvailable(true);
+                setCommunityImagesEnabled((data as { accept_community_image_contributions?: boolean } | null)?.accept_community_image_contributions !== false);
+            } catch {
+                /* noop */
+            }
+        }
+        void loadCommunityImageSetting();
+        return () => {
+            cancelled = true;
+        };
+    }, [effectiveOwnerRestaurantId, isRestaurantOwner, isAdmin]);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -1519,6 +1562,9 @@ export function OwnerHomeContent({
                 style={{ flex: 1 }}
                 contentContainerStyle={{ padding: 20, paddingBottom: 60 }}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                nestedScrollEnabled
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -2038,6 +2084,144 @@ export function OwnerHomeContent({
                         ))}
                     </View>
                 </View>
+
+                {/* ── Roles, community photos, media carousel (venue surfaces on the app) ── */}
+                {effectiveOwnerRestaurantId && (isRestaurantOwner || isAdmin) && (
+                    <View style={{ marginBottom: 24, gap: 24 }}>
+                        <View>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                                <Users size={18} color={ORANGE} />
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                    Roles & permissions
+                                </Text>
+                            </View>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#888", marginBottom: 12, lineHeight: 18 }}>
+                                Invite hosts and staff, and control who can manage your venue in Rasvia.
+                            </Text>
+                            <Pressable
+                                onPress={() => {
+                                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                                    router.push("/roles" as any);
+                                }}
+                                style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    backgroundColor: "#161616",
+                                    borderWidth: 1,
+                                    borderColor: "#2d2d2d",
+                                    borderRadius: 14,
+                                    paddingHorizontal: 16,
+                                    paddingVertical: 14,
+                                }}
+                            >
+                                <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 15, color: "#f5f5f5" }}>
+                                    Open roles
+                                </Text>
+                                <ChevronRight size={20} color="#888" />
+                            </Pressable>
+                        </View>
+
+                        <View
+                            style={{
+                                borderWidth: 1,
+                                borderColor: "#2d2d2d",
+                                backgroundColor: "#161616",
+                                borderRadius: 16,
+                                padding: 14,
+                            }}
+                        >
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                <Camera size={18} color={ORANGE} />
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                    Community menu photos
+                                </Text>
+                            </View>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#888", marginBottom: 12, lineHeight: 18 }}>
+                                Let guests submit photos for menu items. You can approve or reject them from your venue tools.
+                            </Text>
+                            <View
+                                style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 12,
+                                }}
+                            >
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#f5f5f5" }}>
+                                        Accept submissions
+                                    </Text>
+                                    <Text
+                                        style={{
+                                            fontFamily: "Manrope_500Medium",
+                                            fontSize: 12,
+                                            color: !communityImagesSettingAvailable
+                                                ? "#A1A1AA"
+                                                : communityImagesEnabled
+                                                  ? "#71717A"
+                                                  : "#52525B",
+                                            marginTop: 4,
+                                        }}
+                                    >
+                                        {!communityImagesSettingAvailable
+                                            ? "Unavailable (DB migration required)"
+                                            : communityImagesEnabled
+                                              ? "On"
+                                              : "Off"}
+                                    </Text>
+                                </View>
+                                <Switch
+                                    value={communityImagesEnabled}
+                                    disabled={
+                                        communityImagesSaving || !communityImagesSettingAvailable || !effectiveOwnerRestaurantId
+                                    }
+                                    onValueChange={async (val) => {
+                                        if (!effectiveOwnerRestaurantId) return;
+                                        if (Platform.OS !== "web") Haptics.selectionAsync();
+                                        const prev = communityImagesEnabled;
+                                        setCommunityImagesEnabled(val);
+                                        setCommunityImagesSaving(true);
+                                        try {
+                                            const { error } = await supabase
+                                                .from("restaurants")
+                                                .update({ accept_community_image_contributions: val })
+                                                .eq("id", Number(effectiveOwnerRestaurantId));
+                                            if (error) throw error;
+                                            if (Platform.OS !== "web") {
+                                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                            }
+                                        } catch (err: any) {
+                                            setCommunityImagesEnabled(prev);
+                                            Alert.alert("Error", err?.message || "Could not update community photo setting.");
+                                        } finally {
+                                            setCommunityImagesSaving(false);
+                                        }
+                                    }}
+                                    trackColor={{ false: "#333333", true: "rgba(255,153,51,0.4)" }}
+                                    thumbColor={communityImagesEnabled ? "#FF9933" : "#666666"}
+                                />
+                            </View>
+                        </View>
+
+                        <View>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                                <Images size={18} color={ORANGE} />
+                                <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 17, color: "#f5f5f5" }}>
+                                    Restaurant media carousel
+                                </Text>
+                            </View>
+                            <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 13, color: "#888", marginBottom: 12, lineHeight: 18 }}>
+                                Images shown on restaurant cards in Discover and search. Edits save to your venue.
+                            </Text>
+                            <OwnerMediaCarouselPanel
+                                variant="embedded"
+                                restaurantId={effectiveOwnerRestaurantId}
+                                allowEdit
+                            />
+                        </View>
+                    </View>
+                )}
             </ScrollView>
 
             {/* Modals */}

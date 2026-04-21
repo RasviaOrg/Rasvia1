@@ -5,6 +5,7 @@ import { Star, MapPin, Clock, Heart, Hourglass } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
 import type { RestaurantMediaSlide } from "@/lib/restaurant-media";
 import { RestaurantMediaFrame } from "@/components/RestaurantMediaFrame";
+import { useAppTheme } from "@/lib/app-theme";
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
@@ -26,7 +27,11 @@ interface HeroCardProps {
 }
 
 export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavorite, mediaSlides }: HeroCardProps) {
+  const { colors, isDark } = useAppTheme();
   const pressScale = useSharedValue(1);
+  const heroGradient = isDark
+    ? (["transparent", "rgba(15,15,15,0.6)", "rgba(15,15,15,0.95)"] as const)
+    : (["transparent", "rgba(255,255,255,0.2)", "rgba(255,255,255,0.94)"] as const);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressScale.value }],
@@ -40,7 +45,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
       <Animated.View
         style={[
           animatedStyle,
-          { height: 315, borderWidth: 1, borderColor: "#2a2a2a", borderRadius: 16, overflow: "hidden" },
+          { height: 315, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 16, overflow: "hidden" },
         ]}
       >
         {/* Card-level pressable. We clip its tap region so the top-right
@@ -76,7 +81,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           />
         </View>
         <LinearGradient
-          colors={["transparent", "rgba(15,15,15,0.6)", "rgba(15,15,15,0.95)"]}
+          colors={heroGradient}
           style={{
             position: "absolute",
             bottom: 0,
@@ -169,7 +174,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
           <Text
             style={{
               fontFamily: "BricolageGrotesque_800ExtraBold",
-              color: "#f5f5f5",
+              color: colors.text,
               fontSize: 36,
               lineHeight: 40,
               marginBottom: 4,
@@ -186,7 +191,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               <Text
                 style={{
                   fontFamily: "Manrope_700Bold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 14,
                   marginLeft: 4,
                 }}
@@ -196,7 +201,7 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 13,
                   marginLeft: 4,
                 }}
@@ -219,11 +224,11 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               </View>
             </View>
             <View className="flex-row items-center">
-              <MapPin size={13} color="#999999" />
+              <MapPin size={13} color={colors.textMuted} />
               <Text
                 style={{
                   fontFamily: "Manrope_500Medium",
-                  color: "#999999",
+                  color: colors.textMuted,
                   fontSize: 13,
                   marginLeft: 4,
                 }}

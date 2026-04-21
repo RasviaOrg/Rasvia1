@@ -35,7 +35,7 @@ import {
   Store,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, LinearTransition } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from "react-native-reanimated";
 import { supabase } from "@/lib/supabase";
 import { fetchBatchReviewStats } from "@/lib/review-stats";
 import {
@@ -48,8 +48,10 @@ import { useLocation } from "@/lib/location-context";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { AddRestaurantModal } from "@/components/AddRestaurantModal";
+import { useAppTheme } from "@/lib/app-theme";
 import { AdminRestaurantPanel } from "@/components/AdminRestaurantPanel";
-import { BrandedLoader } from "@/components/BrandedLoader";
+import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
+import { TabScreenEntrance } from "@/components/TabScreenEntrance";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
 // NOTE: previously this module registered a persistent `Dimensions.addEventListener`
@@ -202,6 +204,7 @@ function haversineDistance(
 }
 
 export default function MapScreen() {
+  const { colors, isDark } = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
@@ -694,15 +697,15 @@ export default function MapScreen() {
     setShowNearbyList(false);
   }, []);
 
+  const showMapPrepareOverlay = loading || !isMapReady;
+
   // ==============================
   // Render
   // ==============================
-  if (loading) {
-    return <BrandedLoader message="Loading map..." />;
-  }
-
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <TabScreenEntrance>
+      <View style={{ flex: 1 }}>
       {/* Map */}
       <MapView
         ref={mapRef}
@@ -722,8 +725,8 @@ export default function MapScreen() {
         // saved/home marker instead to avoid conflicting location signals.
         showsUserLocation={isLiveLocationEnabled && !usingSavedLocation}
         showsMyLocationButton={false}
-        userInterfaceStyle="dark"
-        customMapStyle={Platform.OS === "android" ? GOOGLE_MAPS_DARK_STYLE : undefined}
+        userInterfaceStyle={isDark ? "dark" : "light"}
+        customMapStyle={Platform.OS === "android" && isDark ? GOOGLE_MAPS_DARK_STYLE : undefined}
         mapType="standard"
         toolbarEnabled={false}
       >
@@ -866,64 +869,66 @@ export default function MapScreen() {
         edges={["top"]}
         style={{ position: "absolute", top: 0, left: 0, right: 0 }}
       >
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-            paddingHorizontal: 16,
-            paddingTop: 8,
-          }}
-        >
-          <View style={{ width: 44, height: 44 }} />
-
-          {/* Discover Nearby — centered pill */}
-          <Pressable
-            onPress={() => {
-              if (isSettingLocation) return;
-              handleDiscoverNearby();
-            }}
+        <View>
+          <View
             style={{
-              backgroundColor: "#1a1a1a",
               flexDirection: "row",
+              justifyContent: "space-between",
               alignItems: "center",
-              paddingHorizontal: 22,
-              paddingVertical: 14,
-              borderRadius: 28,
-              borderWidth: 1.5,
-              borderColor: isSettingLocation ? "#666" : "#FF9933",
-              opacity: isSettingLocation ? 0.5 : 1,
+              paddingHorizontal: 16,
+              paddingTop: 8,
             }}
           >
-            <Compass size={18} color={isSettingLocation ? "#666" : "#FF9933"} />
-            <Text
+            <View style={{ width: 44, height: 44 }} />
+
+            {/* Discover Nearby — centered pill */}
+            <Pressable
+              onPress={() => {
+                if (isSettingLocation) return;
+                handleDiscoverNearby();
+              }}
               style={{
-                fontFamily: "BricolageGrotesque_700Bold",
-                color: isSettingLocation ? "#666" : "#FF9933",
-                fontSize: 15,
-                marginLeft: 8,
+                backgroundColor: "#1a1a1a",
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: 22,
+                paddingVertical: 14,
+                borderRadius: 28,
+                borderWidth: 1.5,
+                borderColor: isSettingLocation ? "#666" : "#FF9933",
+                opacity: isSettingLocation ? 0.5 : 1,
               }}
             >
-              Discover Nearby
-            </Text>
-          </Pressable>
+              <Compass size={18} color={isSettingLocation ? "#666" : "#FF9933"} />
+              <Text
+                style={{
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  color: isSettingLocation ? "#666" : "#FF9933",
+                  fontSize: 15,
+                  marginLeft: 8,
+                }}
+              >
+                Discover Nearby
+              </Text>
+            </Pressable>
 
-          {/* Location button */}
-          <Pressable
-            onPress={handleLocationPress}
-            style={{
-              backgroundColor: "#1a1a1a",
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              alignItems: "center",
-              justifyContent: "center",
-              borderWidth: 1,
-              borderColor: "#2a2a2a",
-            }}
-          >
-            <LocateFixed size={20} color="#FF9933" />
-          </Pressable>
+            {/* Location button */}
+            <Pressable
+              onPress={handleLocationPress}
+              style={{
+                backgroundColor: "#1a1a1a",
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: "#2a2a2a",
+              }}
+            >
+              <LocateFixed size={20} color="#FF9933" />
+            </Pressable>
+          </View>
         </View>
 
         {/* Status pill — shown directly below Discover Nearby when in location-setting mode */}
@@ -1259,6 +1264,13 @@ export default function MapScreen() {
             setShowAddModal(false);
           }}
         />
+      )}
+
+      </View>
+      </TabScreenEntrance>
+
+      {showMapPrepareOverlay && (
+        <LoadingBlurOverlay />
       )}
 
     </View>
@@ -2094,6 +2106,7 @@ function MapSearchOverlay({
   onClose: () => void;
   onSelect: (r: UIRestaurant) => void;
 }) {
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   type SortOption = "none" | "waitTime" | "distance";
@@ -2148,7 +2161,7 @@ function MapSearchOverlay({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: "#0f0f0f",
+        backgroundColor: colors.background,
         zIndex: 1000,
       }}
     >
@@ -2158,9 +2171,9 @@ function MapSearchOverlay({
           paddingTop: insets.top + 8,
           paddingHorizontal: 16,
           paddingBottom: 12,
-          backgroundColor: "#0f0f0f",
+          backgroundColor: colors.background,
           borderBottomWidth: 1,
-          borderBottomColor: "#1a1a1a",
+          borderBottomColor: colors.cardBorder,
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -2169,7 +2182,7 @@ function MapSearchOverlay({
               flex: 1,
               flexDirection: "row",
               alignItems: "center",
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.card,
               borderRadius: 16,
               borderWidth: 1.5,
               borderColor: "#FF9933",

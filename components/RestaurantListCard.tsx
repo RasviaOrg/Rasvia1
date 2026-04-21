@@ -4,6 +4,7 @@ import { Star, Clock, Heart, Hourglass } from "lucide-react-native";
 import type { UIRestaurant } from "@/lib/restaurant-types";
 import type { RestaurantMediaSlide } from "@/lib/restaurant-media";
 import { RestaurantMediaFrame } from "@/components/RestaurantMediaFrame";
+import { useAppTheme } from "@/lib/app-theme";
 import Animated, {
   FadeIn,
   FadeInRight,
@@ -29,6 +30,7 @@ export function RestaurantListCard({
   onToggleFavorite,
   mediaSlides,
 }: RestaurantListCardProps) {
+  const { colors } = useAppTheme();
   const pressScale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -70,9 +72,9 @@ export function RestaurantListCard({
           {
             borderRadius: 16,
             overflow: "hidden",
-            backgroundColor: "#1a1a1a",
+            backgroundColor: colors.card,
             borderWidth: 1,
-            borderColor: "#2a2a2a",
+            borderColor: colors.cardBorder,
           },
         ]}
       >
@@ -81,7 +83,7 @@ export function RestaurantListCard({
             onPress={onPress}
             onPressIn={() => { pressScale.value = withSpring(0.96); }}
             onPressOut={() => { pressScale.value = withSpring(1); }}
-            style={{ height: 155, position: "relative", backgroundColor: "#2a2a2a" }}
+            style={{ height: 155, position: "relative", backgroundColor: colors.cardBorder }}
           >
             <RestaurantMediaFrame
               defaultImage={restaurant.image}
@@ -172,7 +174,7 @@ export function RestaurantListCard({
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 15,
                   flex: 1,
                 }}
@@ -200,7 +202,7 @@ export function RestaurantListCard({
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#888",
+                color: colors.textMuted,
                 fontSize: 11,
                 marginBottom: 7,
               }}
@@ -216,7 +218,7 @@ export function RestaurantListCard({
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 12,
                     marginLeft: 3,
                   }}

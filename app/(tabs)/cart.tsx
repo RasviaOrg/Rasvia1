@@ -1,11 +1,14 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, Pressable, Platform, ActivityIndicator, Image, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Minus, Plus, ShoppingCart, Trash2, UtensilsCrossed, Truck } from "lucide-react-native";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
-import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
+import { useAppTheme } from "@/lib/app-theme";
+import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
+import { TabScreenEntrance } from "@/components/TabScreenEntrance";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useAuth } from "@/lib/auth-context";
 import {
   fetchUserCartList,
@@ -29,6 +32,7 @@ type RestaurantCartGroup = {
 };
 
 export default function CartScreen() {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -39,32 +43,39 @@ export default function CartScreen() {
   // stale snapshot on the first failure.
   const latestReqIdByKey = useRef<Map<string, number>>(new Map());
   const reqCounter = useRef(0);
+  const hasCompletedCartLoadRef = useRef(false);
 
-  const reloadCart = useCallback(async () => {
+  useEffect(() => {
+    hasCompletedCartLoadRef.current = false;
+  }, [session?.user?.id]);
+
+  const reloadCart = useCallback(async (mode: "full" | "soft" = "full") => {
     const userId = session?.user?.id;
     if (!userId) {
       setItems([]);
       setLoading(false);
       return;
     }
+    const soft = mode === "soft" && hasCompletedCartLoadRef.current;
     try {
-      setLoading(true);
+      if (!soft) setLoading(true);
       const rows = await fetchUserCartList(userId);
       setItems(rows);
     } finally {
       setLoading(false);
+      hasCompletedCartLoadRef.current = true;
     }
   }, [session?.user?.id]);
 
   useFocusEffect(
     useCallback(() => {
-      void reloadCart();
+      void reloadCart("soft");
     }, [reloadCart])
   );
 
   const goHome = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
-    router.replace("/" as any);
+    router.navigate("/" as any);
   };
 
   const grouped = useMemo<RestaurantCartGroup[]>(() => {
@@ -108,6 +119,7 @@ export default function CartScreen() {
     [grouped, isGroupClosed]
   );
   const anyOpen = openGroups.length > 0;
+  const showCartLoadingBlur = loading && !!session?.user?.id;
 
   const updateQuantity = useCallback(
     async (row: UserCartListItem, nextQty: number) => {
@@ -244,28 +256,20 @@ export default function CartScreen() {
   }, [grouped, openGroups, openRestaurant]);
 
   return (
-    <View className="flex-1 bg-rasvia-black">
-      <SafeAreaView className="flex-1 px-5" edges={["top"]}>
-        <Animated.View
-          entering={FadeIn.duration(260)}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <SafeAreaView style={{ flex: 1, paddingHorizontal: 20 }} edges={["top"]}>
+        <TabScreenEntrance>
+        <View style={{ flex: 1 }}>
+        <View
           style={{ flexDirection: "row", alignItems: "center", marginTop: 6, marginBottom: 14 }}
         >
-          <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 30 }}>
+          <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 30 }}>
             Cart
           </Text>
-        </Animated.View>
+        </View>
 
         {loading ? (
-          <View
-            style={{
-              flex: 1,
-              alignItems: "center",
-              justifyContent: "center",
-              paddingBottom: APP_BOTTOM_NAV_HEIGHT + 54 + APP_BOTTOM_NAV_OFFSET,
-            }}
-          >
-            <ActivityIndicator size="large" color="#FF9933" />
-          </View>
+          <View style={{ flex: 1 }} />
         ) : items.length === 0 ? (
           <Animated.View
             entering={FadeInDown.duration(320)}
@@ -687,6 +691,10 @@ export default function CartScreen() {
             </View>
           </Animated.View>
         )}
+        </View>
+        </TabScreenEntrance>
+
+        {showCartLoadingBlur && <LoadingBlurOverlay />}
       </SafeAreaView>
     </View>
   );

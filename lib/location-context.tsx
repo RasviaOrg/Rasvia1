@@ -13,8 +13,8 @@ interface LocationContextType {
     /** Onboarding / profile `location_city` (e.g. "Dallas, TX"), when set. */
     diningPreferenceAreaLabel: string | null;
     /**
-     * True when live GPS is off, there is no saved home coordinates on the profile,
-     * the user has a dining-preference city, and no transient search override is active.
+     * True when live GPS is off, there is no saved address on the profile or in
+     * saved-address list, the user has a dining-preference city, and no transient search override is active.
      */
     isUsingDiningPreferenceFallback: boolean;
     reloadLocationPrefs: () => Promise<void>;
@@ -212,11 +212,18 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                     .eq("id", session.user.id)
                     .maybeSingle();
 
+                const { count: savedAddrRowCount, error: savedAddrCountErr } = await supabase
+                    .from("profile_saved_addresses")
+                    .select("id", { count: "exact", head: true })
+                    .eq("user_id", session.user.id);
+
                 if (!error && data) {
                     const addr = data.saved_address || null;
                     const hasCoords = Boolean(data.home_lat && data.home_long);
                     const hasSavedAddr = Boolean(addr && addr.trim().length > 0);
-                    setHasSavedAddress(hasCoords || hasSavedAddr);
+                    const hasSavedAddrList =
+                        !savedAddrCountErr && savedAddrRowCount != null && savedAddrRowCount > 0;
+                    setHasSavedAddress(hasCoords || hasSavedAddr || hasSavedAddrList);
 
                     const locationCityRaw = (data.location_city as string | undefined)?.trim() || null;
                     setDiningPreferenceAreaLabel(locationCityRaw);

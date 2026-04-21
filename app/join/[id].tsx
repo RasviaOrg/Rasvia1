@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
+import * as SecureStore from 'expo-secure-store';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeOut, FadeOutDown,
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence,
@@ -72,6 +73,22 @@ type Restaurant = { id: number; name: string; image_url: string | null };
  * just under a second so the wallet sheet keeps the foreground.
  */
 const WALLET_INTERACTION_GRACE_MS = 900;
+
+/** Drop home-screen banner cache when it points at this session (guest leave / cancel). */
+async function clearHomeActiveGroupOrderCache(userId: string | undefined, sid: string) {
+  if (!userId || !sid) return;
+  try {
+    const k = `rasvia_active_group_order_${userId}`;
+    const raw = await SecureStore.getItemAsync(k);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { sessionId?: string };
+    if (String(parsed?.sessionId ?? '') === sid) {
+      await SecureStore.deleteItemAsync(k);
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 const PAYMENT_MODES: { key: PaymentMode; title: string; subtitle: string }[] = [
   { key: 'host_pays',   title: 'Host covers everyone', subtitle: 'You pay the whole bill.' },
@@ -464,6 +481,7 @@ export default function JoinPartyScreen() {
       Alert.alert('Group order cancelled', `${result.refunded} payment${result.refunded === 1 ? '' : 's'} refunded.`);
       await clearPartyCreds(sessionId);
       await removeActiveParty(sessionId);
+      await clearHomeActiveGroupOrderCache(authSession?.user?.id, sessionId);
       router.back();
     } catch (err) {
       Alert.alert('Cancel failed', err instanceof Error ? err.message : 'Try again.');
@@ -488,6 +506,7 @@ export default function JoinPartyScreen() {
             try { await leaveSession(supabase, creds); } catch { /* ignore */ }
             await clearPartyCreds(sessionId);
             await removeActiveParty(sessionId);
+            await clearHomeActiveGroupOrderCache(authSession?.user?.id, sessionId);
             router.back();
           },
         },
@@ -559,6 +578,7 @@ export default function JoinPartyScreen() {
               onPress={async () => {
                 await clearPartyCreds(sessionId);
                 await removeActiveParty(sessionId);
+                await clearHomeActiveGroupOrderCache(authSession?.user?.id, sessionId);
                 router.replace('/');
               }}
               style={[s.primaryBtn, { marginTop: 10, alignSelf: 'stretch' }]}
@@ -623,6 +643,7 @@ export default function JoinPartyScreen() {
         onDone={async () => {
           await clearPartyCreds(sessionId);
           await removeActiveParty(sessionId);
+          await clearHomeActiveGroupOrderCache(authSession?.user?.id, sessionId);
           router.replace('/');
         }}
       />

@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, Pressable } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import type { FilterType } from "@/data/mockData";
+import { useAppTheme } from "@/lib/app-theme";
 
 interface FilterBarProps {
   activeFilter: FilterType;
@@ -16,6 +17,7 @@ const filters: { label: string; value: FilterType; color?: string }[] = [
 ];
 
 export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
+  const { colors } = useAppTheme();
   return (
     <Animated.View entering={FadeIn.delay(200).duration(400)}>
       <View style={{ paddingHorizontal: 20, flexDirection: "row", justifyContent: "space-between" }}>
@@ -36,10 +38,10 @@ export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
                   borderWidth: 1,
                   borderColor: isActive
                     ? filter.color || "#FF9933"
-                    : "#333333",
+                    : colors.cardBorder,
                   backgroundColor: isActive
                     ? `${filter.color || "#FF9933"}20`
-                    : "#1a1a1a",
+                    : colors.card,
                 },
               ]}
             >
@@ -58,7 +60,7 @@ export function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: isActive ? filter.color || "#FF9933" : "#999999",
+                    color: isActive ? filter.color || "#FF9933" : colors.textMuted,
                     fontSize: 12,
                   }}
                 >

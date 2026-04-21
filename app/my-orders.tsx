@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -53,6 +53,7 @@ import {
   type UIOrder,
 } from "@/lib/restaurant-types";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { useAppTheme } from "@/lib/app-theme";
 import { cancelOrder, cancelErrorMessage } from "@/lib/order-cancel";
 
 const DISMISSED_ORDERS_KEY = "rasvia_my-orders-dismissed_v1";
@@ -933,9 +934,87 @@ function PastOrderCard({
   );
 }
 
+function MyOrdersLoadingSkeleton() {
+  const pulse = useSharedValue(0.28);
+  useEffect(() => {
+    pulse.value = withRepeat(withTiming(0.52, { duration: 720 }), -1, true);
+  }, [pulse]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  const rows = useMemo(() => [0, 1, 2, 3], []);
+
+  return (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{
+        paddingBottom: APP_BOTTOM_NAV_HEIGHT + APP_BOTTOM_NAV_OFFSET + 32,
+        paddingHorizontal: 20,
+      }}
+    >
+      {rows.map((i) => (
+        <Animated.View
+          key={i}
+          entering={FadeInDown.delay(44 + i * 62).duration(430)}
+        >
+          <View
+            style={{
+              backgroundColor: "#1a1a1a",
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: "#2a2a2a",
+              padding: 16,
+              marginBottom: 14,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 14,
+              }}
+            >
+              <Animated.View
+                style={[
+                  { height: 14, width: "42%", borderRadius: 6, backgroundColor: "#262626" },
+                  pulseStyle,
+                ]}
+              />
+              <Animated.View
+                style={[
+                  { height: 26, width: 76, borderRadius: 8, backgroundColor: "#262626" },
+                  pulseStyle,
+                ]}
+              />
+            </View>
+            <Animated.View
+              style={[
+                { height: 20, width: "58%", borderRadius: 8, backgroundColor: "#262626", marginBottom: 12 },
+                pulseStyle,
+              ]}
+            />
+            <Animated.View
+              style={[
+                { height: 14, width: "88%", borderRadius: 6, backgroundColor: "#262626", marginBottom: 8 },
+                pulseStyle,
+              ]}
+            />
+            <Animated.View
+              style={[
+                { height: 14, width: "52%", borderRadius: 6, backgroundColor: "#262626" },
+                pulseStyle,
+              ]}
+            />
+          </View>
+        </Animated.View>
+      ))}
+    </ScrollView>
+  );
+}
+
 // ─────────────────────── Main Screen ─────────────────────────────────────────
 
 export default function MyOrdersScreen() {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -1072,7 +1151,7 @@ export default function MyOrdersScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
         {/* Header */}
         <Animated.View
@@ -1107,15 +1186,15 @@ export default function MyOrdersScreen() {
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text
-              style={{
-                fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
-                fontSize: 28,
-                letterSpacing: -0.5,
-              }}
-            >
-              My Orders
-            </Text>
+            style={{
+              fontFamily: "BricolageGrotesque_800ExtraBold",
+              color: colors.text,
+              fontSize: 28,
+              letterSpacing: -0.5,
+            }}
+          >
+            My Orders
+          </Text>
           </View>
           {activeOrders.length > 0 && (
             <Animated.View
@@ -1147,11 +1226,7 @@ export default function MyOrdersScreen() {
         </Animated.View>
 
         {loading ? (
-          <View
-            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-          >
-            <ActivityIndicator color="#FF9933" size="large" />
-          </View>
+          <MyOrdersLoadingSkeleton />
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}

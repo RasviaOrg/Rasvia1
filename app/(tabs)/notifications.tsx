@@ -30,8 +30,8 @@ import {
   Camera,
 } from "lucide-react-native";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { TabScreenEntrance } from "@/components/TabScreenEntrance";
 import Animated, {
-  FadeIn,
   FadeInDown,
   FadeOut,
   LinearTransition,
@@ -43,6 +43,7 @@ import {
   type NotificationEvent,
   type ActiveWaitlistEntry,
 } from "@/lib/notifications-context";
+import { useAppTheme } from "@/lib/app-theme";
 
 // ==========================================
 // RELATIVE TIME HELPER
@@ -81,6 +82,62 @@ function formatJoinTime(isoString: string): string {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function buildEventHeadline(event: NotificationEvent, fallbackLabel: string): string {
+  const trimmed = event.message?.trim();
+  if (trimmed) return trimmed;
+  return fallbackLabel;
+}
+
+function buildEventSubtitle(event: NotificationEvent): string {
+  const r = event.restaurantName?.trim() || "this restaurant";
+  const party =
+    event.partySize > 0
+      ? `Party of ${event.partySize}`
+      : "Your party";
+  switch (event.type) {
+    case "joined":
+      return `${party} is on the waitlist at ${r}. We'll notify you when your table is ready.`;
+    case "table_ready":
+      return `Your table at ${r} is ready. Check in with the host so they can seat you.`;
+    case "seated":
+      return `You've been seated at ${r}. We hope you enjoy your meal.`;
+    case "left":
+      return `You left the waitlist at ${r}. Join again anytime from the restaurant page.`;
+    case "removed":
+      return `You were removed from the waitlist at ${r}. Contact the restaurant if this wasn't expected.`;
+    case "group_created":
+      return `You're hosting a group order at ${r}. Share the invite so everyone can add items to one cart.`;
+    case "group_joined":
+      return `You're in a group order at ${r}. Open the session to browse the menu and add dishes.`;
+    case "group_item_added":
+      return `Someone updated the shared cart at ${r}. Review items before the host checks out.`;
+    case "group_submitted":
+      return `The group order at ${r} was submitted. Check the restaurant page for confirmation or pickup details.`;
+    case "group_ended":
+      return `The group order at ${r} has ended. Start a new session when you're ready to order together again.`;
+    case "order_placed":
+      return `Your order at ${r} is in. Track status and receipts anytime in My orders.`;
+    case "review_report_submitted":
+      return "Thanks for flagging a review. Our team will review it and follow up if needed.";
+    case "review_report_new":
+      return `A diner reported a review for ${r}. Open owner tools to review and respond.`;
+    case "review_report_declined":
+      return `We reviewed the report for ${r} and didn't remove the review. Check your dashboard for details.`;
+    case "review_report_deleted":
+      return `The reported review for ${r} has been closed or removed.`;
+    case "menu_image_submitted":
+      return `Your menu photo for ${r} was sent for review. We'll let you know when it's approved or needs changes.`;
+    case "menu_image_request_new":
+      return `A new menu photo was submitted for ${r}. Approve or decline it from restaurant settings.`;
+    case "menu_image_approved":
+      return `Your menu photo for ${r} is live. Diners will see the updated images on your page.`;
+    case "menu_image_rejected":
+      return `Your menu photo for ${r} wasn't approved. Try a clearer image that follows our guidelines.`;
+    default:
+      return "";
+  }
 }
 
 // ==========================================
@@ -229,6 +286,7 @@ function WaitlistWidget({
   onPress: () => void;
   onDismiss: () => void;
 }) {
+  const { colors } = useAppTheme();
   const statusCfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.waiting;
 
   return (
@@ -236,13 +294,13 @@ function WaitlistWidget({
       <Pressable
         onPress={onPress}
         style={{
-          backgroundColor: "#1a1a1a",
+          backgroundColor: colors.card,
           borderRadius: 20,
           borderWidth: 1.5,
           borderColor:
             entry.status === "notified"
               ? "rgba(34,197,94,0.4)"
-              : "#2a2a2a",
+              : colors.cardBorder,
           overflow: "hidden",
           marginBottom: 12,
           shadowColor: entry.status === "notified" ? "#22C55E" : "#000",
@@ -325,7 +383,7 @@ function WaitlistWidget({
                 height: 56,
                 borderRadius: 14,
                 borderWidth: 1,
-                borderColor: "#2a2a2a",
+                borderColor: colors.cardBorder,
               }}
               resizeMode="cover"
             />
@@ -594,18 +652,22 @@ function NotificationRow({
   event,
   onDismiss,
   onPress,
-  isLast,
 }: {
   event: NotificationEvent;
   onDismiss: () => void;
   onPress?: () => void;
-  isLast: boolean;
 }) {
+  const { colors } = useAppTheme();
   const swipeableRef = useRef<Swipeable>(null);
   const cfg = EVENT_CONFIG[event.type];
   if (!cfg) return null;
   const Icon = cfg.icon;
-  const primaryText = event.message?.trim() ? event.message.trim() : cfg.label(event.restaurantName);
+  const fallbackHeadline = cfg.label(event.restaurantName);
+  const headline = buildEventHeadline(event, fallbackHeadline);
+  const subtitle = buildEventSubtitle(event);
+  const showSubtitle =
+    subtitle.length > 0 &&
+    subtitle.trim().toLowerCase() !== headline.trim().toLowerCase();
 
   const renderRightActions = (
     _progress: RNAnimated.AnimatedInterpolation<number>,
@@ -648,6 +710,140 @@ function NotificationRow({
     );
   };
 
+  const rowInner = (
+    <View
+      style={{
+        paddingRight: 16,
+        paddingTop: 16,
+        paddingBottom: 16,
+        paddingLeft: event.read ? 16 : 13,
+        borderLeftWidth: event.read ? 0 : 3,
+        borderLeftColor: cfg.color,
+        backgroundColor: event.read ? colors.card : "rgba(255,153,51,0.06)",
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 14 }}>
+        <View
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 21,
+            backgroundColor: `${cfg.color}22`,
+            borderWidth: 1,
+            borderColor: `${cfg.color}38`,
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            marginTop: 1,
+          }}
+        >
+          <Icon size={18} color={cfg.color} strokeWidth={2} />
+        </View>
+
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <View style={{ flex: 1, minWidth: 0 }}>
+              {event.title ? (
+                <Text
+                  style={{
+                    fontFamily: "Manrope_600SemiBold",
+                    color: colors.textMuted,
+                    fontSize: 11,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.9,
+                    marginBottom: 5,
+                  }}
+                  numberOfLines={1}
+                >
+                  {event.title}
+                </Text>
+              ) : null}
+              <Text
+                style={{
+                  fontFamily: "Manrope_700Bold",
+                  color: colors.text,
+                  fontSize: 16,
+                  lineHeight: 22,
+                }}
+                numberOfLines={4}
+              >
+                {headline}
+              </Text>
+            </View>
+            <View style={{ alignItems: "flex-end", flexShrink: 0, gap: 6 }}>
+              {!event.read && (
+                <View
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: 4,
+                    backgroundColor: "#FF9933",
+                  }}
+                />
+              )}
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: "#71717a",
+                  fontSize: 11,
+                  lineHeight: 14,
+                }}
+              >
+                {timeAgo(event.timestamp)}
+              </Text>
+            </View>
+          </View>
+
+          {showSubtitle ? (
+            <Text
+              style={{
+                fontFamily: "Manrope_500Medium",
+                color: colors.textMuted,
+                fontSize: 13,
+                lineHeight: 19,
+                marginTop: 8,
+              }}
+            >
+              {subtitle}
+            </Text>
+          ) : null}
+
+          {event.partySize > 0 &&
+          event.type !== "joined" &&
+          event.type !== "table_ready" &&
+          event.type !== "seated" ? (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                marginTop: 10,
+              }}
+            >
+              <Users size={12} color="#52525b" />
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: "#71717a",
+                  fontSize: 12,
+                }}
+              >
+                Party of {event.partySize}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <Animated.View
       entering={FadeInDown.duration(350)}
@@ -660,127 +856,16 @@ function NotificationRow({
         overshootRight={false}
         friction={2}
       >
-        <Pressable
-          onPress={onPress}
-          disabled={!onPress}
-          android_ripple={onPress ? { color: "#222" } : undefined}
-          style={({ pressed }) => ({
-            paddingHorizontal: 20,
-            paddingTop: 20,
-            paddingBottom: 18,
-            minHeight: 116,
-            borderBottomWidth: isLast ? 0 : 1,
-            borderBottomColor: "#2a2a2a",
-            backgroundColor: event.read
-              ? pressed && onPress
-                ? "#202020"
-                : "transparent"
-              : pressed && onPress
-              ? "rgba(255,153,51,0.08)"
-              : "rgba(255,153,51,0.04)",
-          })}
-        >
-          {/* Top row: icon + title/primary text + unread dot */}
-          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-            {/* Icon — padded from card edge, with consistent inset from top/left */}
-            <View
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                backgroundColor: `${cfg.color}18`,
-                borderWidth: 1,
-                borderColor: `${cfg.color}30`,
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                marginTop: 2,
-                marginLeft: 1,
-              }}
-            >
-              <Icon size={16} color={cfg.color} />
-            </View>
-
-            {/* Title + primary message */}
-            <View style={{ flex: 1, justifyContent: "flex-start" }}>
-              {event.title ? (
-                <Text
-                  style={{
-                    fontFamily: "Manrope_700Bold",
-                    color: "#A1A1AA",
-                    fontSize: 12,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.7,
-                    marginBottom: 3,
-                  }}
-                >
-                  {event.title}
-                </Text>
-              ) : null}
-              <Text
-                style={{
-                  fontFamily: "Manrope_600SemiBold",
-                  color: "#f5f5f5",
-                  fontSize: 15,
-                  lineHeight: 21,
-                }}
-                numberOfLines={2}
-              >
-                {primaryText}
-              </Text>
-            </View>
-
-            {/* Unread dot */}
-            {!event.read && (
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: "#FF9933",
-                  flexShrink: 0,
-                }}
-              />
-            )}
-          </View>
-
-          {/* Bottom row: secondary details — left-aligned, indented to clear the icon */}
-          {(event.partySize > 0 || true) && (
-            <View
-              style={{
-                marginTop: 6,
-                marginLeft: 49, // icon width + horizontal gap + inset
-                gap: 1,
-              }}
-            >
-              {event.partySize > 0 && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Users size={10} color="#555" />
-                  <Text
-                    style={{
-                      fontFamily: "Manrope_500Medium",
-                      color: "#555555",
-                      fontSize: 11,
-                      lineHeight: 12,
-                    }}
-                  >
-                    Party of {event.partySize}
-                  </Text>
-                </View>
-              )}
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: "#6B7280",
-                  fontSize: 12,
-                  lineHeight: 14,
-                }}
-              >
-                {timeAgo(event.timestamp)}
-              </Text>
-            </View>
-          )}
-        </Pressable>
+        {onPress ? (
+          <Pressable
+            onPress={() => onPress()}
+            style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1 })}
+          >
+            {rowInner}
+          </Pressable>
+        ) : (
+          rowInner
+        )}
       </Swipeable>
     </Animated.View>
   );
@@ -791,6 +876,7 @@ function NotificationRow({
 // ==========================================
 
 export default function NotificationsScreen() {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const {
     events,
@@ -877,12 +963,13 @@ export default function NotificationsScreen() {
   const isEmpty = activeEntries.length === 0 && events.length === 0;
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.homeBg }} edges={["top"]}>
+        <TabScreenEntrance>
+        <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
         {/* Header */}
-        <Animated.View
-          entering={FadeIn.duration(400)}
+        <View
           style={{
             flexDirection: "row",
             alignItems: "center",
@@ -892,11 +979,11 @@ export default function NotificationsScreen() {
             paddingBottom: 16,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
             <Text
               style={{
                 fontFamily: "BricolageGrotesque_800ExtraBold",
-                color: "#f5f5f5",
+                color: colors.text,
                 fontSize: 28,
                 letterSpacing: -0.5,
               }}
@@ -913,21 +1000,21 @@ export default function NotificationsScreen() {
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  gap: 4,
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  backgroundColor: "#1a1a1a",
-                  borderRadius: 20,
+                  gap: 6,
+                  paddingHorizontal: 14,
+                  paddingVertical: 9,
+                  borderRadius: 22,
                   borderWidth: 1,
-                  borderColor: "#2a2a2a",
+                  borderColor: "rgba(239, 68, 68, 0.4)",
+                  backgroundColor: "rgba(239, 68, 68, 0.1)",
                   opacity: hasContent ? 1 : 0.35,
                 }}
               >
-                <Trash2 size={13} color="#666" />
+                <Trash2 size={14} color="#EF4444" />
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: "#666666",
+                    color: "#F87171",
                     fontSize: 12,
                   }}
                 >
@@ -936,7 +1023,7 @@ export default function NotificationsScreen() {
               </Pressable>
             );
           })()}
-        </Animated.View>
+        </View>
 
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -973,38 +1060,38 @@ export default function NotificationsScreen() {
                     width: 120,
                     height: 120,
                     borderRadius: 60,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: colors.card,
                     borderWidth: 1,
-                    borderColor: "#2a2a2a",
+                    borderColor: colors.cardBorder,
                     alignItems: "center",
                     justifyContent: "center",
                     marginBottom: 24,
                   }}
                 >
-                  <Bell size={48} color="#666666" />
+                  <Bell size={48} color="#71717a" strokeWidth={1.5} />
                 </View>
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 22,
                     textAlign: "center",
                     marginBottom: 8,
                   }}
                 >
-                  No Alerts
+                  You&apos;re all caught up
                 </Text>
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#999999",
+                    color: colors.textMuted,
                     fontSize: 15,
                     textAlign: "center",
                     lineHeight: 22,
                   }}
                 >
-                  Join a waitlist to see your position and get alerts when your
-                  table is ready.
+                  Join a waitlist to track your spot in line, get notified when your
+                  table is ready, and see order updates here.
                 </Text>
               </Animated.View>
             </View>
@@ -1016,14 +1103,14 @@ export default function NotificationsScreen() {
                   <Text
                     style={{
                       fontFamily: "Manrope_600SemiBold",
-                      color: "#666666",
+                      color: "#71717a",
                       fontSize: 11,
-                      letterSpacing: 1.2,
+                      letterSpacing: 1.1,
                       textTransform: "uppercase",
                       marginBottom: 12,
                     }}
                   >
-                    Active Waitlists
+                    Active waitlists
                   </Text>
                   {activeEntries.map((entry) => (
                     <WaitlistWidget
@@ -1067,13 +1154,13 @@ export default function NotificationsScreen() {
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
-                        color: "#666666",
+                        color: "#71717a",
                         fontSize: 11,
-                        letterSpacing: 1.2,
+                        letterSpacing: 1.1,
                         textTransform: "uppercase",
                       }}
                     >
-                      History
+                      Recent activity
                     </Text>
                   </View>
                   <View
@@ -1089,16 +1176,15 @@ export default function NotificationsScreen() {
                       <View
                         key={event.id}
                         style={{
-                          backgroundColor: "#141414",
+                          backgroundColor: colors.card,
                           borderRadius: 18,
                           borderWidth: 1,
-                          borderColor: "#2a2a2a",
+                          borderColor: colors.cardBorder,
                           overflow: "hidden",
                         }}
                       >
                         <NotificationRow
                           event={event}
-                          isLast
                           onPress={undefined}
                           onDismiss={() => {
                             if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1113,6 +1199,8 @@ export default function NotificationsScreen() {
             </>
           )}
         </ScrollView>
+        </View>
+        </TabScreenEntrance>
       </SafeAreaView>
     </View>
   );

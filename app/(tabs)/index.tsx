@@ -11,16 +11,13 @@ import {
   RefreshControl,
   Animated as RNAnimated,
   Image,
-  TextInput,
-  ActivityIndicator,
   Linking,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Bell, MapPin, TrendingUp, Zap, User, Map as MapIcon, UtensilsCrossed, ChevronRight, Users, Crown, X, RefreshCw, Sparkles, Clock, Heart, Megaphone, ClipboardList, ChefHat, ShoppingBag, ShoppingCart, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, ChevronUp, Navigation, Camera, AlertTriangle } from "lucide-react-native";
+import { Search, Bell, MapPin, User, Map as MapIcon, UtensilsCrossed, ChevronRight, Users, Crown, X, Clock, Megaphone, ClipboardList, ChefHat, ShoppingBag, ShoppingCart, CheckCircle, Trash2, Leaf, ShieldCheck, Crosshair, ChevronDown, ChevronUp, Camera, AlertTriangle } from "lucide-react-native";
 import Animated, {
-  FadeIn,
   FadeInDown,
   FadeOutDown,
   useAnimatedStyle,
@@ -53,11 +50,14 @@ import {
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/app-theme";
 import { useNotifications } from "@/lib/notifications-context";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { usePersonalization } from "@/hooks/usePersonalization";
 import { OwnerHomeContent } from "@/components/OwnerHomeContent";
-import { BrandedLoader } from "@/components/BrandedLoader";
+import { ExpandedLocationSettings } from "@/components/ExpandedLocationSettings";
+import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
+import { TabScreenEntrance } from "@/components/TabScreenEntrance";
 import { withTimeout } from "@/lib/with-timeout";
 import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRecentlyViewedRestaurant, type RestaurantMediaSlide } from "@/lib/restaurant-media";
 import { loadActiveParties, removeActiveParty, subscribeActiveParties } from "@/lib/party-active";
@@ -134,153 +134,29 @@ const LIVE_ORDER_ICON_BORDER = [
 ];
 const LIVE_ORDER_ACCENT_SOLID = ["#F97316", "#3B82F6", "#14B8A6", "#22C55E"];
 
+function getHomeGreetingLine(fullName: string | null | undefined): string {
+  const first = fullName?.trim().split(/\s+/).filter(Boolean)[0];
+  const hour = new Date().getHours();
+  const period = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  const base = `Good ${period}`;
+  if (first) return `${base}, ${first}`;
+  return base;
+}
+
 export default function DiscoveryFeed() {
   const router = useRouter();
-  const { session, refreshProfile } = useAuth();
+  const { colors } = useAppTheme();
+  const { session, profile } = useAuth();
   const {
     isAdmin,
     isRestaurantOwner,
     effectiveOwnerRestaurantId,
-    loading: roleLoading,
   } = useAdminMode();
   const {
     userCoords,
     locationLabel,
-    requestLocationPermission,
-    setUserCoordsOverride,
-    setSearchOverride,
-    reloadLocationPrefs,
-    isUsingDiningPreferenceFallback,
-    diningPreferenceAreaLabel,
-    isLiveLocationEnabled,
-    setLiveLocationEnabledPersisted,
   } = useLocation();
   const [addressBarExpanded, setAddressBarExpanded] = useState(false);
-  const [addressInput, setAddressInput] = useState("");
-  const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: number; lon: number }>>([]);
-  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
-  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
-  const [isSavingAddress, setIsSavingAddress] = useState(false);
-  const addressSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const Location = require("expo-location");
-
-  // Nominatim address autocomplete — guard against stale responses (fast
-  // typing would otherwise let an older request overwrite newer results).
-  useEffect(() => {
-    if (addressSearchTimeout.current) clearTimeout(addressSearchTimeout.current);
-    if (addressInput.length < 3) {
-      setAddressSuggestions([]);
-      return;
-    }
-    const controller = new AbortController();
-    let isActive = true;
-    setIsSearchingAddress(true);
-    addressSearchTimeout.current = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=4&q=${encodeURIComponent(addressInput)}`,
-          { headers: { "User-Agent": "RasviaApp/1.0" }, signal: controller.signal }
-        );
-        const results = await res.json();
-        if (!isActive) return;
-        setAddressSuggestions(
-          results.map((r: any) => ({
-            display_name: r.display_name,
-            lat: parseFloat(r.lat),
-            lon: parseFloat(r.lon),
-          }))
-        );
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
-        if (isActive) setAddressSuggestions([]);
-      } finally {
-        if (isActive) setIsSearchingAddress(false);
-      }
-    }, 500);
-    return () => {
-      isActive = false;
-      controller.abort();
-      if (addressSearchTimeout.current) {
-        clearTimeout(addressSearchTimeout.current);
-        addressSearchTimeout.current = null;
-      }
-    };
-  }, [addressInput]);
-
-  const handleDetectLocation = useCallback(async () => {
-    setIsDetectingLocation(true);
-    try {
-      // Main-menu "current location" button now strictly toggles live GPS
-      // usage and never persists address/coords into profile settings.
-      if (isLiveLocationEnabled) {
-        setSearchOverride(null);
-        await setLiveLocationEnabledPersisted(false);
-        await reloadLocationPrefs();
-        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setAddressBarExpanded(false);
-        return;
-      }
-
-      const granted = await requestLocationPermission();
-      if (!granted) {
-        Alert.alert("Location Access", "Please enable location access in your device settings.");
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-      setSearchOverride(null);
-      setUserCoordsOverride(coords);
-      await setLiveLocationEnabledPersisted(true);
-      await reloadLocationPrefs();
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setAddressInput("");
-      setAddressSuggestions([]);
-      setAddressBarExpanded(false);
-    } catch (e: any) {
-      Alert.alert("Error", e.message || "Could not detect location.");
-    } finally {
-      setIsDetectingLocation(false);
-    }
-  }, [isLiveLocationEnabled, requestLocationPermission, reloadLocationPrefs, setLiveLocationEnabledPersisted, setSearchOverride, setUserCoordsOverride]);
-
-  const handleSaveAddress = useCallback(async (addr: { display_name: string; lat: number; lon: number }) => {
-    // Front-page address search: pin immediately, and now persist to profile
-    // as well so Profile > Location stays in sync with what users select here.
-    setIsSavingAddress(true);
-    try {
-      const coords = { latitude: addr.lat, longitude: addr.lon };
-      const cityLabel = (() => {
-        const parts = addr.display_name.split(",").map((p) => p.trim());
-        const countyIdx = parts.findIndex((p) => /county|parish/i.test(p));
-        if (countyIdx > 0) return parts[countyIdx - 1];
-        return parts[1] ?? parts[0] ?? null;
-      })();
-      if (session?.user?.id) {
-        const { error } = await supabase
-          .from("profiles")
-          .update({
-            saved_address: addr.display_name,
-            home_lat: addr.lat,
-            home_long: addr.lon,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", session.user.id);
-        if (error) throw error;
-      }
-      setSearchOverride({ coords, label: cityLabel });
-      await reloadLocationPrefs();
-      await refreshProfile();
-
-      setAddressInput("");
-      setAddressSuggestions([]);
-      setAddressBarExpanded(false);
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: any) {
-      Alert.alert("Error", e.message || "Could not use that address.");
-    } finally {
-      setIsSavingAddress(false);
-    }
-  }, [session?.user?.id, setSearchOverride, reloadLocationPrefs, refreshProfile]);
   const { notificationBadgeCount } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
@@ -729,10 +605,10 @@ export default function DiscoveryFeed() {
       const { data, error } = restaurantsResponse;
 
       if (error) {
-        console.error('❌ Supabase Error:', error);
+        console.error("Supabase error (restaurants):", error);
         Alert.alert(
           'Database Error',
-          `Could not fetch restaurants:\n\n${error.message}\n\nℹ️ This might be a Row Level Security (RLS) policy issue.`,
+          `Could not fetch restaurants:\n\n${error.message}\n\nThis might be a Row Level Security (RLS) policy issue.`,
           [{ text: 'OK' }]
         );
         throw error;
@@ -811,20 +687,54 @@ export default function DiscoveryFeed() {
         const parsed = JSON.parse(stored) as ActiveGroupOrder;
         const { data: sess, error } = await supabase
           .from('party_sessions')
-          .select('id, status, restaurants(name, image_url)')
+          .select('id, status, host_user_id, restaurants(name, image_url)')
           .eq('id', parsed.sessionId)
           .single();
 
-        if (!error && sess && ['open', 'locked', 'paying'].includes(String((sess as any).status))) {
-          setActiveGroupOrder({
-            ...parsed,
-            restaurantName: (sess.restaurants as any)?.name ?? parsed.restaurantName,
-            restaurantImage: (sess.restaurants as any)?.image_url ?? parsed.restaurantImage ?? null,
-          });
-          return;
+        const statusOk =
+          !error &&
+          sess &&
+          ['open', 'locked', 'paying'].includes(String((sess as any).status));
+
+        if (!statusOk) {
+          await SecureStore.deleteItemAsync(activeOrderKey);
+        } else {
+          const hostId = String((sess as any).host_user_id ?? '');
+          const isCurrentHost = !!hostId && hostId === currentUserId;
+
+          // Cached banner must match reality: session can still be "open" after
+          // this user leaves — without a membership (or host) check the home
+          // screen would keep showing the group order forever.
+          if (!isCurrentHost) {
+            const { data: stillMember } = await supabase
+              .from('party_members')
+              .select('id')
+              .eq('session_id', parsed.sessionId)
+              .eq('user_id', currentUserId)
+              .is('left_at', null)
+              .maybeSingle();
+
+            if (!stillMember) {
+              await SecureStore.deleteItemAsync(activeOrderKey);
+            } else {
+              setActiveGroupOrder({
+                ...parsed,
+                isHost: false,
+                restaurantName: (sess.restaurants as any)?.name ?? parsed.restaurantName,
+                restaurantImage: (sess.restaurants as any)?.image_url ?? parsed.restaurantImage ?? null,
+              });
+              return;
+            }
+          } else {
+            setActiveGroupOrder({
+              ...parsed,
+              isHost: true,
+              restaurantName: (sess.restaurants as any)?.name ?? parsed.restaurantName,
+              restaurantImage: (sess.restaurants as any)?.image_url ?? parsed.restaurantImage ?? null,
+            });
+            return;
+          }
         }
-        // Not open anymore — clean up
-        await SecureStore.deleteItemAsync(activeOrderKey);
       }
 
       // Fallback: check if the user hosts any open sessions
@@ -1201,21 +1111,22 @@ export default function DiscoveryFeed() {
     };
   }, [refreshActiveGroupOrders]);
 
-  // Refresh on focus too — catches the case where the user cancelled/completed
-  // a party from a different tab or deep link.
+  // Light refresh when the Home tab gains focus (party / live order / waitlist /
+  // favorites may have changed in another tab). Single callback so work runs once per focus.
   useFocusEffect(
     useCallback(() => {
       void refreshActiveGroupOrders();
-    }, [refreshActiveGroupOrders]),
-  );
-
-  useFocusEffect(
-    useCallback(() => {
       checkActiveGroupOrder();
-      fetchFavoriteRestaurantIds();
+      void fetchFavoriteRestaurantIds();
       void fetchLiveOrder();
       void fetchLiveWaitlist();
-    }, [checkActiveGroupOrder, fetchFavoriteRestaurantIds, fetchLiveOrder, fetchLiveWaitlist])
+    }, [
+      refreshActiveGroupOrders,
+      checkActiveGroupOrder,
+      fetchFavoriteRestaurantIds,
+      fetchLiveOrder,
+      fetchLiveWaitlist,
+    ]),
   );
 
   // Recalculate distances when userCoords arrives after initial fetch
@@ -1398,35 +1309,40 @@ export default function DiscoveryFeed() {
     router.push(`/discover/${section}` as any);
   }, [activeFilter, router]);
 
+  const homeGreetingLine = useMemo(
+    () => getHomeGreetingLine(profile?.full_name),
+    [profile?.full_name]
+  );
+
   const isOwnerDashboardMode =
     (isRestaurantOwner || isAdmin) && ownerHomeMode === "dashboard";
-  const shouldShowFeedLoader =
-    roleLoading ||
-    (((!isRestaurantOwner && !isAdmin) || ownerHomeMode === "discover") && loading);
-
-  if (shouldShowFeedLoader) {
-    return <BrandedLoader message="Loading your feed..." />;
-  }
+  const isDiscoverFeedRoute =
+    (!isRestaurantOwner && !isAdmin) || ownerHomeMode === "discover";
+  const showDiscoverFeedLoading = isDiscoverFeedRoute && loading;
 
   return (
-    <View className="flex-1 bg-rasvia-black">
-      <SafeAreaView className="flex-1" edges={["top"]}>
+    <View className="flex-1" style={{ backgroundColor: colors.homeBg }}>
+      <SafeAreaView className="flex-1" edges={["top"]} style={{ backgroundColor: colors.homeBg }}>
+        <TabScreenEntrance>
+        <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
         {/* Header */}
-        <Animated.View
-          entering={FadeIn.duration(500)}
+        <View
           className="flex-row items-center justify-between px-5"
-          style={{ paddingTop: 0, paddingBottom: 8, backgroundColor: "#0f0f0f", zIndex: 10 }}
+          style={{ paddingTop: 0, paddingBottom: 10, backgroundColor: colors.homeHeaderBg, zIndex: 10 }}
         >
-          <Text
-            style={{
-              fontFamily: "BricolageGrotesque_800ExtraBold",
-              color: "#f5f5f5",
-              fontSize: 32,
-              letterSpacing: -0.5,
-            }}
-          >
-            rasvia
-          </Text>
+          <View style={{ flex: 1, marginRight: 12, justifyContent: "center" }}>
+            <Text
+              style={{
+                fontFamily: "Manrope_700Bold",
+                color: colors.text,
+                fontSize: 22,
+                letterSpacing: -0.35,
+              }}
+              numberOfLines={2}
+            >
+              {homeGreetingLine}
+            </Text>
+          </View>
           <Pressable
             onPress={() => {
               if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -1434,10 +1350,11 @@ export default function DiscoveryFeed() {
             }}
             style={{
               maxWidth: "52%",
-              backgroundColor: "#1a1a1a",
+              alignSelf: "center",
+              backgroundColor: colors.homeSurface,
               borderRadius: 12,
               borderWidth: 1,
-              borderColor: addressBarExpanded ? "rgba(255,153,51,0.3)" : "#2a2a2a",
+              borderColor: addressBarExpanded ? "rgba(255,153,51,0.3)" : colors.homeBorder,
               paddingHorizontal: 10,
               paddingVertical: 8,
               flexDirection: "row",
@@ -1463,213 +1380,72 @@ export default function DiscoveryFeed() {
               <ChevronDown size={13} color="#999" />
             )}
           </Pressable>
-        </Animated.View>
+        </View>
 
         {/* Floating search bar */}
-        <Pressable
-          onPress={() => {
-            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            if (isOwnerDashboardMode && effectiveOwnerRestaurantId) {
-              router.push(`/restaurant/${effectiveOwnerRestaurantId}` as any);
-            } else {
-              setShowSearch(true);
-            }
-          }}
-          style={{
-            marginHorizontal: 16,
-            marginBottom: 6,
-            backgroundColor: "#1a1a1a",
-            borderRadius: 16,
-            borderWidth: 1,
-            borderColor: "#2a2a2a",
-            paddingHorizontal: 14,
-            paddingVertical: 11,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          {isOwnerDashboardMode ? (
-            <UtensilsCrossed size={16} color="#f5f5f5" />
-          ) : (
-            <Search size={16} color="#FF9933" />
-          )}
-          <Text
+          <Pressable
+            onPress={() => {
+              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (isOwnerDashboardMode && effectiveOwnerRestaurantId) {
+                router.push(`/restaurant/${effectiveOwnerRestaurantId}` as any);
+              } else {
+                setShowSearch(true);
+              }
+            }}
             style={{
-              flex: 1,
-              fontFamily: "Manrope_500Medium",
-              color: "#888",
-              fontSize: 14,
+              marginHorizontal: 16,
+              marginBottom: 6,
+              backgroundColor: colors.homeSurface,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: colors.homeBorder,
+              paddingHorizontal: 14,
+              paddingVertical: 11,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
             }}
           >
+            {isOwnerDashboardMode ? (
+              <UtensilsCrossed size={16} color="#f5f5f5" />
+            ) : (
+              <Search size={16} color="#FF9933" />
+            )}
+            <Text
+              style={{
+                flex: 1,
+                fontFamily: "Manrope_500Medium",
+                color: "#888",
+                fontSize: 14,
+              }}
+            >
             Search Rasvia
           </Text>
-        </Pressable>
+          </Pressable>
 
-        {/* ── Address Bar Expanded Panel ── */}
         {addressBarExpanded && (
-          <Animated.View
-            entering={FadeInDown.duration(250)}
+          <View
             style={{
               marginHorizontal: 16,
               marginBottom: 8,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: colors.homeSurface,
               borderRadius: 16,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.homeBorder,
               padding: 14,
               zIndex: 20,
             }}
           >
-            {/* Address Input + Detect button */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <View
-                style={{
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  backgroundColor: "#262626",
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: "#333",
-                  paddingHorizontal: 12,
-                  height: 44,
-                }}
-              >
-                <Search size={16} color="#666" />
-                <TextInput
-                  style={{
-                    flex: 1,
-                    color: "#f5f5f5",
-                    fontFamily: "Manrope_500Medium",
-                    fontSize: 14,
-                    marginLeft: 8,
-                  }}
-                  placeholder="Search address..."
-                  placeholderTextColor="#666"
-                  value={addressInput}
-                  onChangeText={setAddressInput}
-                  autoCorrect={false}
-                  keyboardAppearance="dark"
-                  returnKeyType="search"
-                  autoFocus
-                />
-                {addressInput.length > 0 && (
-                  <Pressable onPress={() => { setAddressInput(""); setAddressSuggestions([]); }} hitSlop={10}>
-                    <X size={16} color="#888" />
-                  </Pressable>
-                )}
-              </View>
-
-              {/* Detect Location Button */}
-              <Pressable
-                onPress={handleDetectLocation}
-                disabled={isDetectingLocation}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 14,
-                  backgroundColor: isLiveLocationEnabled ? "#FF9933" : "rgba(255,153,51,0.12)",
-                  borderWidth: 1,
-                  borderColor: isLiveLocationEnabled ? "#FF9933" : "rgba(255,153,51,0.3)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {isDetectingLocation ? (
-                  <ActivityIndicator size="small" color={isLiveLocationEnabled ? "#121212" : "#FF9933"} />
-                ) : (
-                  <Navigation size={18} color={isLiveLocationEnabled ? "#121212" : "#FF9933"} />
-                )}
-              </Pressable>
-            </View>
-
-            {/* Loading indicator */}
-            {isSearchingAddress && (
-              <Text style={{ color: "#666", fontSize: 11, fontFamily: "Manrope_500Medium", marginTop: 8, marginLeft: 4 }}>Searching...</Text>
-            )}
-
-            {/* Suggestions */}
-            {addressSuggestions.length > 0 && (
-              <View
-                style={{
-                  backgroundColor: "#222",
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: "#2a2a2a",
-                  marginTop: 10,
-                  overflow: "hidden",
-                  maxHeight: 200,
-                }}
-              >
-                <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                  {addressSuggestions.map((item, idx) => (
-                    <Pressable
-                      key={idx}
-                      style={{
-                        padding: 12,
-                        borderBottomWidth: idx < addressSuggestions.length - 1 ? 1 : 0,
-                        borderColor: "#3a3a3a",
-                      }}
-                      onPress={() => {
-                        if (Platform.OS !== "web") Haptics.selectionAsync();
-                        handleSaveAddress(item);
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
-                        <MapPin size={14} color="#FF9933" style={{ marginTop: 2 }} />
-                        <Text style={{ flex: 1, color: "#f5f5f5", fontFamily: "Manrope_500Medium", fontSize: 13, lineHeight: 18 }}>
-                          {item.display_name}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Saving indicator */}
-            {isSavingAddress && (
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 10, gap: 8 }}>
-                <ActivityIndicator size="small" color="#FF9933" />
-                <Text style={{ color: "#999", fontFamily: "Manrope_500Medium", fontSize: 12 }}>Saving...</Text>
-              </View>
-            )}
-
-            {/* Fallback notice: no saved location, using dining-preference area */}
-            {isUsingDiningPreferenceFallback && (
-              <View
-                style={{
-                  marginTop: 10,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,153,51,0.26)",
-                  backgroundColor: "rgba(255,153,51,0.09)",
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text
-                  style={{
-                    color: "#FFB566",
-                    fontFamily: "Manrope_500Medium",
-                    fontSize: 12,
-                    lineHeight: 16,
-                  }}
-                >
-                  {`No saved location yet — using your dining preference area${diningPreferenceAreaLabel ? ` (${diningPreferenceAreaLabel})` : ""}.`}
-                </Text>
-              </View>
-            )}
-          </Animated.View>
+            <ExpandedLocationSettings onApplied={() => setAddressBarExpanded(false)} />
+          </View>
         )}
 
         {(isRestaurantOwner || isAdmin) && (
           <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 }}>
             <View style={{
-              backgroundColor: "#141414",
+              backgroundColor: colors.homeSurface,
               borderWidth: 1,
-              borderColor: "#2a2a2a",
+              borderColor: colors.homeBorder,
               borderRadius: 14,
               padding: 4,
               flexDirection: "row",
@@ -2531,7 +2307,7 @@ export default function DiscoveryFeed() {
                      textAlign: "center"
                    }}
                  >
-                  it&apos;s quiet right now...
+                  No restaurants to show right now.
                  </Text>
                </View>
              </Animated.View>
@@ -2542,33 +2318,30 @@ export default function DiscoveryFeed() {
               <Animated.View entering={FadeInDown.delay(100).duration(500)}>
                 <View className="px-5 mb-1">
                   <View className="flex-row items-center justify-between mb-1">
-                    <View className="flex-row items-center">
-                      <TrendingUp size={18} color="#FF9933" />
-                      <Text
-                        style={{
-                          fontFamily: "BricolageGrotesque_800ExtraBold",
-                          color: "#f5f5f5",
-                          fontSize: 24,
-                          marginLeft: 8,
-                        }}
-                      >
-                        Trending Now
-                      </Text>
-                    </View>
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_700Bold",
+                        color: colors.textSecondary,
+                        fontSize: 22,
+                        letterSpacing: -0.3,
+                      }}
+                    >
+                      Trending Now
+                    </Text>
                     <Pressable
                       onPress={() => openDiscoverSection("trending")}
                       style={{
                         width: 36,
                         height: 36,
                         borderRadius: 18,
-                        backgroundColor: "#242424",
+                        backgroundColor: "#262629",
                         borderWidth: 1,
-                        borderColor: "#333",
+                        borderColor: "#3d3d40",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
                     >
-                      <ChevronRight size={18} color="#f5f5f5" />
+                      <ChevronRight size={18} color={colors.text} />
                     </Pressable>
                   </View>
                   <Text
@@ -2613,33 +2386,30 @@ export default function DiscoveryFeed() {
             <Animated.View entering={FadeInDown.delay(320).duration(420)} exiting={FadeOutDown.duration(320)}>
               <View className="px-5 mt-8 mb-4">
                 <View className="flex-row items-center justify-between mb-1">
-                  <View className="flex-row items-center">
-                    <Heart size={18} color="#EF4444" />
-                    <Text
-                      style={{
-                        fontFamily: "BricolageGrotesque_800ExtraBold",
-                        color: "#f5f5f5",
-                        fontSize: 24,
-                        marginLeft: 8,
-                      }}
-                    >
-                      Favorites
-                    </Text>
-                  </View>
+                  <Text
+                    style={{
+                      fontFamily: "BricolageGrotesque_700Bold",
+                      color: colors.textSecondary,
+                      fontSize: 22,
+                      letterSpacing: -0.3,
+                    }}
+                  >
+                    Favorites
+                  </Text>
                   <Pressable
                     onPress={() => openDiscoverSection("favorites")}
                     style={{
                       width: 36,
                       height: 36,
                       borderRadius: 18,
-                      backgroundColor: "#242424",
+                      backgroundColor: "#262629",
                       borderWidth: 1,
-                      borderColor: "#333",
+                      borderColor: "#3d3d40",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <ChevronRight size={18} color="#f5f5f5" />
+                    <ChevronRight size={18} color={colors.text} />
                   </Pressable>
                 </View>
                 <Text
@@ -2682,33 +2452,30 @@ export default function DiscoveryFeed() {
             <Animated.View entering={FadeInDown.delay(340).duration(420)} exiting={FadeOutDown.duration(320)}>
               <View className="px-5 mt-8 mb-4">
                 <View className="flex-row items-center justify-between mb-1">
-                  <View className="flex-row items-center">
-                    <Clock size={18} color="#60A5FA" />
-                    <Text
-                      style={{
-                        fontFamily: "BricolageGrotesque_800ExtraBold",
-                        color: "#f5f5f5",
-                        fontSize: 24,
-                        marginLeft: 8,
-                      }}
-                    >
-                      Recently Viewed
-                    </Text>
-                  </View>
+                  <Text
+                    style={{
+                      fontFamily: "BricolageGrotesque_700Bold",
+                      color: colors.textSecondary,
+                      fontSize: 22,
+                      letterSpacing: -0.3,
+                    }}
+                  >
+                    Recently Viewed
+                  </Text>
                   <Pressable
                     onPress={() => openDiscoverSection("recently-viewed")}
                     style={{
                       width: 36,
                       height: 36,
                       borderRadius: 18,
-                      backgroundColor: "#242424",
+                      backgroundColor: "#262629",
                       borderWidth: 1,
-                      borderColor: "#333",
+                      borderColor: "#3d3d40",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <ChevronRight size={18} color="#f5f5f5" />
+                    <ChevronRight size={18} color={colors.text} />
                   </Pressable>
                 </View>
                 <Text
@@ -2753,9 +2520,10 @@ export default function DiscoveryFeed() {
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <Text
                       style={{
-                        fontFamily: "BricolageGrotesque_800ExtraBold",
-                        color: "#f5f5f5",
-                        fontSize: 24,
+                        fontFamily: "BricolageGrotesque_700Bold",
+                        color: colors.textSecondary,
+                        fontSize: 22,
+                        letterSpacing: -0.3,
                       }}
                     >
                       Nearby
@@ -2766,14 +2534,14 @@ export default function DiscoveryFeed() {
                         width: 36,
                         height: 36,
                         borderRadius: 18,
-                        backgroundColor: "#242424",
+                        backgroundColor: "#262629",
                         borderWidth: 1,
-                        borderColor: "#333",
+                        borderColor: "#3d3d40",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
                     >
-                      <ChevronRight size={18} color="#f5f5f5" />
+                      <ChevronRight size={18} color={colors.text} />
                     </Pressable>
                   </View>
                   <Text
@@ -2826,33 +2594,30 @@ export default function DiscoveryFeed() {
               <Animated.View entering={FadeInDown.delay(400).duration(500)}>
                 <View className="px-5 mt-8 mb-4">
                   <View className="flex-row items-center justify-between mb-1">
-                    <View className="flex-row items-center">
-                      <Zap size={18} color="#22C55E" />
-                      <Text
-                        style={{
-                          fontFamily: "BricolageGrotesque_800ExtraBold",
-                          color: "#f5f5f5",
-                          fontSize: 24,
-                          marginLeft: 8,
-                        }}
-                      >
-                        Quick Bites
-                      </Text>
-                    </View>
+                    <Text
+                      style={{
+                        fontFamily: "BricolageGrotesque_700Bold",
+                        color: colors.textSecondary,
+                        fontSize: 22,
+                        letterSpacing: -0.3,
+                      }}
+                    >
+                      Quick Bites
+                    </Text>
                     <Pressable
                       onPress={() => openDiscoverSection("quick-bites")}
                       style={{
                         width: 36,
                         height: 36,
                         borderRadius: 18,
-                        backgroundColor: "#242424",
+                        backgroundColor: "#262629",
                         borderWidth: 1,
-                        borderColor: "#333",
+                        borderColor: "#3d3d40",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
                     >
-                      <ChevronRight size={18} color="#f5f5f5" />
+                      <ChevronRight size={18} color={colors.text} />
                     </Pressable>
                   </View>
                   <Text
@@ -2900,12 +2665,9 @@ export default function DiscoveryFeed() {
             return (
               <Animated.View entering={FadeInDown.delay(450).duration(500)}>
                 <View className="px-5 mt-8 mb-4">
-                  <View className="flex-row items-center mb-1">
-                    <RefreshCw size={18} color="#FF9933" />
-                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 24, marginLeft: 8 }}>
-                      Order Again
-                    </Text>
-                  </View>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.textSecondary, fontSize: 22, letterSpacing: -0.3, marginBottom: 4 }}>
+                    Order Again
+                  </Text>
                   <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 14, marginTop: 2 }}>
                     Your go-to spots
                   </Text>
@@ -2927,10 +2689,10 @@ export default function DiscoveryFeed() {
                           router.push(`/restaurant/${restaurant.id}${orderId ? `?reorder=${orderId}` : ''}` as any);
                         }}
                         style={{
-                          backgroundColor: "#141414",
+                          backgroundColor: colors.homeSurface,
                           borderRadius: 18,
                           borderWidth: 1,
-                          borderColor: restaurant.waitStatus === 'darkgrey' ? "#222" : "#2a2a2a",
+                          borderColor: restaurant.waitStatus === 'darkgrey' ? "#2a2a2e" : colors.homeBorder,
                           width: 212,
                           opacity: restaurant.waitStatus === 'darkgrey' ? 0.7 : 1,
                           flexDirection: "column",
@@ -3015,7 +2777,7 @@ export default function DiscoveryFeed() {
                             </View>
                           ) : (
                             <View style={{ backgroundColor: "rgba(255,153,51,0.1)", borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,153,51,0.25)", paddingHorizontal: 8, paddingVertical: 4 }}>
-                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 11 }}>Order Again →</Text>
+                              <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 11 }}>Reorder</Text>
                             </View>
                           )}
                           {restaurant.isComingSoon ? (
@@ -3064,12 +2826,9 @@ export default function DiscoveryFeed() {
             return (
               <Animated.View entering={FadeInDown.delay(500).duration(500)}>
                 <View className="px-5 mt-8 mb-4">
-                  <View className="flex-row items-center mb-1">
-                    <Sparkles size={18} color="#818CF8" />
-                    <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: "#f5f5f5", fontSize: 24, marginLeft: 8 }}>
-                      You May Like
-                    </Text>
-                  </View>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.textSecondary, fontSize: 22, letterSpacing: -0.3, marginBottom: 4 }}>
+                    You May Like
+                  </Text>
                   <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 14, marginTop: 2 }}>
                     Based on your taste in {personalization.topCuisineTags.slice(0, 2).join(" & ")}
                   </Text>
@@ -3101,6 +2860,13 @@ export default function DiscoveryFeed() {
         </ScrollView>
           )}
         </View>
+
+        </View>
+        </TabScreenEntrance>
+
+        {showDiscoverFeedLoading && (
+          <LoadingBlurOverlay />
+        )}
 
         {/* Search Overlay */}
         {showSearch && <SearchOverlay onClose={() => setShowSearch(false)} />}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -25,13 +25,16 @@ import Animated, {
   FadeInDown,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "@/lib/location-context";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
+import { useAppTheme } from "@/lib/app-theme";
 
 const DFW_CITIES = [
   "Frisco, TX",
@@ -72,7 +75,79 @@ const DAYS = [
   { short: "Su", full: "Sun" },
 ];
 
+function DiningPrefsLoadingSkeleton() {
+  const pulse = useSharedValue(0.28);
+  useEffect(() => {
+    pulse.value = withRepeat(withTiming(0.52, { duration: 720 }), -1, true);
+  }, [pulse]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  const chips = useMemo(() => [0, 1, 2], []);
+  const dayDots = useMemo(() => [0, 1, 2, 3, 4, 5, 6], []);
+
+  return (
+    <View>
+      <Animated.View
+        entering={FadeInDown.delay(40).duration(420)}
+        style={{
+          backgroundColor: "#1a1a1a",
+          borderRadius: 20,
+          borderWidth: 1,
+          borderColor: "#2a2a2a",
+          padding: 20,
+        }}
+      >
+        <Animated.View
+          style={[
+            { height: 11, width: 72, borderRadius: 5, backgroundColor: "#333", marginBottom: 10 },
+            pulseStyle,
+          ]}
+        />
+        <Animated.View
+          style={[{ height: 48, borderRadius: 14, backgroundColor: "#262626", marginBottom: 22 }, pulseStyle]}
+        />
+        <Animated.View
+          style={[
+            { height: 11, width: 96, borderRadius: 5, backgroundColor: "#333", marginBottom: 10 },
+            pulseStyle,
+          ]}
+        />
+        <View style={{ flexDirection: "row", gap: 10, marginBottom: 22 }}>
+          {chips.map((i) => (
+            <Animated.View
+              key={i}
+              entering={FadeInDown.delay(80 + i * 48).duration(400)}
+              style={[
+                { flex: 1, height: 44, borderRadius: 12, backgroundColor: "#262626" },
+                pulseStyle,
+              ]}
+            />
+          ))}
+        </View>
+        <Animated.View
+          style={[
+            { height: 11, width: 110, borderRadius: 5, backgroundColor: "#333", marginBottom: 10 },
+            pulseStyle,
+          ]}
+        />
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {dayDots.map((i) => (
+            <Animated.View
+              key={i}
+              entering={FadeInDown.delay(120 + i * 36).duration(380)}
+              style={[
+                { width: 40, height: 40, borderRadius: 12, backgroundColor: "#262626" },
+                pulseStyle,
+              ]}
+            />
+          ))}
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function DiningPreferencesScreen() {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const { session } = useAuth();
   const { reloadLocationPrefs } = useLocation();
@@ -167,7 +242,7 @@ export default function DiningPreferencesScreen() {
   }, [session, city, dietaryType, restrictedDays, savingPrefs, reloadLocationPrefs]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
         {/* Header */}
         <View
@@ -230,9 +305,7 @@ export default function DiningPreferencesScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {loadingPrefs ? (
-            <View style={{ paddingVertical: 60, alignItems: "center" }}>
-              <ActivityIndicator color="#FF9933" />
-            </View>
+            <DiningPrefsLoadingSkeleton />
           ) : (
             <View
               style={{

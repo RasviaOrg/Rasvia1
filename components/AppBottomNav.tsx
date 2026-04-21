@@ -1,10 +1,12 @@
 import React from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import { useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bell, MapPin, Map as MapIcon, ShoppingCart, User } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useNotifications } from "@/lib/notifications-context";
+import { useAppTheme } from "@/lib/app-theme";
 
 export type TabKey = "home" | "map" | "cart" | "notifications" | "profile";
 export const APP_BOTTOM_NAV_HEIGHT = 52;
@@ -25,6 +27,7 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { notificationBadgeCount } = useNotifications();
+  const { colors } = useAppTheme();
 
   const tabs: Array<{
     key: TabKey;
@@ -50,9 +53,9 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
         left: 0,
         right: 0,
         bottom: -APP_BOTTOM_NAV_OFFSET,
-        backgroundColor: "#0f0f0f",
+        backgroundColor: colors.navBar,
         borderTopWidth: 1,
-        borderTopColor: "#202020",
+        borderTopColor: colors.navBarBorder,
         paddingTop: 8,
         paddingBottom: Math.max(insets.bottom, 8),
         zIndex: 9999,
@@ -77,7 +80,14 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
               key={tab.key}
               onPress={() => {
                 if (Platform.OS !== "web") Haptics.selectionAsync();
-                if (!active) router.replace(tab.route as any);
+                // Inside `(tabs)`, `navigate` switches tabs without unmounting. When a screen
+                // is stacked above the tab shell (e.g. /favorites), `dismissTo` pops back
+                // to that tab instead of pushing another copy.
+                if (!active) {
+                  const href = tab.route as Href;
+                  if (router.canDismiss()) router.dismissTo(href);
+                  else router.navigate(href);
+                }
               }}
               style={{
                 flex: 1,
@@ -98,7 +108,7 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
                     minWidth: 28,
                   }}
                 >
-                  <Icon size={17} color={active ? "#FF9933" : "#8a8a8a"} />
+                  <Icon size={17} color={active ? colors.saffron : colors.textMuted} />
                   {showBadge ? (
                     <View
                       style={{
@@ -108,12 +118,12 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
                         minWidth: 18,
                         height: 18,
                         borderRadius: 9,
-                        backgroundColor: "#FF9933",
+                        backgroundColor: colors.saffron,
                         alignItems: "center",
                         justifyContent: "center",
                         paddingHorizontal: 4,
                         borderWidth: 2,
-                        borderColor: "#0f0f0f",
+                        borderColor: colors.navBar,
                       }}
                     >
                       <Text
@@ -134,7 +144,7 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
                 <Text
                   style={{
                     fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
-                    color: active ? "#FF9933" : "#8a8a8a",
+                    color: active ? colors.saffron : colors.textMuted,
                     fontSize: 11,
                     marginTop: 4,
                   }}

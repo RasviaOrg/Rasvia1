@@ -11,6 +11,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, ChevronRight, Clock, MapPin, Star, Leaf, ShieldCheck } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import { supabase } from "@/lib/supabase";
 import { fetchBatchReviewStats } from "@/lib/review-stats";
 import {
@@ -25,10 +33,10 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { useAuth } from "@/lib/auth-context";
 import { FilterBar } from "@/components/FilterBar";
-import { BrandedLoader } from "@/components/BrandedLoader";
 import type { FilterType } from "@/data/mockData";
 import { RestaurantMediaFrame } from "@/components/RestaurantMediaFrame";
 import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, type RestaurantMediaSlide } from "@/lib/restaurant-media";
+import { useAppTheme } from "@/lib/app-theme";
 
 function parseDist(distance: string) {
   return parseFloat(distance) || 9999;
@@ -42,6 +50,65 @@ function normalizeFilter(value: string | string[] | undefined): FilterType {
 
 function lower(value: string) {
   return value.trim().toLowerCase();
+}
+
+function getSectionCopy(section: string): { title: string; subtitle: string } {
+  switch (section) {
+    case "favorites":
+      return { title: "Favorites", subtitle: "Your saved spots in one place" };
+    case "recently-viewed":
+      return { title: "Recently Viewed", subtitle: "Restaurants you opened recently" };
+    case "nearby":
+      return { title: "Nearby", subtitle: "Filter by wait time and keep dietary sorting" };
+    case "quick-bites":
+      return { title: "Quick Bites", subtitle: "Under 15 min wait" };
+    default:
+      return { title: "Trending Now", subtitle: "Popular spots with live wait times" };
+  }
+}
+
+function DiscoverLoadingSkeleton() {
+  const pulse = useSharedValue(0.28);
+  useEffect(() => {
+    pulse.value = withRepeat(withTiming(0.52, { duration: 700 }), -1, true);
+  }, [pulse]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  const blocks = [0, 1, 2, 3];
+  return (
+    <View style={{ paddingTop: 4 }}>
+      {blocks.map((i) => (
+        <Animated.View
+          key={i}
+          entering={FadeInDown.delay(32 + i * 68).duration(420)}
+          style={{
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: "#252525",
+            backgroundColor: "#121212",
+            padding: 12,
+            marginBottom: 10,
+          }}
+        >
+          <Animated.View
+            style={[
+              { height: 198, borderRadius: 12, backgroundColor: "#1e1e1e" },
+              pulseStyle,
+            ]}
+          />
+          <View style={{ marginTop: 14, gap: 10 }}>
+            <Animated.View style={[{ height: 22, width: "72%", borderRadius: 8, backgroundColor: "#1e1e1e" }, pulseStyle]} />
+            <Animated.View style={[{ height: 14, width: "44%", borderRadius: 6, backgroundColor: "#1e1e1e" }, pulseStyle]} />
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
+              <Animated.View style={[{ height: 12, width: 52, borderRadius: 4, backgroundColor: "#1e1e1e" }, pulseStyle]} />
+              <Animated.View style={[{ height: 12, width: 64, borderRadius: 4, backgroundColor: "#1e1e1e" }, pulseStyle]} />
+              <Animated.View style={[{ height: 12, width: 56, borderRadius: 4, backgroundColor: "#1e1e1e" }, pulseStyle]} />
+            </View>
+          </View>
+        </Animated.View>
+      ))}
+    </View>
+  );
 }
 
 function SectionRestaurantRow({
@@ -136,6 +203,7 @@ function SectionRestaurantRow({
 }
 
 export default function DiscoverSectionPage() {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const params = useLocalSearchParams<{ section?: string; filter?: string }>();
   const section = (params.section ?? "trending") as string;
@@ -379,15 +447,14 @@ export default function DiscoverSectionPage() {
     router.push(`/restaurant/${id}` as any);
   }, [router]);
 
-  if (loading) {
-    return <BrandedLoader message="Loading section..." />;
-  }
+  const headerCopy = getSectionCopy(section);
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        <View
+        <Animated.View
+          entering={FadeIn.duration(280)}
           style={{
             flexDirection: "row",
             alignItems: "center",
@@ -395,26 +462,26 @@ export default function DiscoverSectionPage() {
             paddingTop: 6,
             paddingBottom: 12,
             borderBottomWidth: 1,
-            borderBottomColor: "#202020",
+            borderBottomColor: colors.navBarBorder,
             gap: 10,
           }}
         >
           <Pressable
             onPress={() => router.back()}
             hitSlop={10}
-            style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#171717", borderWidth: 1, borderColor: "#2a2a2a" }}
+            style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }}
           >
-            <ArrowLeft size={18} color="#f5f5f5" />
+            <ArrowLeft size={18} color={colors.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#f5f5f5", fontSize: 21 }}>
-              {content.title}
+            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 21 }}>
+              {loading ? headerCopy.title : content.title}
             </Text>
-            <Text style={{ fontFamily: "Manrope_500Medium", color: "#999", fontSize: 12, marginTop: 2 }}>
-              {content.subtitle}
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+              {loading ? headerCopy.subtitle : content.subtitle}
             </Text>
           </View>
-        </View>
+        </Animated.View>
 
         <ScrollView
           style={{ flex: 1 }}
@@ -431,57 +498,73 @@ export default function DiscoverSectionPage() {
             />
           }
         >
-          {(isVegSortMode || isHalalSortMode) && (
-            <View style={{
-              backgroundColor: "rgba(26,26,26,0.95)",
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: isVegSortMode ? "rgba(34,197,94,0.3)" : "rgba(96,165,250,0.35)",
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 10,
-            }}>
-              {isVegSortMode ? (
-                <Leaf size={14} color="#22C55E" />
-              ) : (
-                <ShieldCheck size={14} color="#60A5FA" />
-              )}
-              <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12, flex: 1 }}>
-                {isVegSortMode
-                  ? "Vegetarian-friendly options are sorted first."
-                  : "Halal-friendly options are sorted first."}
-              </Text>
-            </View>
-          )}
-
-          {section === "nearby" && (
-            <View style={{ marginBottom: 10 }}>
-              <FilterBar
-                activeFilter={activeFilter}
-                onFilterChange={(filter) => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  setActiveFilter(filter);
-                }}
-              />
-            </View>
-          )}
-
-          {content.rows.length === 0 ? (
-            <Text style={{ textAlign: "center", color: "#777", fontFamily: "Manrope_500Medium", marginTop: 24 }}>
-              Nothing to show right now.
-            </Text>
+          {loading ? (
+            <DiscoverLoadingSkeleton />
           ) : (
-            content.rows.map((restaurant) => (
-              <SectionRestaurantRow
-                key={restaurant.id}
-                restaurant={restaurant}
-                mediaSlides={restaurantMediaById[restaurant.id]}
-                onPress={() => handleRestaurantPress(restaurant.id)}
-              />
-            ))
+            <Animated.View entering={FadeIn.duration(320)}>
+              {(isVegSortMode || isHalalSortMode) && (
+                <Animated.View
+                  entering={FadeInDown.delay(40).duration(380)}
+                  style={{
+                    backgroundColor: "rgba(26,26,26,0.95)",
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: isVegSortMode ? "rgba(34,197,94,0.3)" : "rgba(96,165,250,0.35)",
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 10,
+                  }}
+                >
+                  {isVegSortMode ? (
+                    <Leaf size={14} color="#22C55E" />
+                  ) : (
+                    <ShieldCheck size={14} color="#60A5FA" />
+                  )}
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12, flex: 1 }}>
+                    {isVegSortMode
+                      ? "Vegetarian-friendly options are sorted first."
+                      : "Halal-friendly options are sorted first."}
+                  </Text>
+                </Animated.View>
+              )}
+
+              {section === "nearby" && (
+                <Animated.View entering={FadeInDown.delay(60).duration(380)} style={{ marginBottom: 10 }}>
+                  <FilterBar
+                    activeFilter={activeFilter}
+                    onFilterChange={(filter) => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      setActiveFilter(filter);
+                    }}
+                  />
+                </Animated.View>
+              )}
+
+              {content.rows.length === 0 ? (
+                <Animated.Text
+                  entering={FadeInDown.delay(80).duration(400)}
+                  style={{ textAlign: "center", color: "#777", fontFamily: "Manrope_500Medium", marginTop: 24 }}
+                >
+                  Nothing to show right now.
+                </Animated.Text>
+              ) : (
+                content.rows.map((restaurant, index) => (
+                  <Animated.View
+                    key={restaurant.id}
+                    entering={FadeInDown.delay(70 + Math.min(index, 12) * 48).duration(420)}
+                  >
+                    <SectionRestaurantRow
+                      restaurant={restaurant}
+                      mediaSlides={restaurantMediaById[restaurant.id]}
+                      onPress={() => handleRestaurantPress(restaurant.id)}
+                    />
+                  </Animated.View>
+                ))
+              )}
+            </Animated.View>
           )}
         </ScrollView>
       </SafeAreaView>

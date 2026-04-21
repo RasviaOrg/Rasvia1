@@ -1,7 +1,4 @@
-import {
-  DarkTheme,
-  ThemeProvider,
-} from "@react-navigation/native";
+import { ThemeProvider } from "@react-navigation/native";
 import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -9,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, ActivityIndicator, Platform, Alert, LogBox, Image, Text } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { authGateFlags } from "@/lib/auth-gate-flags";
+import { useBackgroundRoutePrefetch } from "@/lib/route-prefetch";
 
 // Remote push token registration is unavailable in Expo Go SDK 53+.
 // Rasvia only uses local (scheduled) notifications so this is harmless.
@@ -53,20 +51,10 @@ import { NotificationsProvider, useNotifications } from "@/lib/notifications-con
 import { InAppNotification } from "@/components/InAppNotification";
 import { BrandedLoader } from "@/components/BrandedLoader";
 import { AppBottomNav, type TabKey } from "@/components/AppBottomNav";
+import { AppThemeProvider, useAppTheme } from "@/lib/app-theme";
+import * as SystemUI from "expo-system-ui";
 
 SplashScreen.preventAutoHideAsync();
-
-const rasviaTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: "#0f0f0f",
-    card: "#1a1a1a",
-    text: "#f5f5f5",
-    border: "#333333",
-    primary: "#FF9933",
-  },
-};
 
 // ==========================================
 // GLOBAL TABLE-READY BANNER
@@ -121,6 +109,7 @@ function GlobalTableReadyBanner() {
 // AUTH GATE: Redirects based on session
 // ==========================================
 function AuthGate() {
+  const { colors } = useAppTheme();
   const { session, loading, needsOnboarding } = useAuth();
   const segments = useSegments();
   const pathname = usePathname();
@@ -130,6 +119,8 @@ function AuthGate() {
   // when we early-return the loading screen below. (React requires every hook
   // to be called on every render in the same order.)
   const lastTabRef = useRef<TabKey>("home");
+
+  useBackgroundRoutePrefetch(!!session && !needsOnboarding && !loading);
 
   useEffect(() => {
     if (!loading) {
@@ -220,7 +211,7 @@ function AuthGate() {
   // Block ALL rendering until auth state is known
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f0f0f", alignItems: "center", justifyContent: "center" }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
         <Image
           source={require("../assets/images/rasvia-icon.png")}
           style={{ width: 72, height: 72, marginBottom: 18 }}
@@ -288,26 +279,18 @@ function AuthGate() {
   const activeTab: TabKey = lastTabRef.current;
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: "#0f0f0f" },
+          contentStyle: { backgroundColor: colors.background },
           animation: "slide_from_right",
         }}
       >
         <Stack.Screen name="auth" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="email-verify" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-        <Stack.Screen name="index" options={{ headerShown: false, animation: "none" }} />
-        <Stack.Screen
-          name="cart"
-          options={{ headerShown: false, animation: "none" }}
-        />
-        <Stack.Screen
-          name="notifications"
-          options={{ headerShown: false, animation: "none" }}
-        />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: "none" }} />
         <Stack.Screen
           name="restaurant/[id]"
           options={{ headerShown: false, animation: "slide_from_right" }}
@@ -323,14 +306,6 @@ function AuthGate() {
         <Stack.Screen
           name="waitlist/[id]"
           options={{ headerShown: false, animation: "slide_from_bottom" }}
-        />
-        <Stack.Screen
-          name="profile"
-          options={{ headerShown: false, animation: "none" }}
-        />
-        <Stack.Screen
-          name="map"
-          options={{ headerShown: false, animation: "none" }}
         />
         <Stack.Screen
           name="admin-pulse"
@@ -406,7 +381,9 @@ function AuthGate() {
   );
 }
 
-export default function RootLayout() {
+function RootLayoutWithFonts() {
+  const { colors, navigationTheme, isDark } = useAppTheme();
+
   const [bricolageLoaded, bricolageError] = useBricolage({
     BricolageGrotesque_800ExtraBold,
     BricolageGrotesque_700Bold,
@@ -433,15 +410,19 @@ export default function RootLayout() {
     }
   }, [fontsReady]);
 
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(colors.background);
+  }, [colors.background]);
+
   if (!fontsReady) {
     return <BrandedLoader message="Loading Rasvia..." />;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#0f0f0f" }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
       <SafeAreaProvider>
-        <ThemeProvider value={rasviaTheme}>
-          <StatusBar style="light" />
+        <ThemeProvider value={navigationTheme}>
+          <StatusBar style={isDark ? "light" : "dark"} />
           <AuthProvider>
             <LocationProvider>
               <NotificationsProvider>
@@ -453,5 +434,13 @@ export default function RootLayout() {
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AppThemeProvider>
+      <RootLayoutWithFonts />
+    </AppThemeProvider>
   );
 }
