@@ -8,6 +8,20 @@ set -e
 # does not exist".
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Default: detach so the terminal returns immediately (long EAS local builds).
+# Pass --foreground to stay attached (CI, debugging). Override log path with BUILD_IOS_LOG.
+if [[ "${1:-}" != "--foreground" ]]; then
+  LOG_FILE="${BUILD_IOS_LOG:-$REPO_ROOT/build_ios_background.log}"
+  nohup bash "$SCRIPT_DIR/build_and_submit_ios.sh" --foreground >>"$LOG_FILE" 2>&1 &
+  echo "iOS build and submit running in background (PID $!)."
+  echo "Log: $LOG_FILE"
+  echo "Tail: tail -f \"$LOG_FILE\""
+  echo "Run with --foreground to attach in this terminal instead."
+  exit 0
+fi
+shift
+
 cd "$REPO_ROOT"
 
 # Clear old IPA files to ensure we don't accidentally submit an old build
