@@ -259,6 +259,8 @@ Current repo defaults:
 4. **Auth state changes fire `INITIAL_SESSION`** — skip this event in `onAuthStateChange` to avoid double-processing
 5. **Types are in `data/mockData.ts`** — despite the name, this file defines the canonical TypeScript types used across the app (CartItem, MenuItem, FilterType, etc.)
 6. **`create-checkout` and `payment-redirect` are mirrored in RasviaWeb** — keep both implementations in sync when changing payment/security behavior
+7. **Broken remote refs can block `git fetch` / `git pull`** — if Git reports `fatal: bad object refs/remotes/origin/HEAD 2`, inspect `.git/refs/remotes/origin/` and `.git/logs/refs/remotes/origin/` for a stray malformed `HEAD 2` ref, remove only that local bookkeeping file, then rerun `git fetch origin`
+
 
 ## Database Hygiene & RLS (April 2026)
 
