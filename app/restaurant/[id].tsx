@@ -20,6 +20,7 @@ import {
   ArrowLeft,
   Star,
   MapPin,
+  Phone,
   Clock,
   Users,
   Heart,
@@ -55,7 +56,7 @@ import { MenuItemDetailSettingsModal } from "@/components/MenuItemDetailSettings
 import { GroupCartDrawer } from "@/components/GroupCartDrawer";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { HoursStatusBadge } from "@/components/HoursStatusBadge";
-import { RestaurantEditModal } from "@/components/RestaurantEditModal";
+import { RestaurantEditModal, formatPhoneForDisplay } from "@/components/RestaurantEditModal";
 import { ReviewsModal } from "@/components/ReviewsModal";
 import { fetchReviewStats } from "@/lib/review-stats";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -1962,15 +1963,42 @@ export default function RestaurantDetail() {
 
           </View>
 
+          {/* Phone number — displayed above address if present */}
+          {restaurant.phoneNumber ? (
+            <Pressable
+              className="flex-row items-center mt-4"
+              onPress={() => {
+                if (Platform.OS !== "web") {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  const { Linking } = require("react-native");
+                  Linking.openURL(`tel:${restaurant.phoneNumber?.replace(/\D/g, "")}`);
+                }
+              }}
+            >
+              <Phone size={13} color={colors.textMuted} />
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: colors.textMuted,
+                  fontSize: 13,
+                  marginLeft: 4,
+                  textDecorationLine: "underline",
+                }}
+              >
+                {formatPhoneForDisplay(restaurant.phoneNumber)}
+              </Text>
+            </Pressable>
+          ) : null}
+
           {/* Address */}
           <Pressable
-            className="flex-row items-center mt-4"
+            className="flex-row items-center mt-2"
             onPress={() => {
               if (Platform.OS !== "web") {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }
               if (restaurant.lat && restaurant.long) {
-                router.push(
+                router.navigate(
                   `/map?targetLat=${restaurant.lat}&targetLng=${restaurant.long}&restaurantId=${restaurant.id}` as any
                 );
               }
@@ -2599,6 +2627,7 @@ export default function RestaurantDetail() {
                 }
               : undefined
           }
+          menuTags={menuTags}
         />
       )}
 
@@ -3134,12 +3163,14 @@ export default function RestaurantDetail() {
       {showEditModal && restaurant && (
         <RestaurantEditModal
           restaurantId={restaurant.id}
+          isAdmin={isAdmin}
           initial={{
             name: restaurant.name,
             address: restaurant.address,
             description: restaurant.description,
             cuisine: restaurant.tags.join(", "),
             chainGroupKey: restaurant.chainGroupKey ?? "",
+            phoneNumber: restaurant.phoneNumber ?? "",
           }}
           onClose={() => {
             setShowEditModal(false);
@@ -3167,6 +3198,7 @@ export default function RestaurantDetail() {
                   cuisine: updated.cuisine,
                   tags: updated.cuisine.split(",").map((t) => t.trim()).filter(Boolean),
                   chainGroupKey: updated.chainGroupKey ?? null,
+                  phoneNumber: updated.phoneNumber || null,
                 }
                 : prev
             );

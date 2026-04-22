@@ -63,8 +63,11 @@ function getTodayDow(): number {
     }
 }
 
+import { useAppTheme } from '@/lib/app-theme';
+
 export function HoursStatusBadge({ statusResult, hours, size = 'md', onManageHoursPress }: HoursStatusBadgeProps) {
     const [showModal, setShowModal] = useState(false);
+    const { colors: colorsTheme, isDark } = useAppTheme();
 
     if (!statusResult) return null;
 
@@ -154,17 +157,17 @@ export function HoursStatusBadge({ statusResult, hours, size = 'md', onManageHou
                     <TouchableOpacity activeOpacity={1} onPress={() => {}}>
                         <View
                             style={{
-                                backgroundColor: '#1a1a1a',
+                                backgroundColor: colorsTheme.card,
                                 borderRadius: 20,
                                 borderWidth: 1,
-                                borderColor: '#2a2a2a',
+                                borderColor: colorsTheme.cardBorder,
                                 width: 300,
                                 overflow: 'hidden',
                             }}
                         >
                             {/* Header */}
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' }}>
-                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: '#f5f5f5', fontSize: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colorsTheme.cardBorder }}>
+                                <Text style={{ fontFamily: 'BricolageGrotesque_700Bold', color: colorsTheme.text, fontSize: 16 }}>
                                     Hours
                                 </Text>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -187,7 +190,7 @@ export function HoursStatusBadge({ statusResult, hours, size = 'md', onManageHou
                                         }}
                                         hitSlop={12}
                                     >
-                                        <X size={18} color="#666" />
+                                        <X size={18} color={colorsTheme.textMuted} />
                                     </Pressable>
                                 </View>
                             </View>
@@ -206,14 +209,14 @@ export function HoursStatusBadge({ statusResult, hours, size = 'md', onManageHou
                                                 alignItems: 'flex-start',
                                                 paddingHorizontal: 18,
                                                 paddingVertical: 9,
-                                                backgroundColor: isToday ? 'rgba(255,153,51,0.06)' : 'transparent',
+                                                backgroundColor: isToday ? (isDark ? 'rgba(255,153,51,0.06)' : 'rgba(245,158,11,0.1)') : 'transparent',
                                                 borderLeftWidth: isToday ? 2 : 0,
                                                 borderLeftColor: '#FF9933',
                                             }}
                                         >
                                             <Text style={{
                                                 fontFamily: isToday ? 'Manrope_700Bold' : 'Manrope_500Medium',
-                                                color: isToday ? '#FF9933' : '#888',
+                                                color: isToday ? '#FF9933' : colorsTheme.textMuted,
                                                 fontSize: 13,
                                                 width: 90,
                                             }}>
@@ -224,14 +227,14 @@ export function HoursStatusBadge({ statusResult, hours, size = 'md', onManageHou
                                                     slots.map((s, i) => (
                                                         <Text key={i} style={{
                                                             fontFamily: isToday ? 'Manrope_600SemiBold' : 'Manrope_400Regular',
-                                                            color: isToday ? '#f5f5f5' : '#aaa',
+                                                            color: isToday ? colorsTheme.text : colorsTheme.textMuted,
                                                             fontSize: 13,
                                                         }}>
                                                             {fmtTime(s.open)} – {fmtTime(s.close)}
                                                         </Text>
                                                     ))
                                                 ) : (
-                                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: '#555', fontSize: 13 }}>
+                                                    <Text style={{ fontFamily: 'Manrope_500Medium', color: colorsTheme.textMuted, fontSize: 13 }}>
                                                         Closed
                                                     </Text>
                                                 )}

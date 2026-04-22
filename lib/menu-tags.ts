@@ -56,6 +56,8 @@ const LEGACY_KEY_MAP: Record<string, string> = {
 
 export function slugifyTag(value: string): string {
   return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
@@ -97,12 +99,8 @@ export function normalizeMenuItemTags(rawTags: string[] | null | undefined, avai
   for (const raw of rawTags ?? []) {
     const legacy = LEGACY_KEY_MAP[String(raw).trim().toLowerCase()] ?? slugifyTag(String(raw));
     if (!legacy || seen.has(legacy)) continue;
-    if (!available.has(legacy)) {
-      // If item has legacy/custom key not in config, still keep it so data isn't lost.
-      out.push(legacy);
-      seen.add(legacy);
-      continue;
-    }
+    if (!available.has(legacy)) continue;
+
     out.push(legacy);
     seen.add(legacy);
   }
@@ -111,10 +109,7 @@ export function normalizeMenuItemTags(rawTags: string[] | null | undefined, avai
 }
 
 export function ensureKnownTags(rawTags: string[] | null | undefined, availableTags: MenuTagConfig[]): string[] {
-  const normalized = normalizeMenuItemTags(rawTags, availableTags);
-  if (normalized.length > 0) return normalized;
-  const fallback = availableTags.find((t) => t.enabled)?.key ?? availableTags[0]?.key ?? "main_course";
-  return fallback ? [fallback] : [];
+  return normalizeMenuItemTags(rawTags, availableTags);
 }
 
 export function serializeMenuTags(tags: MenuTagConfig[]): MenuTagConfig[] {

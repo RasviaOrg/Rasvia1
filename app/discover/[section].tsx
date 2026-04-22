@@ -535,7 +535,7 @@ export default function DiscoverSectionPage() {
                 <Animated.View
                   entering={FadeInDown.delay(40).duration(380)}
                   style={{
-                    backgroundColor: "rgba(26,26,26,0.95)",
+                    backgroundColor: colors.card,
                     borderRadius: 14,
                     borderWidth: 1,
                     borderColor: isVegSortMode ? "rgba(34,197,94,0.3)" : "rgba(96,165,250,0.35)",
@@ -552,7 +552,7 @@ export default function DiscoverSectionPage() {
                   ) : (
                     <ShieldCheck size={14} color="#60A5FA" />
                   )}
-                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#f5f5f5", fontSize: 12, flex: 1 }}>
+                  <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.text, fontSize: 12, flex: 1 }}>
                     {isVegSortMode
                       ? "Vegetarian-friendly options are sorted first."
                       : "Halal-friendly options are sorted first."}

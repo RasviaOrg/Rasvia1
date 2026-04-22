@@ -17,6 +17,22 @@ import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
 import { useAppTheme } from "@/lib/app-theme";
 
+// ── Phone formatting helpers ──────────────────────────────────────────────────
+
+/** Format raw digits into (xxx) xxx-xxxx display format */
+export function formatPhoneForDisplay(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 10);
+  if (digits.length === 0) return "";
+  if (digits.length <= 3) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+/** Strip non-digits from phone input (for storage) */
+export function stripPhoneDigits(formatted: string): string {
+  return formatted.replace(/\D/g, "").slice(0, 10);
+}
+
 interface RestaurantEditModalProps {
   restaurantId: string;
   visible?: boolean;
@@ -26,9 +42,11 @@ interface RestaurantEditModalProps {
     description: string;
     cuisine: string;
     chainGroupKey?: string;
+    phoneNumber?: string;
   };
+  isAdmin?: boolean;
   onClose: () => void;
-  onSaved?: (updated: { name: string; address: string; description: string; cuisine: string; chainGroupKey?: string }) => void;
+  onSaved?: (updated: { name: string; address: string; description: string; cuisine: string; chainGroupKey?: string; phoneNumber: string }) => void;
   onChangeLocation?: () => void;
   onHoursSaved?: () => void;
   openHoursOnMount?: boolean;
@@ -54,6 +72,7 @@ export function RestaurantEditModal({
   restaurantId,
   visible = true,
   initial,
+  isAdmin = false,
   onClose,
   onSaved,
   onChangeLocation,
@@ -65,6 +84,7 @@ export function RestaurantEditModal({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [cuisine, setCuisine] = useState(initial?.cuisine ?? "");
   const [chainGroupKey, setChainGroupKey] = useState(initial?.chainGroupKey ?? "");
+  const [phoneNumber, setPhoneNumber] = useState(formatPhoneForDisplay(initial?.phoneNumber ?? ""));
   const [isHalalTagged, setIsHalalTagged] = useState(true);
   const [isVegetarianTagged, setIsVegetarianTagged] = useState(false);
 
@@ -91,6 +111,7 @@ export function RestaurantEditModal({
     setDescription(initial?.description ?? "");
     setCuisine(initial?.cuisine ?? "");
     setChainGroupKey(initial?.chainGroupKey ?? "");
+    setPhoneNumber(formatPhoneForDisplay(initial?.phoneNumber ?? ""));
     const parsedTags = (initial?.cuisine ?? "")
       .split(",")
       .map(normalizeTag)
@@ -278,6 +299,7 @@ export function RestaurantEditModal({
           description: description.trim() || null,
           cuisine_tags: dedupedTags.length > 0 ? dedupedTags : null,
           chain_group_key: chainGroupKey.trim() || null,
+          phone_number: stripPhoneDigits(phoneNumber) || null,
         })
         .eq("id", Number(restaurantId));
 
@@ -289,6 +311,7 @@ export function RestaurantEditModal({
         description: description.trim(),
         cuisine: dedupedTags.join(", "),
         chainGroupKey: chainGroupKey.trim(),
+        phoneNumber: stripPhoneDigits(phoneNumber),
       });
     } catch (err: any) {
       Alert.alert("Error", err.message || "Failed to save changes.");
@@ -487,20 +510,38 @@ export function RestaurantEditModal({
                   </Text>
                 </View>
                 <View style={{ marginBottom: 18 }}>
-                  <Text style={labelStyle}>Chain Group Key</Text>
+                  <Text style={labelStyle}>Phone Number</Text>
                   <TextInput
-                    value={chainGroupKey}
-                    onChangeText={setChainGroupKey}
+                    value={phoneNumber}
+                    onChangeText={(text) => setPhoneNumber(formatPhoneForDisplay(text))}
                     style={inputStyle}
-                    placeholder="e.g. saravanaa-bhavan"
+                    placeholder="(214) 555-0123"
                     placeholderTextColor={colors.textMuted}
+                    keyboardType="phone-pad"
                     autoCorrect={false}
-                    autoCapitalize="none"
                   />
                   <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginTop: 6, marginLeft: 2 }}>
-                    Restaurants with the same key are grouped as one chain.
+                    Displayed on the restaurant page for guests to call.
                   </Text>
                 </View>
+
+                {isAdmin && (
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={labelStyle}>Chain Group Key</Text>
+                    <TextInput
+                      value={chainGroupKey}
+                      onChangeText={setChainGroupKey}
+                      style={inputStyle}
+                      placeholder="e.g. saravanaa-bhavan"
+                      placeholderTextColor={colors.textMuted}
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                    />
+                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 11, marginTop: 6, marginLeft: 2 }}>
+                      Restaurants with the same key are grouped as one chain.
+                    </Text>
+                  </View>
+                )}
                 <View style={{ marginBottom: 22 }}>
                   <Text style={labelStyle}>Dietary Tags</Text>
                   <View style={{ flexDirection: "row", gap: 10 }}>

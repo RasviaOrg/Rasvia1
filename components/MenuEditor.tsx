@@ -387,7 +387,7 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} />
+      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} menuTags={menuTags} />
 
       {canEdit && (
         <Pressable

@@ -80,13 +80,11 @@ export function AppBottomNav({ activeTab, hidden = false }: { activeTab: TabKey;
               key={tab.key}
               onPress={() => {
                 if (Platform.OS !== "web") Haptics.selectionAsync();
-                // Inside `(tabs)`, `navigate` switches tabs without unmounting. When a screen
-                // is stacked above the tab shell (e.g. /favorites), `dismissTo` pops back
-                // to that tab instead of pushing another copy.
                 if (!active) {
                   const href = tab.route as Href;
-                  if (router.canDismiss()) router.dismissTo(href);
-                  else router.navigate(href);
+                  // router.navigate handles tab switching correctly in Expo Router.
+                  // Previous dismissTo logic would fail silently if the target tab wasn't in the current history stack.
+                  router.navigate(href);
                 }
               }}
               style={{

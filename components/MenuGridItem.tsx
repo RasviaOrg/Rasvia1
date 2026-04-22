@@ -36,6 +36,8 @@ interface MenuGridItemProps {
   ownerBadgeOffset?: boolean;
 }
 
+import { DEFAULT_MENU_TAGS, normalizeMenuItemTags, type MenuTagConfig } from "@/lib/menu-tags";
+
 export function MenuGridItem({
   item,
   index,
@@ -45,7 +47,8 @@ export function MenuGridItem({
   orderingAvailable = true,
   onContributeImage,
   ownerBadgeOffset = false,
-}: MenuGridItemProps) {
+  menuTags,
+}: MenuGridItemProps & { menuTags?: MenuTagConfig[] }) {
   const { colors, isDark } = useAppTheme();
   const pressScale = useSharedValue(1);
   const isEven = index % 2 === 0;
@@ -253,23 +256,13 @@ export function MenuGridItem({
             <View className="flex-row flex-wrap mb-1.5" style={{ gap: 3 }}>
               {(() => {
                 if (!item.mealTimes) return null;
-                const mealTimeStyles: Record<string, { bg: string; border: string; color: string; label: string }> = {
-                  breakfast: { bg: "rgba(249,115,22,0.15)", border: "rgba(249,115,22,0.4)", color: "#F97316", label: "Entree" },
-                  lunch:     { bg: "rgba(129,140,248,0.15)",border: "rgba(129,140,248,0.4)",color: "#818CF8", label: "Main Course" },
-                  dinner:    { bg: "rgba(129,140,248,0.15)",border: "rgba(129,140,248,0.4)",color: "#818CF8", label: "Main Course" },
-                  entree:    { bg: "rgba(249,115,22,0.15)", border: "rgba(249,115,22,0.4)", color: "#F97316", label: "Entree" },
-                  appetizer: { bg: "rgba(34,197,94,0.15)",  border: "rgba(34,197,94,0.4)",  color: "#22C55E", label: "Appetizer" },
-                  main_course:{ bg: "rgba(129,140,248,0.15)",border: "rgba(129,140,248,0.4)",color: "#818CF8", label: "Main Course" },
-                  dessert:   { bg: "rgba(236,72,153,0.15)", border: "rgba(236,72,153,0.4)", color: "#EC4899", label: "Dessert" },
-                  beverage:  { bg: "rgba(56,189,248,0.15)", border: "rgba(56,189,248,0.4)", color: "#38BDF8", label: "Beverage" },
-                  sides:     { bg: "rgba(148,163,184,0.15)", border: "rgba(148,163,184,0.4)", color: "#94A3B8", label: "Sides" },
-                  all_day:   { bg: "rgba(129,140,248,0.15)", border: "rgba(129,140,248,0.4)", color: "#818CF8", label: "Main Course" },
-                  specials:  { bg: "rgba(245,158,11,0.15)", border: "rgba(245,158,11,0.4)", color: "#F59E0B", label: "Specials" },
-                };
+                const activeTags = menuTags || DEFAULT_MENU_TAGS;
+                const normalizedTimes = normalizeMenuItemTags(item.mealTimes, activeTags);
                 const seen = new Set<string>();
-                const chips: Array<{ key: string; style: typeof mealTimeStyles[string] }> = [];
-                for (const mt of item.mealTimes) {
-                  const style = mealTimeStyles[mt] ?? {
+                const chips: Array<{ key: string; style: MenuTagConfig | { bg: string; border: string; color: string; label: string } }> = [];
+                for (const mt of normalizedTimes) {
+                  const configured = activeTags.find(t => t.key === mt) ?? DEFAULT_MENU_TAGS.find(t => t.key === mt);
+                  const style = configured ?? {
                     bg: "rgba(148,163,184,0.15)",
                     border: "rgba(148,163,184,0.4)",
                     color: "#A3A3A3",

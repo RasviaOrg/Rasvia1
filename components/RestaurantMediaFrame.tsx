@@ -3,12 +3,14 @@ import { View, FlatList, Text, NativeSyntheticEvent, NativeScrollEvent } from "r
 import { Camera } from "lucide-react-native";
 import type { RestaurantMediaSlide } from "@/lib/restaurant-media";
 import { CachedImage } from "@/components/CachedImage";
+import { useAppTheme } from "@/lib/app-theme";
 
 function NoImagePlaceholder() {
+  const { colors } = useAppTheme();
   return (
-    <View style={{ width: "100%", height: "100%", backgroundColor: "#1b1b1b", alignItems: "center", justifyContent: "center", gap: 6 }}>
-      <Camera size={22} color="#7a7a7a" />
-      <Text style={{ fontFamily: "Manrope_700Bold", color: "#8a8a8a", fontSize: 11 }}>
+    <View style={{ width: "100%", height: "100%", backgroundColor: colors.card, alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <Camera size={22} color={colors.iconMuted} />
+      <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 11 }}>
         No image available
       </Text>
     </View>

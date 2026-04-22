@@ -12,55 +12,16 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 
+import type { MenuTagConfig } from "@/lib/menu-tags";
+import { DEFAULT_MENU_TAGS, normalizeMenuItemTags } from "@/lib/menu-tags";
+
 interface AppetizerCarouselProps {
   items: MenuItem[];
   onAddItem: (item: MenuItem) => void;
+  menuTags?: MenuTagConfig[];
 }
 
-const MEAL_TIME_STYLES: Record<
-  string,
-  { bg: string; border: string; color: string; label: string }
-> = {
-  breakfast: {
-    bg: "rgba(249,115,22,0.15)",
-    border: "rgba(249,115,22,0.4)",
-    color: "#F97316",
-    label: "Breakfast",
-  },
-  lunch: {
-    bg: "rgba(34,197,94,0.15)",
-    border: "rgba(34,197,94,0.4)",
-    color: "#22C55E",
-    label: "Lunch",
-  },
-  dinner: {
-    bg: "rgba(129,140,248,0.15)",
-    border: "rgba(129,140,248,0.4)",
-    color: "#818CF8",
-    label: "Dinner",
-  },
-  all_day: {
-    bg: "rgba(56,189,248,0.15)",
-    border: "rgba(56,189,248,0.4)",
-    color: "#38BDF8",
-    label: "All Day",
-  },
-  specials: {
-    bg: "rgba(245,158,11,0.15)",
-    border: "rgba(245,158,11,0.4)",
-    color: "#F59E0B",
-    label: "Specials",
-  },
-};
-
-function normalizeMealKey(mt: string): string {
-  const m = mt?.toLowerCase?.().trim() ?? "";
-  if (m === "all" || m === "all day") return "all_day";
-  if (m === "special") return "specials";
-  return m;
-}
-
-export function AppetizerCarousel({ items, onAddItem }: AppetizerCarouselProps) {
+export function AppetizerCarousel({ items, onAddItem, menuTags }: AppetizerCarouselProps) {
   return (
     <View>
       <Text
@@ -96,6 +57,7 @@ export function AppetizerCarousel({ items, onAddItem }: AppetizerCarouselProps) 
             item={item}
             index={index}
             onAdd={() => onAddItem(item)}
+            menuTags={menuTags}
           />
         ))}
       </ScrollView>
@@ -107,15 +69,20 @@ function AppetizerCard({
   item,
   index,
   onAdd,
+  menuTags,
 }: {
   item: MenuItem;
   index: number;
   onAdd: () => void;
+  menuTags?: MenuTagConfig[];
 }) {
   const pressScale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressScale.value }],
   }));
+
+  const activeTags = menuTags && menuTags.length > 0 ? menuTags : DEFAULT_MENU_TAGS;
+  const normalizedTimes = normalizeMenuItemTags(item.mealTimes, activeTags);
 
   return (
     <Animated.View
@@ -187,10 +154,8 @@ function AppetizerCard({
                   </Text>
                 </View>
               )}
-              {item.mealTimes &&
-                item.mealTimes.slice(0, 2).map((mt, i) => {
-                  const key = normalizeMealKey(mt);
-                  const style = MEAL_TIME_STYLES[key];
+              {normalizedTimes.slice(0, 2).map((mt, i) => {
+                  const style = activeTags.find(t => t.key === mt) ?? DEFAULT_MENU_TAGS.find(t => t.key === mt);
                   if (!style) return null;
                   return (
                     <View

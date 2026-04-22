@@ -345,7 +345,7 @@ function WaitlistWidget({
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: "#666666",
+                color: colors.textMuted,
                 fontSize: 11,
               }}
             >
@@ -362,7 +362,7 @@ function WaitlistWidget({
                 width: 22,
                 height: 22,
                 borderRadius: 11,
-                backgroundColor: "rgba(255,255,255,0.08)",
+                backgroundColor: colors.pressableBg,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -394,7 +394,7 @@ function WaitlistWidget({
                 numberOfLines={1}
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: "#f5f5f5",
+                  color: colors.text,
                   fontSize: 16,
                   letterSpacing: -0.2,
                   marginBottom: 4,
@@ -411,12 +411,12 @@ function WaitlistWidget({
                     marginBottom: 4,
                   }}
                 >
-                  <MapPin size={10} color="#666" />
+                  <MapPin size={10} color={colors.iconMuted} />
                   <Text
                     numberOfLines={1}
                     style={{
                       fontFamily: "Manrope_500Medium",
-                      color: "#666666",
+                      color: colors.textMuted,
                       fontSize: 11,
                     }}
                   >
@@ -430,17 +430,17 @@ function WaitlistWidget({
                     flexDirection: "row",
                     alignItems: "center",
                     gap: 3,
-                    backgroundColor: "#262626",
+                    backgroundColor: colors.pressableBg,
                     paddingHorizontal: 8,
                     paddingVertical: 3,
                     borderRadius: 8,
                   }}
                 >
-                  <Users size={10} color="#999" />
+                  <Users size={10} color={colors.iconMuted} />
                   <Text
                     style={{
                       fontFamily: "JetBrainsMono_600SemiBold",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 11,
                     }}
                   >
@@ -452,17 +452,17 @@ function WaitlistWidget({
                     flexDirection: "row",
                     alignItems: "center",
                     gap: 3,
-                    backgroundColor: "#262626",
+                    backgroundColor: colors.pressableBg,
                     paddingHorizontal: 8,
                     paddingVertical: 3,
                     borderRadius: 8,
                   }}
                 >
-                  <Clock size={10} color="#999" />
+                  <Clock size={10} color={colors.iconMuted} />
                   <Text
                     style={{
                       fontFamily: "JetBrainsMono_600SemiBold",
-                      color: "#f5f5f5",
+                      color: colors.text,
                       fontSize: 11,
                     }}
                   >
@@ -480,7 +480,7 @@ function WaitlistWidget({
             <View
               style={{
                 marginTop: 14,
-                backgroundColor: "#262626",
+                backgroundColor: colors.pressableBg,
                 borderRadius: 12,
                 padding: 12,
                 flexDirection: "row",
@@ -516,7 +516,7 @@ function WaitlistWidget({
                 <Text
                   style={{
                     fontFamily: "BricolageGrotesque_700Bold",
-                    color: "#f5f5f5",
+                    color: colors.text,
                     fontSize: 14,
                     marginBottom: 2,
                   }}
@@ -528,7 +528,7 @@ function WaitlistWidget({
                 <Text
                   style={{
                     fontFamily: "Manrope_500Medium",
-                    color: "#666666",
+                    color: colors.textMuted,
                     fontSize: 12,
                   }}
                 >
@@ -555,10 +555,10 @@ function WaitlistWidget({
                         borderRadius: 5,
                         backgroundColor:
                           i < (entry.position ?? 1) - 1
-                            ? "#444"
+                            ? colors.cardBorder
                             : i === (entry.position ?? 1) - 1
                             ? "#FF9933"
-                            : "#333",
+                            : colors.pressableBg,
                       }}
                     />
                   )

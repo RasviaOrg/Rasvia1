@@ -35,6 +35,8 @@ export interface SupabaseRestaurant {
     use_regular_image_as_first_slide?: boolean;
     /** Per-restaurant dynamic menu tag configuration */
     menu_tag_config?: unknown;
+    /** Optional phone number for the restaurant */
+    phone_number?: string | null;
 }
 
 // ==========================================
@@ -73,6 +75,8 @@ export interface UIRestaurant {
     useRegularImageAsFirstSlide: boolean;
     /** Raw per-restaurant menu tag configuration payload */
     menuTagConfig?: unknown;
+    /** Optional phone number for the restaurant */
+    phoneNumber: string | null;
 }
 
 // ==========================================
@@ -248,6 +252,7 @@ export function mapSupabaseToUI(
         chainGroupKey: restaurant.chain_group_key ?? null,
         useRegularImageAsFirstSlide: restaurant.use_regular_image_as_first_slide !== false,
         menuTagConfig: restaurant.menu_tag_config ?? null,
+        phoneNumber: restaurant.phone_number ?? null,
     };
 }
 
