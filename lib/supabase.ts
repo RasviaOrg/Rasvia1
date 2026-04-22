@@ -76,11 +76,32 @@ export async function purgeStoredSupabaseSession(): Promise<void> {
   }
 }
 
+/** Kong returns 403 if `apikey` is missing — ensure every request carries it. */
+function fetchWithApikey(anonKey: string): typeof fetch {
+  return (input, init) => {
+    if (!anonKey) {
+      return fetch(input, init);
+    }
+    const base =
+      init?.headers ??
+      (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined);
+    const h = new Headers(base);
+    if (!h.has('apikey')) {
+      h.set('apikey', anonKey);
+    }
+    return fetch(input, { ...init, headers: h });
+  };
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+  },
+  global: {
+    fetch: fetchWithApikey(supabaseAnonKey),
+    headers: { apikey: supabaseAnonKey },
   },
 });

@@ -34,6 +34,7 @@ import {
   useFonts as useBricolage,
   BricolageGrotesque_800ExtraBold,
   BricolageGrotesque_700Bold,
+  BricolageGrotesque_600SemiBold,
 } from "@expo-google-fonts/bricolage-grotesque";
 import {
   useFonts as useManrope,
@@ -124,6 +125,9 @@ function AuthGate() {
   const lastTabRef = useRef<TabKey>("home");
   const prevHadSessionRef = useRef(false);
   const prevSignedInUserIdRef = useRef<string | null>(null);
+  // One-shot guard so the cold-boot landing reset below only runs once per
+  // mount (not every time pathname changes afterwards).
+  const didInitialLandingResetRef = useRef(false);
 
   useBackgroundRoutePrefetch(!!session && !needsOnboarding && !loading);
 
@@ -153,6 +157,30 @@ function AuthGate() {
     }
     prevHadSessionRef.current = hasSession;
   }, [session?.user, pathname, router]);
+
+  // Cold-boot landing guard: Expo Router / React Navigation can restore the
+  // previously focused tab (typically `cart`) after a dev reload or fast
+  // refresh, and `unstable_settings.initialRouteName` is not always honored
+  // in that case. Force any non-home tab back to `/` exactly once after auth
+  // resolves. Deep links to stack screens (restaurant/[id], order-
+  // confirmation, reset-password, etc.) are intentionally left alone.
+  useEffect(() => {
+    if (loading) return;
+    if (didInitialLandingResetRef.current) return;
+    if (!session?.user || needsOnboarding) return;
+    didInitialLandingResetRef.current = true;
+
+    const p = pathname ?? "";
+    const isNonHomeTab =
+      p === "/cart" ||
+      p === "/map" ||
+      p === "/notifications" ||
+      p === "/profile";
+    if (isNonHomeTab) {
+      lastTabRef.current = "home";
+      router.replace("/");
+    }
+  }, [loading, session?.user, needsOnboarding, pathname, router]);
 
   useEffect(() => {
     if (!loading) {
@@ -421,6 +449,7 @@ function RootLayoutWithFonts() {
   const [bricolageLoaded, bricolageError] = useBricolage({
     BricolageGrotesque_800ExtraBold,
     BricolageGrotesque_700Bold,
+    BricolageGrotesque_600SemiBold,
   });
 
   const [manropeLoaded, manropeError] = useManrope({

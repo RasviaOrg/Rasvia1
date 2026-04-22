@@ -23,6 +23,7 @@ module.exports = {
       fontFamily: {
         "bricolage": ["BricolageGrotesque_800ExtraBold"],
         "bricolage-bold": ["BricolageGrotesque_700Bold"],
+        "bricolage-semibold": ["BricolageGrotesque_600SemiBold"],
         "manrope": ["Manrope_500Medium"],
         "manrope-bold": ["Manrope_700Bold"],
         "manrope-semibold": ["Manrope_600SemiBold"],

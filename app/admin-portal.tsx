@@ -958,36 +958,37 @@ export default function AdminPortalScreen() {
         </View>
       ) : adminMode === "settings" ? (
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
-          <View
-            style={{
-              marginTop: 4,
-              marginBottom: 10,
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.cardBorder,
-              borderRadius: 12,
-              paddingHorizontal: 12,
-              paddingVertical: 11,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <Flag size={14} color="#EAB308" />
-            <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 13, flex: 1 }}>
-              Review Reports
-            </Text>
-            <Text style={{ color: colors.textMuted, fontFamily: "JetBrainsMono_600SemiBold", fontSize: 11 }}>
-              {reviewReports.length}
-            </Text>
-          </View>
-
           <FlatList
             style={{ flex: 1 }}
             data={reviewReports}
             keyExtractor={(item) => String(item.id)}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 20, flexGrow: 1 }}
+            ListHeaderComponent={
+              <View
+                style={{
+                  marginTop: 4,
+                  marginBottom: 10,
+                  backgroundColor: colors.card,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 11,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Flag size={14} color="#EAB308" />
+                <Text style={{ color: colors.text, fontFamily: "Manrope_600SemiBold", fontSize: 13, flex: 1 }}>
+                  Review Reports
+                </Text>
+                <Text style={{ color: colors.textMuted, fontFamily: "JetBrainsMono_600SemiBold", fontSize: 11 }}>
+                  {reviewReports.length}
+                </Text>
+              </View>
+            }
             renderItem={({ item }) => {
               const pending = item.status === "pending";
               const actionLoading = reportActionLoadingId === item.id;

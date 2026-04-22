@@ -37,7 +37,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth-context';
 import {
-  joinSession, addItem, updateItemQuantity, removeItem,
+  joinSession, credsFromJoinResult, addItem, updateItemQuantity, removeItem,
   setPaymentMode, setItemSplit, assignItemPayer,
   lockSession, unlockSession, startCheckout, cancelSession, leaveSession,
   fetchSnapshot, CheckoutError,
@@ -46,7 +46,6 @@ import {
 } from '../../lib/party-session';
 import {
   loadPartyCreds, savePartyCreds, clearPartyCreds,
-  loadLastDisplayName, saveLastDisplayName,
 } from '../../lib/party-credentials';
 import { addActiveParty, removeActiveParty } from '../../lib/party-active';
 import { subscribeToParty } from '../../lib/party-realtime';
@@ -374,40 +373,47 @@ export default function JoinPartyScreen() {
     return () => { cancelled = true; };
   }, [sessionId]);
 
-  // Pre-fill nameInput with (a) the last name the user joined a party with,
-  // and (b) as a final fallback, the logged-in user's profile name/email.
-  // This means a returning guest who previously typed "John" never has to
-  // type their name again for any subsequent party.
+  // Pre-fill nameInput from the signed-in user's profile — prefer
+  // `first_name + last_name` when both are available, otherwise any stored
+  // full/display name. We deliberately do NOT fall back to a device-cached
+  // "last display name" here: that key is shared across whichever Rasvia
+  // account happens to be signed in on this phone, so leaking a previous
+  // user's name would be a privacy hazard. If no profile name is available,
+  // the field stays blank and the guest types their own name.
   useEffect(() => {
     if (nameInput.trim().length > 0) return;
     let cancelled = false;
     (async () => {
       const meta: any = authSession?.user?.user_metadata ?? {};
-      let candidate = (
-        meta.full_name || meta.name || meta.display_name ||
-        [meta.first_name, meta.last_name].filter(Boolean).join(' ')
-      );
+      const metaFirst = typeof meta.first_name === 'string' ? meta.first_name.trim() : '';
+      const metaLast = typeof meta.last_name === 'string' ? meta.last_name.trim() : '';
+      let candidate = [metaFirst, metaLast].filter(Boolean).join(' ').trim();
+      if (!candidate) {
+        candidate = (
+          (typeof meta.full_name === 'string' ? meta.full_name : '') ||
+          (typeof meta.name === 'string' ? meta.name : '') ||
+          (typeof meta.display_name === 'string' ? meta.display_name : '')
+        ).trim();
+      }
       if (!candidate && authSession?.user?.id) {
         try {
           const { data } = await supabase
-            .from("profiles")
-            .select("full_name, display_name, first_name, last_name")
-            .eq("id", authSession.user.id)
+            .from('profiles')
+            .select('first_name, last_name, full_name, display_name')
+            .eq('id', authSession.user.id)
             .maybeSingle();
           const p: any = data ?? {};
-          candidate = p.full_name || p.display_name || [p.first_name, p.last_name].filter(Boolean).join(" ");
+          const first = typeof p.first_name === 'string' ? p.first_name.trim() : '';
+          const last = typeof p.last_name === 'string' ? p.last_name.trim() : '';
+          candidate = [first, last].filter(Boolean).join(' ')
+            || (typeof p.full_name === 'string' ? p.full_name.trim() : '')
+            || (typeof p.display_name === 'string' ? p.display_name.trim() : '');
         } catch {
-          // ignore
+          // ignore — stay blank
         }
       }
-      const fallback = typeof candidate === 'string' ? candidate.trim() : '';
-      if (fallback) {
-        setNameInput(fallback);
-        return;
-      }
-      const last = await loadLastDisplayName();
       if (cancelled) return;
-      if (last) setNameInput(last);
+      if (candidate) setNameInput(candidate);
     })();
     return () => { cancelled = true; };
   }, [authSession?.user?.id]);
@@ -495,11 +501,11 @@ export default function JoinPartyScreen() {
     if (!name) { Alert.alert('Enter your name', 'Please enter your name to continue.'); return; }
     setJoining(true);
     try {
+      const existing = await loadPartyCreds(sessionId);
       const result = await joinSession(supabase, sessionId, name);
-      const next: PartyCreds = { sessionId, memberId: result.member_id, memberToken: result.member_token };
+      const next = credsFromJoinResult(sessionId, result, existing);
       setCreds(next);
       await savePartyCreds(next);
-      await saveLastDisplayName(name);
       // Record in the device-local active-party index so the home screen can
       // offer a "rejoin" tab if the user navigates away.
       await addActiveParty(sessionId);
@@ -936,6 +942,98 @@ export default function JoinPartyScreen() {
         onLock={handleLock}
         busy={busy}
       />
+    );
+  }
+
+  // ── Tableside (staff-managed) — guests can't add items themselves; the
+  //    waiter takes the order on their dashboard and assigns items to each
+  //    guest. We show a compact roster + personal check view instead of
+  //    the full browse/menu UI.
+  if (session.staff_managed && !isHost) {
+    const myItems = items.filter((it) => it.added_by_member_id === creds.memberId);
+    const mySubtotal = myItems.reduce(
+      (sum, it) => sum + Math.round(Number(it.menu_item?.price ?? 0) * 100) * Math.max(1, it.quantity),
+      0,
+    );
+    return wrapJoin(
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={joinS.container}>
+          <TopBar
+            title={restaurant?.name ?? 'Tableside'}
+            subtitle={`${members.length} at the table · waiter is taking the order`}
+            onBack={() => router.back()}
+          />
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
+            <Animated.View entering={FadeInDown} style={[joinS.headerCard, { backgroundColor: 'rgba(255,153,51,0.08)', borderColor: 'rgba(255,153,51,0.3)' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <PartyPopper size={14} color="#FF9933" />
+                <Text style={{ color: '#FF9933', fontWeight: '800', fontSize: 13 }}>You're on the table</Text>
+              </View>
+              <Text style={{ color: colors.textMuted, marginTop: 6, fontSize: 13, lineHeight: 19 }}>
+                Just tell your server what you'd like — they'll add it to your check from their tablet. When the waiter locks the cart, your "Pay my share" button will appear here.
+              </Text>
+            </Animated.View>
+
+            <View style={{ marginTop: 16 }}>
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>At the table</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, alignItems: 'center' }}>
+                {members.map((m, idx) => (
+                  <MemberChip
+                    key={m.id}
+                    member={m}
+                    index={idx}
+                    isSelf={m.id === creds.memberId}
+                    itemCount={items.filter((it) => it.added_by_member_id === m.id).reduce((sum, it) => sum + (it.quantity ?? 1), 0)}
+                    onPress={() => setViewingMemberId(m.id)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={{ marginTop: 20 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>Your items</Text>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{formatCents(mySubtotal)}</Text>
+              </View>
+              {myItems.length === 0 ? (
+                <View style={{ marginTop: 10, paddingVertical: 18, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.cardBorder, alignItems: 'center' }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: 'center' }}>
+                    Nothing on your check yet — flag down your server and they'll add it here.
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ marginTop: 10, gap: 8 }}>
+                  {myItems.map((it) => (
+                    <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>
+                          {it.menu_item?.name ?? 'Item'}{it.quantity > 1 ? ` ×${it.quantity}` : ''}
+                        </Text>
+                        {it.special_requests ? (
+                          <Text style={{ color: colors.textMuted, fontSize: 11, fontStyle: 'italic', marginTop: 2 }} numberOfLines={1}>"{it.special_requests}"</Text>
+                        ) : null}
+                      </View>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                        {formatCents(Math.round(Number(it.menu_item?.price ?? 0) * 100) * Math.max(1, it.quantity))}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          </ScrollView>
+
+          <MemberItemsSheet
+            visible={viewingMemberId !== null}
+            member={members.find((m) => m.id === viewingMemberId) ?? null}
+            memberIndex={Math.max(0, members.findIndex((m) => m.id === viewingMemberId))}
+            items={items.filter((it) => it.added_by_member_id === viewingMemberId)}
+            isSelf={viewingMemberId === creds.memberId}
+            onClose={() => setViewingMemberId(null)}
+          />
+        </View>
+      </>
     );
   }
 

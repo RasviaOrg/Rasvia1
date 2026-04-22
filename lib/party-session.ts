@@ -79,6 +79,13 @@ export type PartySession = {
   submitted_at: string | null;
   cancelled_at: string | null;
   created_at: string;
+  /**
+   * True when the session is a tableside QR session owned by restaurant
+   * staff (the waiter joins as host). Guests can join and pay, but cannot
+   * add or edit menu items — the server enforces `host_only` on
+   * `party_add_item`, and the UI hides the menu browse for guests.
+   */
+  staff_managed?: boolean;
 };
 
 export type PartySnapshot = {
@@ -96,11 +103,31 @@ export type PartyCreds = {
 
 export type JoinResult = {
   member_id: string;
-  member_token: string;
+  /** Opaque bearer; null when re-joining an existing row — reuse `existing.memberToken`. */
+  member_token: string | null;
   role: 'host' | 'member';
   session_id: string;
   display_name: string;
 };
+
+/** Build creds from `party_join_session` JSON, merging token when the RPC preserves the server hash. */
+export function credsFromJoinResult(
+  sessionId: string,
+  result: JoinResult,
+  existing: PartyCreds | null,
+): PartyCreds {
+  const token = result.member_token ?? existing?.memberToken ?? null;
+  if (!token) {
+    throw new Error(
+      'Could not restore your session link. Leave this screen and join again with your name.',
+    );
+  }
+  return {
+    sessionId,
+    memberId: result.member_id,
+    memberToken: token,
+  };
+}
 
 export type StartCheckoutResult = {
   url: string;
@@ -125,10 +152,13 @@ export async function fetchSessionHeader(supabase: SupabaseClient, sessionId: st
 }
 
 // Host creates a party session (authenticated users only — enforced by RLS).
+// Pass `staffManaged: true` when a restaurant waiter (not a dining guest)
+// is starting a tableside session — it blocks guest cart edits server-side.
 export async function createSession(
   supabase: SupabaseClient,
   restaurantId: number,
   hostUserId: string,
+  options: { staffManaged?: boolean } = {},
 ): Promise<PartySession> {
   const { data, error } = await supabase
     .from('party_sessions')
@@ -138,6 +168,7 @@ export async function createSession(
       status: 'open',
       payment_mode: 'host_pays',
       schema_version: 2,
+      staff_managed: options.staffManaged ?? false,
     })
     .select('*')
     .single();
@@ -164,6 +195,12 @@ export async function joinSession(
   return data as JoinResult;
 }
 
+/** True when an RPC failed `_party_auth` / host checks (stale token, wrong member). */
+export function isPartyUnauthorizedMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes('unauthorized') || m.includes('not authorized for this session');
+}
+
 export async function leaveSession(supabase: SupabaseClient, creds: PartyCreds): Promise<void> {
   const { error } = await supabase.rpc('party_leave', {
     p_session_id: creds.sessionId,
@@ -188,6 +225,34 @@ export async function addItem(
     p_session_id: creds.sessionId,
     p_member_id: creds.memberId,
     p_token: creds.memberToken,
+    p_menu_item_id: menuItemId,
+    p_quantity: quantity,
+    p_notes: notes,
+  });
+  if (error) throw new Error(mapRpcError(error));
+  return (data as { item_id: string }).item_id;
+}
+
+/**
+ * Host-only: add a menu item to the cart **attributed to a specific guest
+ * member** (so `added_by_member_id` points at the guest, not the host).
+ * Used by the tableside waiter UI when taking an order for a table —
+ * without it, per_person / assigned ledger math would credit the waiter.
+ * `forMemberId = null` attributes to the host themselves.
+ */
+export async function hostAddItemFor(
+  supabase: SupabaseClient,
+  creds: PartyCreds,
+  forMemberId: string | null,
+  menuItemId: number,
+  quantity = 1,
+  notes: string | null = null,
+): Promise<string> {
+  const { data, error } = await supabase.rpc('party_host_add_item_for', {
+    p_session_id: creds.sessionId,
+    p_member_id: creds.memberId,
+    p_token: creds.memberToken,
+    p_for_member_id: forMemberId,
     p_menu_item_id: menuItemId,
     p_quantity: quantity,
     p_notes: notes,

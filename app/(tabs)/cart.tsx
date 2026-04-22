@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, Pressable, Platform, ActivityIndicator, ScrollView, Alert } from "react-native";
+import { View, Text, TextInput, Pressable, Platform, ActivityIndicator, ScrollView, Alert } from "react-native";
 import { CachedImage } from "@/components/CachedImage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { Minus, Plus, ShoppingCart, Trash2, UtensilsCrossed, Truck } from "lucide-react-native";
+import { Minus, Plus, ShoppingCart, Trash2, UtensilsCrossed, Truck, Users } from "lucide-react-native";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 import { useAppTheme } from "@/lib/app-theme";
 import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
@@ -18,6 +18,7 @@ import {
   upsertUserCartItem,
 } from "@/lib/user-cart";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
+import { parsePartySessionIdFromInput } from "@/lib/parse-party-session-input";
 
 type RestaurantCartGroup = {
   /** Composite key — restaurantId + orderType. A user can legitimately have
@@ -45,6 +46,7 @@ export default function CartScreen() {
   const latestReqIdByKey = useRef<Map<string, number>>(new Map());
   const reqCounter = useRef(0);
   const hasCompletedCartLoadRef = useRef(false);
+  const [joinGroupInput, setJoinGroupInput] = useState("");
 
   useEffect(() => {
     hasCompletedCartLoadRef.current = false;
@@ -262,11 +264,130 @@ export default function CartScreen() {
         <TabScreenEntrance>
         <View style={{ flex: 1 }}>
         <View
-          style={{ flexDirection: "row", alignItems: "center", marginTop: 6, marginBottom: 14 }}
+          style={{ flexDirection: "row", alignItems: "center", marginTop: 6, marginBottom: 6 }}
         >
           <Text style={{ fontFamily: "BricolageGrotesque_800ExtraBold", color: colors.text, fontSize: 30 }}>
             Cart
           </Text>
+        </View>
+
+        <View
+          style={{
+            marginBottom: 16,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: isDark ? "rgba(255,153,51,0.28)" : "rgba(194,65,12,0.35)",
+            backgroundColor: isDark ? "rgba(255,153,51,0.08)" : "rgba(255,153,51,0.12)",
+            padding: 12,
+            gap: 10,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                backgroundColor: isDark ? "rgba(255,153,51,0.18)" : "rgba(255,153,51,0.22)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Users size={15} color={colors.saffron} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontFamily: "Manrope_700Bold",
+                  fontSize: 13,
+                  color: colors.text,
+                }}
+              >
+                Join a group order
+              </Text>
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  fontSize: 11,
+                  color: colors.textMuted,
+                  marginTop: 2,
+                  lineHeight: 15,
+                }}
+              >
+                Same as scanning the table QR — paste a link or id.
+              </Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <TextInput
+              value={joinGroupInput}
+              onChangeText={setJoinGroupInput}
+              placeholder="Paste link or session id"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                const id = parsePartySessionIdFromInput(joinGroupInput);
+                if (!id) {
+                  Alert.alert(
+                    "Could not open group order",
+                    "Paste a full join link or a session id (UUID).",
+                  );
+                  return;
+                }
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setJoinGroupInput("");
+                router.push(`/join/${id}` as any);
+              }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontFamily: "Manrope_500Medium",
+                fontSize: 14,
+                color: colors.text,
+                backgroundColor: colors.backgroundElevated,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+                borderRadius: 10,
+                paddingVertical: Platform.OS === "ios" ? 11 : 9,
+                paddingHorizontal: 12,
+              }}
+            />
+            <Pressable
+              onPress={() => {
+                const id = parsePartySessionIdFromInput(joinGroupInput);
+                if (!id) {
+                  Alert.alert(
+                    "Could not open group order",
+                    "Paste a full join link or a session id (UUID).",
+                  );
+                  return;
+                }
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setJoinGroupInput("");
+                router.push(`/join/${id}` as any);
+              }}
+              style={{
+                backgroundColor: colors.saffron,
+                paddingHorizontal: 16,
+                paddingVertical: Platform.OS === "ios" ? 11 : 10,
+                borderRadius: 10,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: "Manrope_700Bold",
+                  fontSize: 13,
+                  color: isDark ? "#0f0f0f" : "#ffffff",
+                }}
+              >
+                Open
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         {loading ? (
