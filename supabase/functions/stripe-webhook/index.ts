@@ -85,8 +85,13 @@ async function handleCheckoutCompleted(
 ) {
   if (session.payment_status !== 'paid') return
 
+  const paymentIntent = typeof session.payment_intent === 'object' ? session.payment_intent : null
+  const paymentIntentId = typeof session.payment_intent === 'string'
+    ? session.payment_intent
+    : paymentIntent?.id ?? null
+  const platformFeeCents = (paymentIntent as any)?.application_fee_amount ?? 0
+
   if (isPartyV2Session(session)) {
-    const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id ?? null
     const { data, error } = await supabase.rpc('party_settle_payment', {
       p_stripe_session_id: session.id,
       p_stripe_payment_intent: paymentIntentId,
@@ -95,7 +100,14 @@ async function handleCheckoutCompleted(
       console.error('party_settle_payment failed:', error.message)
       throw new Error(`party_settle_payment failed: ${error.message}`)
     }
-    // data.fully_settled, data.order_id returned for debugging
+
+    // Persist platform fee on the party_payment row
+    const meta = (session.metadata || {}) as Record<string, string>
+    if (meta.party_payment_id) {
+      await supabase.from('party_payments').update({
+        platform_fee_cents: platformFeeCents,
+      }).eq('id', meta.party_payment_id)
+    }
     return
   }
 
@@ -111,11 +123,6 @@ async function handleCheckoutCompleted(
   }
   if (!order) return
 
-  const paymentIntentId =
-    typeof session.payment_intent === 'string'
-      ? session.payment_intent
-      : session.payment_intent?.id ?? null
-
   // Idempotency: only advance from pending_payment. Also persist Stripe
   // payment ids so we can issue refunds later from the dashboard.
   if (order.status === 'pending_payment') {
@@ -123,6 +130,7 @@ async function handleCheckoutCompleted(
     const updatePayload: Record<string, unknown> = {
       status: newStatus,
       payment_method: 'card',
+      platform_fee_cents: platformFeeCents,
     }
     if (paymentIntentId) updatePayload.stripe_payment_intent_id = paymentIntentId
     const { error: updateErr } = await supabase
@@ -138,7 +146,10 @@ async function handleCheckoutCompleted(
     // stored so refunds work.
     await supabase
       .from('orders')
-      .update({ stripe_payment_intent_id: paymentIntentId })
+      .update({
+        stripe_payment_intent_id: paymentIntentId,
+        platform_fee_cents: platformFeeCents,
+      })
       .eq('id', order.id)
       .is('stripe_payment_intent_id', null)
   }
