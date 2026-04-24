@@ -312,24 +312,40 @@ Once you finish your work after a prompt, modify this file with any relevant inf
 ## Connected Account Tax (Seller-of-Record) — April 2026
 
 Rasvia uses a **seller-of-record** model where the **connected restaurant account**
-is responsible for collecting and remitting sales tax. The platform does NOT act
-as a marketplace facilitator for tax purposes. The platform only collects a
-platform fee via `application_fee_amount`.
+is responsible for collecting and remitting sales tax. Checkout tax is based on
+the **restaurant's configured location/rate**, not the customer's billing or
+shipping address. The platform only collects a platform fee via
+`application_fee_amount`.
 
 ### Key invariants
 
-- **The restaurant's connected Stripe account handles tax.** The platform does
-  NOT use `automatic_tax`, `tax_code`, or `tax_behavior` on checkout sessions.
-- `transfer_data.destination = stripeAccountId` with NO explicit `amount` — the
-  full charge (minus `application_fee_amount`) goes to the connected account.
-- `application_fee_amount = subtotal * platform_fee_bps / 10000` (currently 0
-  by default).
+- **Checkout uses a fixed restaurant tax rate.** `restaurants.sales_tax_rate_bps`
+  stores the configured sales tax rate in basis points, and checkout applies
+  that rate regardless of the customer's address.
+- `restaurants.stripe_manual_tax_rate_id` caches the connected-account Stripe
+  Tax Rate object used in Checkout.
+- Each line item still uses `tax_behavior: 'exclusive'`. `menu_items.stripe_tax_code`
+  remains editable in the owner tools for Stripe Tax records / future use, but
+  Checkout no longer depends on `automatic_tax`.
+- The mobile owner `MenuEditor` also exposes `menu_items.stripe_tax_code` so
+  restaurant staff can keep tax-code overrides aligned with RasviaWeb.
+- The mobile owner menu editor mirrors the same Stripe tax-code presets and
+  shows a tax-code filter plus `Tax Override` badge so custom classifications
+  are easy to audit from the phone.
+- `application_fee_amount = subtotal * platform_fee_bps / 10000` (computed on
+  pre-tax subtotal, currently 0 by default).
 - Both `create-checkout` and `stripe-webhook` must be kept in sync with RasviaWeb.
+- If the new restaurant tax-rate columns have not been migrated yet,
+  `create-checkout` must fall back to zero checkout tax instead of failing.
+- Mobile checkout/cart/group-order surfaces should not show a hard-coded Texas
+  tax estimate. Customer-facing copy should say the final tax is calculated at
+  checkout using the restaurant's configured rate.
 
-### Database columns added
+### Database columns
 
-See `RasviaWeb/supabase/migrations/seller_of_record_tax` for the full migration.
-Key additions: `restaurants.platform_fee_bps`, `orders.platform_fee_cents`,
-`party_payments.platform_fee_cents`. Address columns (`street_address`, `city`,
-`state`, `postal_code`, `country`) are kept for display/search but are NOT
-required for checkout.
+See `RasviaWeb/supabase/migrations/` for the full migrations. Key additions:
+`restaurants.platform_fee_bps`, `menu_items.stripe_tax_code`,
+`orders.platform_fee_cents`, `orders.tax_cents`,
+`party_payments.platform_fee_cents`, `party_payments.tax_cents`.
+Address columns (`street_address`, `city`, `state`, `postal_code`, `country`)
+are kept for display/search but are NOT required for checkout.

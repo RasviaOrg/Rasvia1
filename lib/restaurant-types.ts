@@ -273,6 +273,7 @@ export interface SupabaseMenuItem {
     price: number;
     image_url: string | null;
     in_stock: boolean;
+    stripe_tax_code?: string | null;
     is_vegetarian: boolean;
     /** Populated by the `is_halal` column (migration 20260418040000). */
     is_halal?: boolean | null;
@@ -293,6 +294,7 @@ export interface UIMenuItem {
     price: number;
     image: string;
     category: string;
+    stripeTaxCode: string;
     isPopular: boolean;
     isVegetarian: boolean;
     /** True when the item is halal. Independent of `isVegetarian`. */
@@ -311,6 +313,10 @@ export interface UIMenuItem {
  */
 
 export function mapMenuItemToUI(item: SupabaseMenuItem): UIMenuItem {
+    const stripeTaxCode =
+        typeof item.stripe_tax_code === "string" && item.stripe_tax_code.trim()
+            ? item.stripe_tax_code.trim()
+            : "txcd_40060003";
     const normalizedImage =
         item.image_url && /^https?:\/\//i.test(item.image_url)
             ? item.image_url
@@ -324,6 +330,7 @@ export function mapMenuItemToUI(item: SupabaseMenuItem): UIMenuItem {
         price: Number(item.price),
         image: normalizedImage,
         category: item.category || 'Menu Item',
+        stripeTaxCode,
         isPopular: false,
         isVegetarian: item.is_vegetarian,
         isHalal: item.is_halal === true,

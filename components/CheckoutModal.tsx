@@ -38,7 +38,6 @@ import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from "@/lib/edg
 import { withTimeout } from "@/lib/with-timeout";
 import { getCheckoutUrlOrThrow } from "@/lib/checkout-response";
 import { clearUserCartForRestaurant } from "@/lib/user-cart";
-import { estimatedTaxRangeCentsFromSubtotalDollars, formatUsdRangeFromCents } from "@/lib/texas-sales-tax-estimate";
 import type { CartItem } from "@/data/mockData";
 import type { OrderType } from "@/lib/restaurant-types";
 
@@ -82,6 +81,7 @@ const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
 // for the save-card sheet to animate in AND give the user a moment to tap
 // Save / Not Now, but short enough that nobody's actively waiting.
 const WALLET_INTERACTION_GRACE_MS = 2600;
+const TAX_CHECKOUT_NOTE = "Tax is calculated at checkout by the restaurant.";
 
 export function CheckoutModal({
     visible,
@@ -181,12 +181,6 @@ export function CheckoutModal({
                     : orderType === "pre_order"
                         ? `Pre-Order · $${subtotal.toFixed(2)}`
                         : `Place Order · $${subtotal.toFixed(2)}`;
-    const subtotalTaxEstLabel = useMemo(() => {
-        if (subtotal <= 0) return null;
-        const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(subtotal);
-        return formatUsdRangeFromCents(minCents, maxCents);
-    }, [subtotal]);
-
     // Wipe the shared server-side cart for this restaurant. Run after a
     // successful order so the user's cart doesn't still contain items that
     // were just ordered. Swallows errors — a stale cart is recoverable and
@@ -906,16 +900,14 @@ export function CheckoutModal({
                                     <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 14 }}>Subtotal</Text>
                                     <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 16 }}>${subtotal.toFixed(2)}</Text>
                                 </View>
-                                {subtotalTaxEstLabel ? (
-                                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-                                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
-                                            Est. sales tax (8.25%)
-                                        </Text>
-                                        <Text style={{ fontFamily: "JetBrainsMono_500Medium", color: colors.textMuted, fontSize: 14 }}>
-                                            {subtotalTaxEstLabel}
-                                        </Text>
-                                    </View>
-                                ) : null}
+                                <View style={{ marginBottom: 8 }}>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
+                                        Tax
+                                    </Text>
+                                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                                        {TAX_CHECKOUT_NOTE}
+                                    </Text>
+                                </View>
                                 <View style={{ marginTop: 4 }}>
                                     <Text style={{ ...S.label, marginBottom: 8 }}>Payment Method</Text>
                                     <View style={{ flexDirection: "row", gap: 8 }}>

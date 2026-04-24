@@ -45,6 +45,24 @@ import {
 import { MenuTagDialog } from "./MenuTagDialog";
 import { useAppTheme } from "@/lib/app-theme";
 
+const DEFAULT_STRIPE_TAX_CODE = "txcd_40060003";
+const STRIPE_TAX_CODE_PRESETS = [
+  { value: DEFAULT_STRIPE_TAX_CODE, label: "Immediate Consumption", description: "Prepared foods, heated foods, dispensed drinks" },
+  { value: "txcd_40040000", label: "Retail Grocery", description: "Food for non-immediate consumption" },
+  { value: "txcd_41060006", label: "Coffee / Tea / Cocoa", description: "Milk, coffee, tea, or cocoa beverages" },
+  { value: "txcd_41040002", label: "Soft Drinks", description: "Carbonated sweetened beverages" },
+] as const;
+
+type TaxCodeFilter = "all" | "default" | "custom";
+
+function normalizeStripeTaxCode(code?: string | null) {
+  return code?.trim() || DEFAULT_STRIPE_TAX_CODE;
+}
+
+function isCustomStripeTaxCode(code?: string | null) {
+  return normalizeStripeTaxCode(code) !== DEFAULT_STRIPE_TAX_CODE;
+}
+
 function useMenuEditorFormStyles() {
   const { colors, isDark } = useAppTheme();
   return useMemo(
@@ -246,6 +264,52 @@ function SpiceSelector({
   );
 }
 
+function StripeTaxPresetChips({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const { colors, isDark } = useAppTheme();
+  const normalizedValue = normalizeStripeTaxCode(value);
+
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+      {STRIPE_TAX_CODE_PRESETS.map((preset) => {
+        const active = normalizedValue === preset.value;
+        return (
+          <Pressable
+            key={preset.value}
+            onPress={() => {
+              if (Platform.OS !== "web") Haptics.selectionAsync();
+              onChange(preset.value);
+            }}
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: active ? "rgba(249,115,22,0.55)" : colors.cardBorder,
+              backgroundColor: active ? "rgba(249,115,22,0.14)" : (isDark ? "#121212" : colors.pressableBg),
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
+                color: active ? "#FB923C" : colors.textMuted,
+                fontSize: 12,
+              }}
+            >
+              {preset.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function EditableMenuItem({
   item,
   index,
@@ -279,6 +343,7 @@ function EditableMenuItem({
   const [price, setPrice] = useState(item.price.toString());
   const [description, setDescription] = useState(item.description);
   const [category, setCategory] = useState(item.category);
+  const [stripeTaxCode, setStripeTaxCode] = useState(item.stripeTaxCode || DEFAULT_STRIPE_TAX_CODE);
   const [isVegetarian, setIsVegetarian] = useState(item.isVegetarian);
   const [isHalal, setIsHalal] = useState(item.isHalal);
   const [spiceLevel, setSpiceLevel] = useState(item.spiceLevel);
@@ -290,6 +355,7 @@ function EditableMenuItem({
     setPrice(item.price.toString());
     setDescription(item.description);
     setCategory(item.category);
+    setStripeTaxCode(item.stripeTaxCode || DEFAULT_STRIPE_TAX_CODE);
     setIsVegetarian(item.isVegetarian);
     setIsHalal(item.isHalal);
     setSpiceLevel(item.spiceLevel);
@@ -336,6 +402,7 @@ function EditableMenuItem({
         price: parsedPrice,
         description: description.trim() || null,
         category: category.trim() || null,
+        stripe_tax_code: stripeTaxCode.trim() || DEFAULT_STRIPE_TAX_CODE,
         category_id: null,
         meal_times: formatMealTimesForDb(mealTimes),
         is_vegetarian: isVegetarian,
@@ -352,6 +419,7 @@ function EditableMenuItem({
         price: parsedPrice,
         description: description.trim(),
         category: category.trim() || "Menu Item",
+        stripeTaxCode: stripeTaxCode.trim() || DEFAULT_STRIPE_TAX_CODE,
         mealTimes: formatMealTimesForDb(mealTimes),
         isVegetarian,
         isHalal,
@@ -388,6 +456,26 @@ function EditableMenuItem({
   return (
     <View style={{ position: "relative" }}>
       <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} menuTags={menuTags} />
+
+      {isCustomStripeTaxCode(item.stripeTaxCode) && (
+        <View
+          style={{
+            position: "absolute",
+            top: item.isPopular ? 34 : 8,
+            left: 8,
+            backgroundColor: "rgba(249,115,22,0.18)",
+            borderWidth: 1,
+            borderColor: "rgba(249,115,22,0.35)",
+            borderRadius: 999,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+          }}
+        >
+          <Text style={{ fontFamily: "Manrope_700Bold", color: "#FDBA74", fontSize: 10 }}>
+            Tax Override
+          </Text>
+        </View>
+      )}
 
       {canEdit && (
         <Pressable
@@ -495,6 +583,21 @@ function EditableMenuItem({
 
                 <Text style={formStyles.labelStyle}>Category</Text>
                 <TextInput style={formStyles.inputStyle} value={category} onChangeText={setCategory} placeholder="Category" placeholderTextColor={colors.textMuted} />
+
+                <Text style={formStyles.labelStyle}>Stripe Tax Code</Text>
+                <StripeTaxPresetChips value={stripeTaxCode} onChange={setStripeTaxCode} />
+                <TextInput
+                  style={formStyles.inputStyle}
+                  value={stripeTaxCode}
+                  onChangeText={setStripeTaxCode}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder={DEFAULT_STRIPE_TAX_CODE}
+                  placeholderTextColor={colors.textMuted}
+                />
+                <Text style={formStyles.helperText}>
+                  Pick a common preset or type any Stripe product tax code manually.
+                </Text>
 
                 <Text style={formStyles.labelStyle}>Meal Identifiers *</Text>
                 <MealTimesSelector value={mealTimes} onChange={setMealTimes} tags={menuTags} />
@@ -616,6 +719,8 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemCategory, setNewItemCategory] = useState("");
+  const [newStripeTaxCode, setNewStripeTaxCode] = useState(DEFAULT_STRIPE_TAX_CODE);
+  const [taxCodeFilter, setTaxCodeFilter] = useState<TaxCodeFilter>("all");
   const [menuTags, setMenuTags] = useState<MenuTagConfig[]>(DEFAULT_MENU_TAGS);
   const [savingTags, setSavingTags] = useState(false);
   /**
@@ -752,6 +857,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     setNewItemPrice("");
     setNewItemDesc("");
     setNewItemCategory("");
+    setNewStripeTaxCode(DEFAULT_STRIPE_TAX_CODE);
     setNewMealTimes([]);
     setNewIsVegetarian(false);
     setNewIsHalal(false);
@@ -793,6 +899,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
         price: parsedPrice,
         description: newItemDesc.trim() || null,
         category: newItemCategory.trim() || null,
+        stripe_tax_code: newStripeTaxCode.trim() || DEFAULT_STRIPE_TAX_CODE,
         category_id: null,
         is_available: true,
         is_vegetarian: newIsVegetarian,
@@ -819,6 +926,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
       const mapped = mapMenuItemToUI(row);
       const uiItem: UIMenuItem = {
         ...mapped,
+        stripeTaxCode: newStripeTaxCode.trim() || DEFAULT_STRIPE_TAX_CODE,
         spiceLevel: newSpiceLevel,
         mealTimes: formatMealTimesForDb(newMealTimes),
       };
@@ -834,8 +942,23 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     }
   };
 
-  const leftColumn = menu.filter((_, i) => i % 2 === 0);
-  const rightColumn = menu.filter((_, i) => i % 2 !== 0);
+  const filteredMenu = useMemo(() => {
+    if (taxCodeFilter === "default") {
+      return menu.filter((item) => !isCustomStripeTaxCode(item.stripeTaxCode));
+    }
+    if (taxCodeFilter === "custom") {
+      return menu.filter((item) => isCustomStripeTaxCode(item.stripeTaxCode));
+    }
+    return menu;
+  }, [menu, taxCodeFilter]);
+
+  const customTaxOverrideCount = useMemo(
+    () => menu.filter((item) => isCustomStripeTaxCode(item.stripeTaxCode)).length,
+    [menu]
+  );
+
+  const leftColumn = filteredMenu.filter((_, i) => i % 2 === 0);
+  const rightColumn = filteredMenu.filter((_, i) => i % 2 !== 0);
 
   return (
     <View>
@@ -1010,6 +1133,55 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
         </View>
       )}
 
+      {canEdit && (
+        <View style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <Text style={{ color: colors.text, fontFamily: "Manrope_700Bold", fontSize: 13 }}>Tax Codes</Text>
+            {customTaxOverrideCount > 0 && (
+              <Text style={{ color: "#FDBA74", fontFamily: "Manrope_600SemiBold", fontSize: 11 }}>
+                {customTaxOverrideCount} override{customTaxOverrideCount === 1 ? "" : "s"}
+              </Text>
+            )}
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {([
+              { value: "all", label: "All Tax Codes" },
+              { value: "default", label: "Default Only" },
+              { value: "custom", label: "Overrides" },
+            ] as const).map((option) => {
+              const active = taxCodeFilter === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    setTaxCodeFilter(option.value);
+                  }}
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? "rgba(249,115,22,0.4)" : colors.cardBorder,
+                    backgroundColor: active ? "rgba(249,115,22,0.14)" : (isDark ? "#121212" : colors.pressableBg),
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: active ? "Manrope_700Bold" : "Manrope_600SemiBold",
+                      color: active ? "#FB923C" : colors.textMuted,
+                      fontSize: 12,
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
       <MenuTagDialog
         visible={!!tagDialog}
         mode={tagDialog?.mode ?? "create"}
@@ -1121,6 +1293,21 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
 
                 <Text style={formStyles.labelStyle}>Category</Text>
                 <TextInput style={formStyles.inputStyle} placeholder="Category (optional)" placeholderTextColor={colors.textMuted} value={newItemCategory} onChangeText={setNewItemCategory} />
+
+                <Text style={formStyles.labelStyle}>Stripe Tax Code</Text>
+                <StripeTaxPresetChips value={newStripeTaxCode} onChange={setNewStripeTaxCode} />
+                <TextInput
+                  style={formStyles.inputStyle}
+                  placeholder={DEFAULT_STRIPE_TAX_CODE}
+                  placeholderTextColor={colors.textMuted}
+                  value={newStripeTaxCode}
+                  onChangeText={setNewStripeTaxCode}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Text style={formStyles.helperText}>
+                  Pick a common preset or type any Stripe product tax code manually.
+                </Text>
 
                 <Text style={formStyles.labelStyle}>Meal Identifiers *</Text>
                 <MealTimesSelector value={newMealTimes} onChange={setNewMealTimes} tags={menuTags} />

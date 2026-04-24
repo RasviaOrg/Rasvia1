@@ -90,6 +90,9 @@ async function handleCheckoutCompleted(
     ? session.payment_intent
     : paymentIntent?.id ?? null
   const platformFeeCents = (paymentIntent as any)?.application_fee_amount ?? 0
+  // Extract tax from Stripe Tax (automatic_tax). total_details is present
+  // when Stripe Tax was active on this session; 0 otherwise.
+  const taxCents = (session as any).total_details?.amount_tax ?? 0
 
   if (isPartyV2Session(session)) {
     const { data, error } = await supabase.rpc('party_settle_payment', {
@@ -101,11 +104,12 @@ async function handleCheckoutCompleted(
       throw new Error(`party_settle_payment failed: ${error.message}`)
     }
 
-    // Persist platform fee on the party_payment row
+    // Persist platform fee and tax on the party_payment row
     const meta = (session.metadata || {}) as Record<string, string>
     if (meta.party_payment_id) {
       await supabase.from('party_payments').update({
         platform_fee_cents: platformFeeCents,
+        tax_cents: taxCents,
       }).eq('id', meta.party_payment_id)
     }
     return
@@ -131,6 +135,7 @@ async function handleCheckoutCompleted(
       status: newStatus,
       payment_method: 'card',
       platform_fee_cents: platformFeeCents,
+      tax_cents: taxCents,
     }
     if (paymentIntentId) updatePayload.stripe_payment_intent_id = paymentIntentId
     const { error: updateErr } = await supabase
@@ -149,6 +154,7 @@ async function handleCheckoutCompleted(
       .update({
         stripe_payment_intent_id: paymentIntentId,
         platform_fee_cents: platformFeeCents,
+        tax_cents: taxCents,
       })
       .eq('id', order.id)
       .is('stripe_payment_intent_id', null)

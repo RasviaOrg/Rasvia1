@@ -51,11 +51,12 @@ import {
 } from '../../lib/party-credentials';
 import { addActiveParty, removeActiveParty } from '../../lib/party-active';
 import { subscribeToParty } from '../../lib/party-realtime';
-import { estimatedTaxRangeCentsFromSubtotalCents, formatUsdRangeFromCents } from '../../lib/texas-sales-tax-estimate';
 import { PartyLedger, colorForMember, memberInitials } from '../../components/party/PartyLedger';
 import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from '../../lib/menu-tags';
 import { useAppTheme, type AppColors } from '../../lib/app-theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const TAX_CHECKOUT_NOTE = 'Tax is calculated at checkout by the restaurant.';
 
 function createJoinPartyStyles(colors: AppColors, isDark: boolean) {
   const sheetScrim = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)';
@@ -971,17 +972,10 @@ export default function JoinPartyScreen() {
             <Animated.View entering={FadeInDown} style={joinS.headerCard}>
               <Text style={joinS.summaryLabel}>Group total</Text>
               <Text style={joinS.summaryValue}>{formatCents(session.total_cents)}</Text>
-              {(() => {
-                const base = session.subtotal_cents > 0 ? session.subtotal_cents : session.total_cents;
-                if (base <= 0) return null;
-                const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(base);
-                return (
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={[joinS.summaryMeta, { fontWeight: '700' }]}>Est. sales tax (8.25%)</Text>
-                    <Text style={[joinS.summaryMeta, { marginTop: 2 }]}>{formatUsdRangeFromCents(minCents, maxCents)}</Text>
-                  </View>
-                );
-              })()}
+              <View style={{ marginTop: 8 }}>
+                <Text style={[joinS.summaryMeta, { fontWeight: '700' }]}>Tax</Text>
+                <Text style={[joinS.summaryMeta, { marginTop: 2 }]}>{TAX_CHECKOUT_NOTE}</Text>
+              </View>
               <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Lock size={12} color={colors.textMuted} />
                 <Text style={joinS.summaryMeta}>{members.length} {members.length === 1 ? 'member' : 'members'} · {items.length} {items.length === 1 ? 'item' : 'items'}</Text>
@@ -1090,8 +1084,6 @@ export default function JoinPartyScreen() {
       (sum, it) => sum + Math.round(Number(it.menu_item?.price ?? 0) * 100) * Math.max(1, it.quantity),
       0,
     );
-    const mySubtotalTaxRange =
-      mySubtotal > 0 ? estimatedTaxRangeCentsFromSubtotalCents(mySubtotal) : null;
     return wrapJoin(
       <>
         <Stack.Screen options={{ headerShown: false }} />
@@ -1133,14 +1125,9 @@ export default function JoinPartyScreen() {
                 <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>Subtotal</Text>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{formatCents(mySubtotal)}</Text>
               </View>
-              {mySubtotalTaxRange ? (
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 4 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700' }}>Est. sales tax (8.25%)</Text>
-                  <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 12 }}>
-                    {formatUsdRangeFromCents(mySubtotalTaxRange.minCents, mySubtotalTaxRange.maxCents)}
-                  </Text>
-                </View>
-              ) : null}
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600', marginTop: 4 }}>
+                {TAX_CHECKOUT_NOTE}
+              </Text>
               {myItems.length === 0 ? (
                 <View style={{ marginTop: 10, paddingVertical: 18, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.cardBorder, alignItems: 'center' }}>
                   <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: 'center' }}>
@@ -1556,11 +1543,6 @@ function CartSummary(props: {
   const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
   const total = totalCartCents(props.items);
-  const taxEstLabel = useMemo(() => {
-    if (total <= 0) return null;
-    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(total);
-    return formatUsdRangeFromCents(minCents, maxCents);
-  }, [total]);
   const guestLock = props.guestCartLocked === true;
   const confirmRemove = useCallback((it: PartyItem) => {
     Alert.alert(
@@ -1589,12 +1571,9 @@ function CartSummary(props: {
             <Text style={s.cartTitle}>{props.items.length} item{props.items.length === 1 ? '' : 's'}</Text>
             <Text style={s.cartTotal}>{formatCents(total)}</Text>
           </View>
-          {taxEstLabel ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, paddingLeft: 28, paddingRight: 2 }}>
-              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>Est. sales tax (8.25%)</Text>
-              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700' }}>{taxEstLabel}</Text>
-            </View>
-          ) : null}
+          <View style={{ marginTop: 6, paddingLeft: 28, paddingRight: 2 }}>
+            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>{TAX_CHECKOUT_NOTE}</Text>
+          </View>
         </View>
         <ChevronRight size={18} color={colors.iconMuted} style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
       </Pressable>
@@ -1748,12 +1727,6 @@ function ReviewStage({
   }, [modeFromSnapshot]);
 
   const total = totalCartCents(snapshot.items);
-  const reviewTaxEstLabel = useMemo(() => {
-    if (total <= 0) return null;
-    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(total);
-    return formatUsdRangeFromCents(minCents, maxCents);
-  }, [total]);
-
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -1763,13 +1736,11 @@ function ReviewStage({
           <Animated.View entering={FadeInDown} style={s.headerCard}>
             <Text style={s.summaryLabel}>Group total</Text>
             <Text style={s.summaryValue}>{formatCents(total)}</Text>
-            {reviewTaxEstLabel ? (
-              <View style={{ marginTop: 8 }}>
-                <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Est. sales tax (8.25%)</Text>
-                <Text style={[s.summaryMeta, { marginTop: 2 }]}>{reviewTaxEstLabel}</Text>
-              </View>
-            ) : null}
-            <Text style={[s.summaryMeta, { marginTop: reviewTaxEstLabel ? 10 : 4 }]}>
+            <View style={{ marginTop: 8 }}>
+              <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Tax</Text>
+              <Text style={[s.summaryMeta, { marginTop: 2 }]}>{TAX_CHECKOUT_NOTE}</Text>
+            </View>
+            <Text style={[s.summaryMeta, { marginTop: 10 }]}>
               {snapshot.members.length} {snapshot.members.length === 1 ? 'member' : 'members'} · {snapshot.items.length} {snapshot.items.length === 1 ? 'item' : 'items'}
             </Text>
           </Animated.View>
@@ -2062,20 +2033,10 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
           <Animated.View entering={FadeInDown.delay(120)} style={[s.headerCard, { marginTop: 20 }]}>
             <Text style={s.summaryLabel}>Group total</Text>
             <Text style={s.summaryValue}>{formatCents(snapshot.session.total_cents)}</Text>
-            {(() => {
-              const base =
-                snapshot.session.subtotal_cents > 0
-                  ? snapshot.session.subtotal_cents
-                  : snapshot.session.total_cents;
-              if (base <= 0) return null;
-              const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(base);
-              return (
-                <View style={{ marginTop: 8 }}>
-                  <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Est. sales tax (8.25%)</Text>
-                  <Text style={[s.summaryMeta, { marginTop: 2 }]}>{formatUsdRangeFromCents(minCents, maxCents)}</Text>
-                </View>
-              );
-            })()}
+            <View style={{ marginTop: 8 }}>
+              <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Tax</Text>
+              <Text style={[s.summaryMeta, { marginTop: 2 }]}>{TAX_CHECKOUT_NOTE}</Text>
+            </View>
             <Text style={s.summaryMeta}>
               {snapshot.members.length} members · {snapshot.items.length} items
             </Text>
@@ -2115,4 +2076,3 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
 function cartCountFor(items: PartyItem[], menuItemId: number): number {
   return items.filter((i) => i.menu_item_id === menuItemId).reduce((sum, i) => sum + (i.quantity ?? 1), 0);
 }
-

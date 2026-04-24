@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -12,7 +12,6 @@ import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag } from "lucide-react-
 import type { CartItem, GroupMember } from "@/data/mockData";
 import * as Haptics from "expo-haptics";
 import { useAppTheme } from "@/lib/app-theme";
-import { estimatedTaxRangeCentsFromSubtotalDollars, formatUsdRangeFromCents } from "@/lib/texas-sales-tax-estimate";
 import Animated, {
   FadeIn,
   FadeInLeft,
@@ -24,6 +23,8 @@ import Animated, {
 
 let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
+
+const TAX_CHECKOUT_NOTE = "Tax is calculated at checkout by the restaurant.";
 
 interface GroupCartDrawerProps {
   items: CartItem[];
@@ -51,11 +52,6 @@ export function GroupCartDrawer({
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const cartIsEmpty = totalQuantity <= 0 || subtotal <= 0;
   const checkoutDisabled = isClosed || cartIsEmpty;
-  const taxEstLabel = useMemo(() => {
-    if (subtotal <= 0) return null;
-    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(subtotal);
-    return formatUsdRangeFromCents(minCents, maxCents);
-  }, [subtotal]);
 
   const checkoutScale = useSharedValue(1);
   const checkoutStyle = useAnimatedStyle(() => ({
@@ -266,7 +262,7 @@ export function GroupCartDrawer({
 
       {/* Footer */}
       <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: Platform.OS === "ios" ? 36 : 24, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: taxEstLabel ? 6 : 16 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 15 }}>
             Subtotal
           </Text>
@@ -274,16 +270,9 @@ export function GroupCartDrawer({
             ${subtotal.toFixed(2)}
           </Text>
         </View>
-        {taxEstLabel ? (
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
-              Est. sales tax (8.25%)
-            </Text>
-            <Text style={{ fontFamily: "JetBrainsMono_500Medium", color: colors.textMuted, fontSize: 15 }}>
-              {taxEstLabel}
-            </Text>
-          </View>
-        ) : null}
+        <Text style={{ marginBottom: 16, fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
+          {TAX_CHECKOUT_NOTE}
+        </Text>
 
         <Animated.View style={checkoutStyle}>
           <Pressable

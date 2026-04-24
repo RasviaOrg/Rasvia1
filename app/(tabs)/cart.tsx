@@ -19,7 +19,7 @@ import {
 } from "@/lib/user-cart";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { parsePartySessionIdFromInput } from "@/lib/parse-party-session-input";
-import { estimatedTaxRangeCentsFromSubtotalDollars, formatUsdRangeFromCents } from "@/lib/texas-sales-tax-estimate";
+const TAX_CHECKOUT_NOTE = "Tax is calculated at checkout by the restaurant.";
 
 type RestaurantCartGroup = {
   /** Composite key — restaurantId + orderType. A user can legitimately have
@@ -110,12 +110,6 @@ export default function CartScreen() {
     () => grouped.reduce((sum, group) => sum + group.subtotal, 0),
     [grouped]
   );
-  const grandTotalTaxLabel = useMemo(() => {
-    if (grandTotal <= 0) return null;
-    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(grandTotal);
-    return formatUsdRangeFromCents(minCents, maxCents);
-  }, [grandTotal]);
-
   // Pull the "currently closed" set once — used to disable checkout CTAs for
   // restaurants that aren't taking orders right now. Re-evaluates every 60s.
   const closedRestaurantIds = useClosedRestaurantIds();
@@ -574,16 +568,9 @@ export default function CartScreen() {
                           <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
                             ${(group.subtotal || 0).toFixed(2)}
                           </Text>
-                          {(() => {
-                            const st = group.subtotal || 0;
-                            if (st <= 0) return null;
-                            const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(st);
-                            return (
-                              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9, maxWidth: 140 }} numberOfLines={2}>
-                                + tax est. {formatUsdRangeFromCents(minCents, maxCents)}
-                              </Text>
-                            );
-                          })()}
+                          <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9, maxWidth: 160 }} numberOfLines={2}>
+                            + tax at checkout
+                          </Text>
                         </View>
                       </View>
                     </View>
@@ -826,11 +813,9 @@ export default function CartScreen() {
                 <Text style={{ color: "#FF9933", fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 26 }}>
                   ${grandTotal.toFixed(2)}
                 </Text>
-                {grandTotalTaxLabel ? (
-                  <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11, marginTop: 4 }}>
-                    Est. sales tax (8.25%): {grandTotalTaxLabel}
-                  </Text>
-                ) : null}
+                <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11, marginTop: 4 }}>
+                  {TAX_CHECKOUT_NOTE}
+                </Text>
               </View>
               <Pressable
                 onPress={handleCheckoutPress}

@@ -36,6 +36,7 @@ const SPLIT_META_PREFIX = '__rasvia_split:'
 const EPSILON = 0.01
 const MAX_CART_ITEMS = 100
 const MAX_ITEM_QUANTITY = 25
+const DEFAULT_TAX_CODE = 'txcd_40060003' // Prepared Food — Hot
 
 type JsonObject = Record<string, unknown>
 type SupabaseClient = ReturnType<typeof createClient>
@@ -53,6 +54,7 @@ type CanonicalCartItem = {
   price: number
   quantity: number
   is_vegetarian: boolean
+  stripe_tax_code: string
 }
 
 type PartyItemRow = {
@@ -64,7 +66,20 @@ type PartyItemRow = {
     name: string | null
     price: number | null
     is_vegetarian: boolean | null
+    stripe_tax_code: string | null
   } | null
+}
+
+type RestaurantCheckoutRow = {
+  id: number
+  name: string | null
+  stripe_account_id: string | null
+  platform_fee_bps: number | null
+  sales_tax_rate_bps: number | null
+  stripe_manual_tax_rate_id: string | null
+  city: string | null
+  state: string | null
+  country: string | null
 }
 
 function json(data: unknown, status = 200): Response {
@@ -168,6 +183,216 @@ function mapStripeError(err: unknown): MappedCheckoutError {
   return { error: `Checkout failed: ${message}` }
 }
 
+function isMissingRestaurantTaxColumnsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  return (
+    message.includes('sales_tax_rate_bps') ||
+    message.includes('stripe_manual_tax_rate_id')
+  )
+}
+
+function normalizeTaxRateBps(value: unknown): number {
+  const raw = Number(value ?? 0)
+  if (!Number.isFinite(raw)) return 0
+  return Math.max(0, Math.round(raw))
+}
+
+function formatTaxRatePercent(bps: number): string {
+  return (bps / 100).toFixed(2)
+}
+
+function buildTaxJurisdictionLabel(
+  restaurantName: unknown,
+  city: unknown,
+  state: unknown,
+): string {
+  const cityLabel = asString(city)
+  const stateLabel = asString(state).toUpperCase()
+  if (cityLabel && stateLabel) return `${cityLabel}, ${stateLabel}`.slice(0, 50)
+  if (stateLabel) return `US - ${stateLabel}`.slice(0, 50)
+  return sanitizeLabel(restaurantName, 'Restaurant', 50)
+}
+
+async function stripeApiRequest<T>(
+  stripeSecretKey: string,
+  path: string,
+  init?: RequestInit,
+  stripeAccountId?: string | null,
+): Promise<T> {
+  const response = await fetch(`https://api.stripe.com${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${stripeSecretKey}`,
+      ...(init?.headers ?? {}),
+      ...(stripeAccountId ? { 'Stripe-Account': stripeAccountId } : {}),
+    },
+  })
+
+  const payload = await response.json()
+  if (!response.ok) {
+    const message =
+      payload?.error?.message ||
+      payload?.message ||
+      `Stripe request failed with status ${response.status}`
+    throw new Error(message)
+  }
+
+  return payload as T
+}
+
+async function createManualTaxRate(args: {
+  stripeSecretKey: string
+  restaurantId: number
+  restaurantName: unknown
+  city: unknown
+  state: unknown
+  country: unknown
+  salesTaxRateBps: number
+}): Promise<string> {
+  const { stripeSecretKey, restaurantId, restaurantName, city, state, country, salesTaxRateBps } = args
+  const body = new URLSearchParams({
+    display_name: 'Sales Tax',
+    inclusive: 'false',
+    percentage: formatTaxRatePercent(salesTaxRateBps),
+    country: asString(country).toUpperCase() || 'US',
+    jurisdiction: buildTaxJurisdictionLabel(restaurantName, city, state),
+    'metadata[restaurant_id]': String(restaurantId),
+    'metadata[sales_tax_rate_bps]': String(salesTaxRateBps),
+  })
+
+  const stateCode = asString(state).toUpperCase()
+  if (stateCode) body.set('state', stateCode)
+
+  const created = await stripeApiRequest<{ id: string }>(
+    stripeSecretKey,
+    '/v1/tax_rates',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    },
+  )
+
+  return created.id
+}
+
+async function fetchManualTaxRate(
+  stripeSecretKey: string,
+  taxRateId: string,
+): Promise<{ id: string; active: boolean; percentage: number } | null> {
+  try {
+    return await stripeApiRequest<{ id: string; active: boolean; percentage: number }>(
+      stripeSecretKey,
+      `/v1/tax_rates/${taxRateId}`,
+    )
+  } catch (error) {
+    if (isManualTaxRateError(error)) return null
+    throw error
+  }
+}
+
+function isManualTaxRateError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return (
+    msg.includes('tax_rates') ||
+    msg.includes('tax rate') ||
+    msg.includes('no such taxrate') ||
+    msg.includes('no such tax rate') ||
+    msg.includes('inactive')
+  )
+}
+
+async function ensureRestaurantManualTaxRate(args: {
+  supabase: SupabaseClient
+  stripeSecretKey: string
+  restaurant: {
+    id: number
+    name: unknown
+    stripe_account_id: unknown
+    sales_tax_rate_bps: unknown
+    stripe_manual_tax_rate_id: unknown
+    city?: unknown
+    state?: unknown
+    country?: unknown
+  }
+}): Promise<string | null> {
+  const { supabase, stripeSecretKey, restaurant } = args
+  const salesTaxRateBps = normalizeTaxRateBps(restaurant.sales_tax_rate_bps)
+  if (salesTaxRateBps <= 0) return null
+
+  const stripeAccountId = asString(restaurant.stripe_account_id)
+  if (!stripeAccountId) return null
+
+  const existingTaxRateId = asString(restaurant.stripe_manual_tax_rate_id)
+  const expectedPercentage = Number(formatTaxRatePercent(salesTaxRateBps))
+  if (existingTaxRateId) {
+    const existingTaxRate = await fetchManualTaxRate(stripeSecretKey, existingTaxRateId)
+    if (existingTaxRate && existingTaxRate.active && Number(existingTaxRate.percentage) === expectedPercentage) {
+      return existingTaxRateId
+    }
+
+    const { error } = await supabase
+      .from('restaurants')
+      .update({ stripe_manual_tax_rate_id: null })
+      .eq('id', restaurant.id)
+    if (error) {
+      console.error('Failed to clear stale stripe_manual_tax_rate_id:', error.message)
+    }
+  }
+
+  const createdId = await createManualTaxRate({
+    stripeSecretKey,
+    restaurantId: restaurant.id,
+    restaurantName: restaurant.name,
+    city: restaurant.city,
+    state: restaurant.state,
+    country: restaurant.country,
+    salesTaxRateBps,
+  })
+
+  const { error } = await supabase
+    .from('restaurants')
+    .update({ stripe_manual_tax_rate_id: createdId })
+    .eq('id', restaurant.id)
+
+  if (error) {
+    console.error('Failed to persist stripe_manual_tax_rate_id:', error.message)
+  }
+
+  return createdId
+}
+
+async function fetchRestaurantCheckout(
+  supabase: SupabaseClient,
+  restaurantId: number,
+): Promise<RestaurantCheckoutRow | null> {
+  const { data, error } = await supabase
+    .from('restaurants')
+    .select('id, name, stripe_account_id, platform_fee_bps, sales_tax_rate_bps, stripe_manual_tax_rate_id, city, state, country')
+    .eq('id', restaurantId)
+    .maybeSingle()
+
+  if (!error) return (data as RestaurantCheckoutRow | null) ?? null
+  if (!isMissingRestaurantTaxColumnsError(error)) throw error
+
+  console.warn('create-checkout fallback: restaurant fixed-tax columns are missing; defaulting checkout tax to zero until migration is applied.')
+
+  const fallback = await supabase
+    .from('restaurants')
+    .select('id, name, stripe_account_id, platform_fee_bps, city, state, country')
+    .eq('id', restaurantId)
+    .maybeSingle()
+
+  if (fallback.error) throw fallback.error
+  if (!fallback.data) return null
+
+  return {
+    ...(fallback.data as Omit<RestaurantCheckoutRow, 'sales_tax_rate_bps' | 'stripe_manual_tax_rate_id'>),
+    sales_tax_rate_bps: 0,
+    stripe_manual_tax_rate_id: null,
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,12 +446,12 @@ serve(async (req: Request) => {
 
   // ── Party Session v2 ────────────────────────────────────────────────────
   if (partySessionId && partyMemberId && partyMemberToken) {
-    return handlePartyV2({ body, supabase, stripe, partySessionId, partyMemberId, partyMemberToken, redirectBaseUrl, returnUrlBase })
+    return handlePartyV2({ body, supabase, stripe, stripeSecretKey, partySessionId, partyMemberId, partyMemberToken, redirectBaseUrl, returnUrlBase })
   }
 
   // ── Solo or legacy party v1 ─────────────────────────────────────────────
   return handleSoloOrLegacyParty({
-    body, supabase, stripe, supabaseAnonKey, redirectBaseUrl, returnUrlBase,
+    body, supabase, stripe, stripeSecretKey, supabaseAnonKey, redirectBaseUrl, returnUrlBase,
     authHeader, asParty: Boolean(partySessionId),
   })
 })
@@ -238,13 +463,14 @@ async function handlePartyV2(args: {
   body: JsonObject
   supabase: SupabaseClient
   stripe: Stripe
+  stripeSecretKey: string
   partySessionId: string
   partyMemberId: string
   partyMemberToken: string
   redirectBaseUrl: string
   returnUrlBase: string
 }): Promise<Response> {
-  const { body, supabase, stripe, partySessionId, partyMemberId, partyMemberToken, redirectBaseUrl, returnUrlBase } = args
+  const { body, supabase, stripe, stripeSecretKey, partySessionId, partyMemberId, partyMemberToken, redirectBaseUrl, returnUrlBase } = args
 
   const { data: authedMember, error: authError } = await supabase
     .from('party_members')
@@ -298,12 +524,8 @@ async function handlePartyV2(args: {
     return json({ error: 'Nothing to charge for this member.' }, 400)
   }
 
-  const { data: restaurant, error: restaurantError } = await supabase
-    .from('restaurants')
-    .select('id, name, stripe_account_id, platform_fee_bps')
-    .eq('id', sessionRow.restaurant_id)
-    .maybeSingle()
-  if (restaurantError || !restaurant) return json({ error: 'Restaurant not found.' }, 404)
+  const restaurant = await fetchRestaurantCheckout(supabase, Number(sessionRow.restaurant_id))
+  if (!restaurant) return json({ error: 'Restaurant not found.' }, 404)
 
   const stripeAccountId = asString(restaurant.stripe_account_id)
   if (!stripeAccountId) {
@@ -319,23 +541,27 @@ async function handlePartyV2(args: {
   const memberLabel = sanitizeLabel(authedMember.display_name, 'Guest', 80)
   const platformFeeBps = Number(restaurant.platform_fee_bps ?? 0)
   const applicationFeeCents = Math.round((amountCents * platformFeeBps) / 10000)
+  let manualTaxRateId = await ensureRestaurantManualTaxRate({ supabase, stripeSecretKey, restaurant })
 
   const successUrl = `${redirectBaseUrl}?status=success&session_id={CHECKOUT_SESSION_ID}&return_url_base=${encodeURIComponent(returnUrlBase)}`
   const cancelUrl = `${redirectBaseUrl}?status=cancel&return_url_base=${encodeURIComponent(returnUrlBase)}`
 
   try {
-    const stripeSession = await stripe.checkout.sessions.create({
+    const baseCheckoutParams: Stripe.Checkout.SessionCreateParams = {
       payment_method_types: ['card'],
       line_items: [
         {
           price_data: {
             currency: 'usd',
+            tax_behavior: 'exclusive',
             product_data: {
               name: `${sanitizeLabel(restaurant.name, 'Rasvia Partner', 120)} · Group order`,
               description: `${targetLabel} — ${memberLabel}`,
+              tax_code: DEFAULT_TAX_CODE,
             },
             unit_amount: amountCents,
           },
+          tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
           quantity: 1,
         },
       ],
@@ -360,7 +586,35 @@ async function handlePartyV2(args: {
           party_payment_id: paymentRow.id,
         },
       },
-    })
+    }
+
+    let stripeSession: Stripe.Checkout.Session
+    try {
+      stripeSession = await stripe.checkout.sessions.create(baseCheckoutParams)
+    } catch (taxErr: unknown) {
+      if (manualTaxRateId && isManualTaxRateError(taxErr)) {
+        await supabase
+          .from('restaurants')
+          .update({ stripe_manual_tax_rate_id: null })
+          .eq('id', restaurant.id)
+        manualTaxRateId = await ensureRestaurantManualTaxRate({
+          supabase,
+          stripeSecretKey,
+          restaurant: { ...restaurant, stripe_manual_tax_rate_id: null },
+        })
+        stripeSession = await stripe.checkout.sessions.create({
+          ...baseCheckoutParams,
+          line_items: [
+            {
+              ...baseCheckoutParams.line_items![0],
+              tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
+            },
+          ],
+        })
+      } else {
+        throw taxErr
+      }
+    }
 
     if (!stripeSession?.url) return json({ error: 'Stripe did not return a checkout URL.' }, 500)
 
@@ -396,13 +650,14 @@ async function handleSoloOrLegacyParty(args: {
   body: JsonObject
   supabase: SupabaseClient
   stripe: Stripe
+  stripeSecretKey: string
   supabaseAnonKey: string
   redirectBaseUrl: string
   returnUrlBase: string
   authHeader: string | undefined
   asParty: boolean
 }): Promise<Response> {
-  const { body, supabase, stripe, supabaseAnonKey, redirectBaseUrl, returnUrlBase, authHeader, asParty } = args
+  const { body, supabase, stripe, stripeSecretKey, supabaseAnonKey, redirectBaseUrl, returnUrlBase, authHeader, asParty } = args
 
   const incomingCart = Array.isArray(body.cart_items) ? (body.cart_items as IncomingCartItem[]) : []
   if (incomingCart.length === 0) return json({ error: 'Cart is empty.' }, 400)
@@ -446,7 +701,7 @@ async function handleSoloOrLegacyParty(args: {
 
     const { data: partyItems, error: partyItemsError } = await supabase
       .from('party_items')
-      .select('menu_item_id, quantity, added_by_name, special_requests, menu_items(name, price, is_vegetarian)')
+      .select('menu_item_id, quantity, added_by_name, special_requests, menu_items(name, price, is_vegetarian, stripe_tax_code)')
       .eq('session_id', partySessionId)
       .order('created_at', { ascending: true })
     if (partyItemsError) {
@@ -466,7 +721,8 @@ async function handleSoloOrLegacyParty(args: {
       const itemName = sanitizeLabel(row.menu_items?.name, 'Unknown Item', 120)
       const veg = Boolean(row.menu_items?.is_vegetarian)
       if (!Number.isFinite(basePrice) || basePrice <= 0) continue
-      fullItems.push({ menu_item_id: row.menu_item_id ?? null, name: itemName, price: Number(basePrice.toFixed(2)), quantity: qty, is_vegetarian: veg })
+      const taxCode = asString(row.menu_items?.stripe_tax_code) || DEFAULT_TAX_CODE
+      fullItems.push({ menu_item_id: row.menu_item_id ?? null, name: itemName, price: Number(basePrice.toFixed(2)), quantity: qty, is_vegetarian: veg, stripe_tax_code: taxCode })
       if (!normalizedPayer) continue
       const ownerName = sanitizeLabel(row.added_by_name, '', 60)
       const splitMembers = parseSplitMembers(row.special_requests)
@@ -479,7 +735,7 @@ async function handleSoloOrLegacyParty(args: {
       const remainder = lineTotalCents - baseShare * payers.length
       const payerShareCents = baseShare + (payerIndex < remainder ? 1 : 0)
       if (payerShareCents <= 0) continue
-      payerItems.push({ menu_item_id: row.menu_item_id ?? null, name: splitMembers.length >= 2 ? `${itemName} (split)` : itemName, price: centsToMoney(payerShareCents), quantity: 1, is_vegetarian: veg })
+      payerItems.push({ menu_item_id: row.menu_item_id ?? null, name: splitMembers.length >= 2 ? `${itemName} (split)` : itemName, price: centsToMoney(payerShareCents), quantity: 1, is_vegetarian: veg, stripe_tax_code: taxCode })
     }
 
     const fullSubtotal = subtotalOf(fullItems)
@@ -490,6 +746,7 @@ async function handleSoloOrLegacyParty(args: {
       price: Number(Number(item.price ?? 0).toFixed(2)),
       quantity: toPositiveInt(item.quantity, 1),
       is_vegetarian: false,
+      stripe_tax_code: DEFAULT_TAX_CODE,
     }))
     const requestedSubtotal = subtotalOf(normalizedRequestedItems)
     const requestedAmount = toMoney(body.amount)
@@ -535,19 +792,19 @@ async function handleSoloOrLegacyParty(args: {
     const menuItemIds = Array.from(new Set(normalizedItems.map((item) => item.menuItemId)))
     const { data: menuRows, error: menuError } = await supabase
       .from('menu_items')
-      .select('id, name, price, is_vegetarian')
+      .select('id, name, price, is_vegetarian, stripe_tax_code')
       .eq('restaurant_id', restaurantId)
       .in('id', menuItemIds)
     if (menuError) {
       console.error('Failed to load menu items for checkout:', menuError)
       return json({ error: 'Unable to validate cart items.' }, 500)
     }
-    const menuById = new Map((menuRows ?? []).map((row) => [Number(row.id), { name: sanitizeLabel(row.name, 'Unknown Item', 120), price: Number(Number(row.price ?? 0).toFixed(2)), isVegetarian: Boolean(row.is_vegetarian) }]))
+    const menuById = new Map((menuRows ?? []).map((row) => [Number(row.id), { name: sanitizeLabel(row.name, 'Unknown Item', 120), price: Number(Number(row.price ?? 0).toFixed(2)), isVegetarian: Boolean(row.is_vegetarian), taxCode: asString(row.stripe_tax_code) || DEFAULT_TAX_CODE }]))
     const missingIds = menuItemIds.filter((id) => !menuById.has(id))
     if (missingIds.length > 0) return json({ error: 'One or more menu items are invalid for this restaurant.' }, 400)
     orderItems = normalizedItems.map((item) => {
       const menuItem = menuById.get(item.menuItemId)!
-      return { menu_item_id: item.menuItemId, name: menuItem.name, price: menuItem.price, quantity: item.quantity, is_vegetarian: menuItem.isVegetarian }
+      return { menu_item_id: item.menuItemId, name: menuItem.name, price: menuItem.price, quantity: item.quantity, is_vegetarian: menuItem.isVegetarian, stripe_tax_code: menuItem.taxCode }
     })
     subtotal = subtotalOf(orderItems)
   }
@@ -556,12 +813,8 @@ async function handleSoloOrLegacyParty(args: {
     return json({ error: 'Unable to compute a valid checkout total.' }, 400)
   }
 
-  const { data: restaurant, error: restaurantError } = await supabase
-    .from('restaurants')
-    .select('id, name, stripe_account_id, platform_fee_bps')
-    .eq('id', restaurantId)
-    .maybeSingle()
-  if (restaurantError || !restaurant) return json({ error: 'Restaurant not found.' }, 404)
+  const restaurant = await fetchRestaurantCheckout(supabase, restaurantId)
+  if (!restaurant) return json({ error: 'Restaurant not found.' }, 404)
   const stripeAccountId = asString(restaurant.stripe_account_id)
   if (!stripeAccountId) {
     return json({
@@ -577,18 +830,22 @@ async function handleSoloOrLegacyParty(args: {
   const subtotalCents = Math.round(subtotal * 100)
   const platformFeeBps = Number(restaurant.platform_fee_bps ?? 0)
   const applicationFeeCents = Math.round((subtotalCents * platformFeeBps) / 10000)
+  let manualTaxRateId = await ensureRestaurantManualTaxRate({ supabase, stripeSecretKey, restaurant })
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    const baseCheckoutParams: Stripe.Checkout.SessionCreateParams = {
       payment_method_types: ['card'],
       line_items: orderItems.map((item) => ({
         price_data: {
           currency: 'usd',
+          tax_behavior: 'exclusive',
           product_data: {
             name: item.name,
+            tax_code: item.stripe_tax_code || DEFAULT_TAX_CODE,
           },
           unit_amount: Math.round(item.price * 100),
         },
+        tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
         quantity: item.quantity,
       })),
       mode: 'payment',
@@ -605,7 +862,42 @@ async function handleSoloOrLegacyParty(args: {
           destination: stripeAccountId,
         },
       },
-    })
+    }
+
+    let session: Stripe.Checkout.Session
+    try {
+      session = await stripe.checkout.sessions.create(baseCheckoutParams)
+    } catch (taxErr: unknown) {
+      if (manualTaxRateId && isManualTaxRateError(taxErr)) {
+        await supabase
+          .from('restaurants')
+          .update({ stripe_manual_tax_rate_id: null })
+          .eq('id', restaurant.id)
+        manualTaxRateId = await ensureRestaurantManualTaxRate({
+          supabase,
+          stripeSecretKey,
+          restaurant: { ...restaurant, stripe_manual_tax_rate_id: null },
+        })
+        session = await stripe.checkout.sessions.create({
+          ...baseCheckoutParams,
+          line_items: orderItems.map((item) => ({
+            price_data: {
+              currency: 'usd',
+              tax_behavior: 'exclusive',
+              product_data: {
+                name: item.name,
+                tax_code: item.stripe_tax_code || DEFAULT_TAX_CODE,
+              },
+              unit_amount: Math.round(item.price * 100),
+            },
+            tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
+            quantity: item.quantity,
+          })),
+        })
+      } else {
+        throw taxErr
+      }
+    }
     if (!session?.url) return json({ error: 'Stripe did not return a checkout URL.' }, 500)
 
     const { data: orderData, error: orderError } = await supabase
