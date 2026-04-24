@@ -38,6 +38,9 @@ import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from "@/lib/edg
 import { withTimeout } from "@/lib/with-timeout";
 import { getCheckoutUrlOrThrow } from "@/lib/checkout-response";
 import { clearUserCartForRestaurant } from "@/lib/user-cart";
+import { TaxEstimateLine } from "@/components/TaxEstimateLine";
+import { formatCentsUsd } from "@/lib/texas-sales-tax-estimate";
+import { useCartTax } from "@/hooks/useCartTax";
 import type { CartItem } from "@/data/mockData";
 import type { OrderType } from "@/lib/restaurant-types";
 
@@ -81,7 +84,6 @@ const PAYMENT_REQUEST_TIMEOUT_MS = 15000;
 // for the save-card sheet to animate in AND give the user a moment to tap
 // Save / Not Now, but short enough that nobody's actively waiting.
 const WALLET_INTERACTION_GRACE_MS = 2600;
-const TAX_CHECKOUT_NOTE = "Tax is calculated at checkout by the restaurant.";
 
 export function CheckoutModal({
     visible,
@@ -166,6 +168,15 @@ export function CheckoutModal({
     const totalQuantity = cartItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity ?? 0)), 0);
     const subtotal = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
     const hasItems = totalQuantity > 0 && subtotal > 0;
+    
+    const taxItems = useMemo(() => cartItems.map(i => ({
+        price_cents: Math.round(i.price * 100),
+        quantity: i.quantity,
+        stripe_tax_code: i.stripe_tax_code ?? "txcd_20030000",
+    })), [cartItems]);
+    const { taxCents, loading: taxLoading } = useCartTax(Number(restaurantId), taxItems);
+    const estTotalCents = taxCents !== null ? Math.round(subtotal * 100) + taxCents : null;
+    const estTotalLabel = estTotalCents !== null ? formatCentsUsd(estTotalCents) : "loading...";
     const cartIsEmpty = !hasItems;
     const missingCustomerName = !existingOrderId && !customerName.trim();
     const ctaDisabled = placing || cartIsEmpty || missingCustomerName;
@@ -175,12 +186,12 @@ export function CheckoutModal({
         : existingOrderId
             ? `Add Items · $${subtotal.toFixed(2)}`
             : paymentMethod === 'card'
-                ? `Pay with Card · $${subtotal.toFixed(2)}`
+                ? `Checkout ${estTotalLabel}`
                 : orderType === "takeout"
-                    ? `Place Takeout · $${subtotal.toFixed(2)}`
+                    ? `Place Takeout · ${estTotalLabel}`
                     : orderType === "pre_order"
-                        ? `Pre-Order · $${subtotal.toFixed(2)}`
-                        : `Place Order · $${subtotal.toFixed(2)}`;
+                        ? `Pre-Order · ${estTotalLabel}`
+                        : `Place Order · ${estTotalLabel}`;
     // Wipe the shared server-side cart for this restaurant. Run after a
     // successful order so the user's cart doesn't still contain items that
     // were just ordered. Swallows errors — a stale cart is recoverable and
@@ -227,7 +238,7 @@ export function CheckoutModal({
                     .from('restaurants')
                     .select('stripe_account_id')
                     .eq('id', Number(restaurantId))
-                    .single();
+                    .maybeSingle();
                 if (cancelled) return;
                 if (data?.stripe_account_id) {
                     setHasStripe(true);
@@ -901,12 +912,11 @@ export function CheckoutModal({
                                     <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 16 }}>${subtotal.toFixed(2)}</Text>
                                 </View>
                                 <View style={{ marginBottom: 8 }}>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
-                                        Tax
-                                    </Text>
-                                    <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                                        {TAX_CHECKOUT_NOTE}
-                                    </Text>
+                                    <TaxEstimateLine
+                                        subtotalDollars={subtotal}
+                                        taxCents={taxCents}
+                                        showTotal
+                                    />
                                 </View>
                                 <View style={{ marginTop: 4 }}>
                                     <Text style={{ ...S.label, marginBottom: 8 }}>Payment Method</Text>

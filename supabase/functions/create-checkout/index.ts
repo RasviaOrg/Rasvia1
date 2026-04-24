@@ -541,7 +541,7 @@ async function handlePartyV2(args: {
   const memberLabel = sanitizeLabel(authedMember.display_name, 'Guest', 80)
   const platformFeeBps = Number(restaurant.platform_fee_bps ?? 0)
   const applicationFeeCents = Math.round((amountCents * platformFeeBps) / 10000)
-  let manualTaxRateId = await ensureRestaurantManualTaxRate({ supabase, stripeSecretKey, restaurant })
+  // Removed manualTaxRateId logic
 
   const successUrl = `${redirectBaseUrl}?status=success&session_id={CHECKOUT_SESSION_ID}&return_url_base=${encodeURIComponent(returnUrlBase)}`
   const cancelUrl = `${redirectBaseUrl}?status=cancel&return_url_base=${encodeURIComponent(returnUrlBase)}`
@@ -561,13 +561,14 @@ async function handlePartyV2(args: {
             },
             unit_amount: amountCents,
           },
-          tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
+          // manual tax_rates removed
           quantity: 1,
         },
       ],
       mode: 'payment',
       success_url: successUrl,
       cancel_url: cancelUrl,
+      automatic_tax: { enabled: true, liability: { type: 'account' } },
       metadata: {
         party_session_id: partySessionId,
         party_member_id: targetMemberId,
@@ -588,33 +589,7 @@ async function handlePartyV2(args: {
       },
     }
 
-    let stripeSession: Stripe.Checkout.Session
-    try {
-      stripeSession = await stripe.checkout.sessions.create(baseCheckoutParams)
-    } catch (taxErr: unknown) {
-      if (manualTaxRateId && isManualTaxRateError(taxErr)) {
-        await supabase
-          .from('restaurants')
-          .update({ stripe_manual_tax_rate_id: null })
-          .eq('id', restaurant.id)
-        manualTaxRateId = await ensureRestaurantManualTaxRate({
-          supabase,
-          stripeSecretKey,
-          restaurant: { ...restaurant, stripe_manual_tax_rate_id: null },
-        })
-        stripeSession = await stripe.checkout.sessions.create({
-          ...baseCheckoutParams,
-          line_items: [
-            {
-              ...baseCheckoutParams.line_items![0],
-              tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
-            },
-          ],
-        })
-      } else {
-        throw taxErr
-      }
-    }
+    const stripeSession = await stripe.checkout.sessions.create(baseCheckoutParams)
 
     if (!stripeSession?.url) return json({ error: 'Stripe did not return a checkout URL.' }, 500)
 
@@ -830,7 +805,8 @@ async function handleSoloOrLegacyParty(args: {
   const subtotalCents = Math.round(subtotal * 100)
   const platformFeeBps = Number(restaurant.platform_fee_bps ?? 0)
   const applicationFeeCents = Math.round((subtotalCents * platformFeeBps) / 10000)
-  let manualTaxRateId = await ensureRestaurantManualTaxRate({ supabase, stripeSecretKey, restaurant })
+  // Switch to Stripe Automatic Tax (removed manualTaxRateId caching logic)
+  const manualTaxRateId = undefined;
 
   try {
     const baseCheckoutParams: Stripe.Checkout.SessionCreateParams = {
@@ -845,9 +821,10 @@ async function handleSoloOrLegacyParty(args: {
           },
           unit_amount: Math.round(item.price * 100),
         },
-        tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
+        // manual tax_rates removed
         quantity: item.quantity,
       })),
+      automatic_tax: { enabled: true, liability: { type: 'account' } },
       mode: 'payment',
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -864,40 +841,7 @@ async function handleSoloOrLegacyParty(args: {
       },
     }
 
-    let session: Stripe.Checkout.Session
-    try {
-      session = await stripe.checkout.sessions.create(baseCheckoutParams)
-    } catch (taxErr: unknown) {
-      if (manualTaxRateId && isManualTaxRateError(taxErr)) {
-        await supabase
-          .from('restaurants')
-          .update({ stripe_manual_tax_rate_id: null })
-          .eq('id', restaurant.id)
-        manualTaxRateId = await ensureRestaurantManualTaxRate({
-          supabase,
-          stripeSecretKey,
-          restaurant: { ...restaurant, stripe_manual_tax_rate_id: null },
-        })
-        session = await stripe.checkout.sessions.create({
-          ...baseCheckoutParams,
-          line_items: orderItems.map((item) => ({
-            price_data: {
-              currency: 'usd',
-              tax_behavior: 'exclusive',
-              product_data: {
-                name: item.name,
-                tax_code: item.stripe_tax_code || DEFAULT_TAX_CODE,
-              },
-              unit_amount: Math.round(item.price * 100),
-            },
-            tax_rates: manualTaxRateId ? [manualTaxRateId] : undefined,
-            quantity: item.quantity,
-          })),
-        })
-      } else {
-        throw taxErr
-      }
-    }
+    const session = await stripe.checkout.sessions.create(baseCheckoutParams)
     if (!session?.url) return json({ error: 'Stripe did not return a checkout URL.' }, 500)
 
     const { data: orderData, error: orderError } = await supabase

@@ -210,7 +210,9 @@ export default function RestaurantDetail() {
         const acct = (data as any)?.stripe_account_id;
         setOnlinePaymentsEnabled(typeof acct === "string" && acct.length > 0);
       } catch {
-        if (!cancelled) setOnlinePaymentsEnabled(false);
+        if (!cancelled) {
+          setOnlinePaymentsEnabled(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -2703,6 +2705,7 @@ export default function RestaurantDetail() {
           onUpdateQuantity={handleUpdateQuantity}
           isGroupMode={hasActiveGroupSession}
           isClosed={isClosed}
+          restaurantId={Number(id)}
           onCheckout={() => {
             setShowCart(false);
             if (checkoutFromWaitlist) {

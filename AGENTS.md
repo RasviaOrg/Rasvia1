@@ -337,9 +337,7 @@ shipping address. The platform only collects a platform fee via
 - Both `create-checkout` and `stripe-webhook` must be kept in sync with RasviaWeb.
 - If the new restaurant tax-rate columns have not been migrated yet,
   `create-checkout` must fall back to zero checkout tax instead of failing.
-- Mobile checkout/cart/group-order surfaces should not show a hard-coded Texas
-  tax estimate. Customer-facing copy should say the final tax is calculated at
-  checkout using the restaurant's configured rate.
+- Mobile checkout/cart/group-order surfaces now fetch the restaurant's `sales_tax_rate_bps` to dynamically display a pre-checkout "Estimated Tax" line and estimated total, satisfying FTC fee disclosure requirements while clarifying the final amount is calculated at Stripe checkout.
 
 ### Database columns
 

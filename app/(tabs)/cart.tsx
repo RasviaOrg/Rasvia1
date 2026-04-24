@@ -9,7 +9,10 @@ import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBo
 import { useAppTheme } from "@/lib/app-theme";
 import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
 import { TabScreenEntrance } from "@/components/TabScreenEntrance";
+import { TaxEstimateLine } from "@/components/TaxEstimateLine";
+import { formatCentsUsd } from "@/lib/texas-sales-tax-estimate";
 import Animated, { FadeInDown } from "react-native-reanimated";
+import { useCartTax } from "@/hooks/useCartTax";
 import { useAuth } from "@/lib/auth-context";
 import {
   fetchUserCartList,
@@ -19,7 +22,7 @@ import {
 } from "@/lib/user-cart";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { parsePartySessionIdFromInput } from "@/lib/parse-party-session-input";
-const TAX_CHECKOUT_NOTE = "Tax is calculated at checkout by the restaurant.";
+import { supabase } from "@/lib/supabase";
 
 type RestaurantCartGroup = {
   /** Composite key — restaurantId + orderType. A user can legitimately have
@@ -125,6 +128,19 @@ export default function CartScreen() {
   const anyOpen = openGroups.length > 0;
   const checkoutDisabled = cartIsEmpty || !anyOpen;
   const showCartLoadingBlur = loading && !!session?.user?.id;
+
+  const [groupTaxMap, setGroupTaxMap] = useState<Record<string, number>>({});
+  const handleTaxComputed = useCallback((groupKey: string, taxCents: number) => {
+    setGroupTaxMap((prev) => prev[groupKey] === taxCents ? prev : { ...prev, [groupKey]: taxCents });
+  }, []);
+
+  const grandEstTotalCents = useMemo(() => {
+    return grouped.reduce((sum, g) => {
+      const tax = groupTaxMap[g.groupKey] ?? 0;
+      return sum + Math.round(g.subtotal * 100) + tax;
+    }, 0);
+  }, [grouped, groupTaxMap]);
+  const grandEstTotalLabel = formatCentsUsd(grandEstTotalCents);
 
   const updateQuantity = useCallback(
     async (row: UserCartListItem, nextQty: number) => {
@@ -478,319 +494,17 @@ export default function CartScreen() {
               contentContainerStyle={{ gap: 12, paddingBottom: 12 }}
               showsVerticalScrollIndicator={false}
             >
-              {grouped.map((group) => {
-                const isTakeout = group.orderType === "takeout";
-                const PillIcon = isTakeout ? Truck : UtensilsCrossed;
-                const pillColor = isTakeout ? "#60A5FA" : "#FF9933";
-                const groupClosed = isGroupClosed(group.restaurantId);
-                return (
-                <View
+              {grouped.map((group) => (
+                <CartGroupCard
                   key={group.groupKey}
-                  style={{
-                    backgroundColor: colors.card,
-                    borderWidth: 1,
-                    borderColor: colors.cardBorder,
-                    borderRadius: 16,
-                    overflow: "hidden",
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      borderBottomWidth: 1,
-                      borderBottomColor: colors.cardBorder,
-                      backgroundColor: colors.backgroundElevated,
-                    }}
-                  >
-                    {group.restaurantImage ? (
-                      <CachedImage
-                        source={{ uri: group.restaurantImage }}
-                        style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: colors.pressableBg }}
-                        fallback={
-                          <View
-                            style={{
-                              width: 40,
-                              height: 40,
-                              borderRadius: 10,
-                              backgroundColor: colors.pressableBg,
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <ShoppingCart size={17} color={colors.iconMuted} />
-                          </View>
-                        }
-                      />
-                    ) : (
-                      <View
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 10,
-                          backgroundColor: colors.pressableBg,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <ShoppingCart size={17} color={colors.iconMuted} />
-                      </View>
-                    )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 15 }} numberOfLines={1}>
-                        {group.restaurantName}
-                      </Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
-                        {/* Dining intent pill — makes it unambiguous what
-                            checkout will be when the user taps through. */}
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 4,
-                            paddingHorizontal: 8,
-                            paddingVertical: 3,
-                            borderRadius: 999,
-                            backgroundColor: `${pillColor}1F`,
-                            borderWidth: 1,
-                            borderColor: `${pillColor}55`,
-                          }}
-                        >
-                          <PillIcon size={11} color={pillColor} />
-                          <Text style={{ fontFamily: "Manrope_700Bold", color: pillColor, fontSize: 10, letterSpacing: 0.4 }}>
-                            {isTakeout ? "TAKEOUT" : "DINE-IN"}
-                          </Text>
-                        </View>
-                        <View style={{ alignItems: "flex-end", gap: 2 }}>
-                          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
-                            ${(group.subtotal || 0).toFixed(2)}
-                          </Text>
-                          <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9, maxWidth: 160 }} numberOfLines={2}>
-                            + tax at checkout
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                    {/* Inline per-group actions — lets the user go straight
-                        to checkout for this specific restaurant+dining-type,
-                        or just open the restaurant page to browse. The
-                        Checkout chip goes grey and non-interactive when the
-                        restaurant is currently closed so the user can't dead-
-                        end on a confirmation modal they can't complete. */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Pressable
-                        onPress={() => {
-                          if (groupClosed) {
-                            Alert.alert(
-                              "Closed right now",
-                              `${group.restaurantName} isn't taking orders at the moment. Come back during open hours to check out.`,
-                            );
-                            return;
-                          }
-                          openRestaurant(group.restaurantId, group.orderType, true);
-                        }}
-                        hitSlop={6}
-                        disabled={groupClosed}
-                        accessibilityState={{ disabled: groupClosed }}
-                        style={{
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
-                          borderRadius: 999,
-                          backgroundColor: groupClosed ? colors.pressableBg : "#FF9933",
-                          opacity: groupClosed ? 0.7 : 1,
-                          borderWidth: groupClosed ? 1 : 0,
-                          borderColor: groupClosed ? colors.cardBorder : "transparent",
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontFamily: "Manrope_800ExtraBold",
-                            color: groupClosed ? colors.textMuted : "#0f0f0f",
-                            fontSize: 11,
-                            letterSpacing: 0.3,
-                          }}
-                        >
-                          {groupClosed ? "Closed" : "Checkout"}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => openRestaurant(group.restaurantId, group.orderType)}
-                        hitSlop={6}
-                        style={{
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: colors.cardBorder,
-                        }}
-                      >
-                        <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 11 }}>
-                          View
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-
-                  <View style={{ padding: 10, gap: 8 }}>
-                    {group.items.map((row) => {
-                      const key = `${row.restaurantId}:${row.menuItemId}:${group.orderType}`;
-                      const busy = savingKey === key;
-                      return (
-                        <View
-                          key={key}
-                          style={{
-                            borderWidth: 1,
-                            borderColor: colors.cardBorder,
-                            borderRadius: 12,
-                            padding: 10,
-                            backgroundColor: colors.backgroundElevated,
-                          }}
-                        >
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                            {row.itemImage ? (
-                              <CachedImage
-                                source={{ uri: row.itemImage }}
-                                style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: colors.pressableBg }}
-                                fallback={
-                                  <View
-                                    style={{
-                                      width: 48,
-                                      height: 48,
-                                      borderRadius: 10,
-                                      backgroundColor: colors.pressableBg,
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                    }}
-                                  >
-                                    <ShoppingCart size={18} color={colors.iconMuted} />
-                                  </View>
-                                }
-                              />
-                            ) : (
-                              <View
-                                style={{
-                                  width: 48,
-                                  height: 48,
-                                  borderRadius: 10,
-                                  backgroundColor: colors.pressableBg,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                <ShoppingCart size={18} color={colors.iconMuted} />
-                              </View>
-                            )}
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 14 }} numberOfLines={2}>
-                                {row.itemName}
-                              </Text>
-                              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>
-                                ${row.unitPrice.toFixed(2)} each
-                              </Text>
-                            </View>
-                            <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 14 }}>
-                              ${row.subtotal.toFixed(2)}
-                            </Text>
-                          </View>
-
-                          <View style={{ marginTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                              <Pressable
-                                disabled={busy}
-                                onPress={() => {
-                                  if (row.quantity <= 1) {
-                                    Alert.alert(
-                                      "Remove Item",
-                                      `Remove ${row.itemName} from your cart?`,
-                                      [
-                                        { text: "Keep", style: "cancel" },
-                                        {
-                                          text: "Remove",
-                                          style: "destructive",
-                                          onPress: () => { void updateQuantity(row, 0); },
-                                        },
-                                      ]
-                                    );
-                                    return;
-                                  }
-                                  void updateQuantity(row, row.quantity - 1);
-                                }}
-                                style={{
-                                  width: 30,
-                                  height: 30,
-                                  borderRadius: 15,
-                                  backgroundColor: colors.pressableBg,
-                                  borderWidth: 1,
-                                  borderColor: colors.cardBorder,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  opacity: busy ? 0.5 : 1,
-                                }}
-                              >
-                                <Minus size={14} color={colors.textSecondary} />
-                              </Pressable>
-                              <Text style={{ minWidth: 18, textAlign: "center", fontFamily: "Manrope_700Bold", color: colors.text }}>
-                                {row.quantity}
-                              </Text>
-                              <Pressable
-                                disabled={busy}
-                                onPress={() => void updateQuantity(row, row.quantity + 1)}
-                                style={{
-                                  width: 30,
-                                  height: 30,
-                                  borderRadius: 15,
-                                  backgroundColor: colors.pressableBg,
-                                  borderWidth: 1,
-                                  borderColor: colors.cardBorder,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  opacity: busy ? 0.5 : 1,
-                                }}
-                              >
-                                <Plus size={14} color={colors.textSecondary} />
-                              </Pressable>
-                            </View>
-                            <Pressable
-                              disabled={busy}
-                              onPress={() => {
-                                Alert.alert(
-                                  "Remove Item",
-                                  `Remove ${row.itemName} from your cart?`,
-                                  [
-                                    { text: "Keep", style: "cancel" },
-                                    {
-                                      text: "Remove",
-                                      style: "destructive",
-                                      onPress: () => { void updateQuantity(row, 0); },
-                                    },
-                                  ]
-                                );
-                              }}
-                              style={{
-                                width: 30,
-                                height: 30,
-                                borderRadius: 15,
-                                backgroundColor: "rgba(239,68,68,0.12)",
-                                borderWidth: 1,
-                                borderColor: "rgba(239,68,68,0.4)",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                opacity: busy ? 0.5 : 1,
-                              }}
-                            >
-                              {busy ? <ActivityIndicator size="small" color="#fca5a5" /> : <Trash2 size={14} color="#fca5a5" />}
-                            </Pressable>
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
-                </View>
-                );
-              })}
+                  group={group}
+                  isGroupClosed={isGroupClosed}
+                  openRestaurant={openRestaurant}
+                  savingKey={savingKey}
+                  updateQuantity={updateQuantity}
+                  onTaxComputed={(cents) => handleTaxComputed(group.groupKey, cents)}
+                />
+              ))}
             </ScrollView>
 
             <View
@@ -808,13 +522,13 @@ export default function CartScreen() {
             >
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.textMuted, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
-                  Grand Total
+                  Total
                 </Text>
                 <Text style={{ color: "#FF9933", fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 26 }}>
-                  ${grandTotal.toFixed(2)}
+                  {grandEstTotalLabel}
                 </Text>
                 <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11, marginTop: 4 }}>
-                  {TAX_CHECKOUT_NOTE}
+                  Subtotal ${grandTotal.toFixed(2)} + tax.
                 </Text>
               </View>
               <Pressable
@@ -853,7 +567,7 @@ export default function CartScreen() {
                     letterSpacing: 0.3,
                   }}
                 >
-                  {cartIsEmpty ? "Cart empty" : !anyOpen ? "Closed" : "Checkout"}
+                  {cartIsEmpty ? "Cart empty" : !anyOpen ? "Closed" : `Checkout`}
                 </Text>
               </Pressable>
             </View>
@@ -864,6 +578,344 @@ export default function CartScreen() {
 
         {showCartLoadingBlur && <LoadingBlurOverlay />}
       </SafeAreaView>
+    </View>
+  );
+}
+
+function CartGroupCard({
+  group,
+  isGroupClosed,
+  openRestaurant,
+  savingKey,
+  updateQuantity,
+  onTaxComputed,
+}: {
+  group: RestaurantCartGroup;
+  isGroupClosed: (id: number) => boolean;
+  openRestaurant: (id: number, type?: UserCartOrderType, autoCheckout?: boolean) => void;
+  savingKey: string | null;
+  updateQuantity: (row: UserCartListItem, nextQty: number) => Promise<void>;
+  onTaxComputed: (cents: number) => void;
+}) {
+  const { colors } = useAppTheme();
+  const isTakeout = group.orderType === "takeout";
+  const PillIcon = isTakeout ? Truck : UtensilsCrossed;
+  const pillColor = isTakeout ? "#60A5FA" : "#FF9933";
+  const groupClosed = isGroupClosed(group.restaurantId);
+
+  const taxItems = useMemo(
+    () =>
+      group.items.map((r) => ({
+        price_cents: Math.round(r.unitPrice * 100),
+        quantity: r.quantity,
+        stripe_tax_code: r.stripeTaxCode ?? "txcd_20030000",
+      })),
+    [group.items]
+  );
+  const { taxCents, loading: taxLoading } = useCartTax(group.restaurantId, taxItems);
+
+  useEffect(() => {
+    if (taxCents !== null) {
+      onTaxComputed(taxCents);
+    }
+  }, [taxCents, onTaxComputed]);
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+        borderRadius: 16,
+        overflow: "hidden",
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.cardBorder,
+          backgroundColor: colors.backgroundElevated,
+        }}
+      >
+        {group.restaurantImage ? (
+          <CachedImage
+            source={{ uri: group.restaurantImage }}
+            style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: colors.pressableBg }}
+            fallback={
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  backgroundColor: colors.pressableBg,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <ShoppingCart size={17} color={colors.iconMuted} />
+              </View>
+            }
+          />
+        ) : (
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              backgroundColor: colors.pressableBg,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <ShoppingCart size={17} color={colors.iconMuted} />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 15 }} numberOfLines={1}>
+            {group.restaurantName}
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 999,
+                backgroundColor: `${pillColor}1F`,
+                borderWidth: 1,
+                borderColor: `${pillColor}55`,
+              }}
+            >
+              <PillIcon size={11} color={pillColor} />
+              <Text style={{ fontFamily: "Manrope_700Bold", color: pillColor, fontSize: 10, letterSpacing: 0.4 }}>
+                {isTakeout ? "TAKEOUT" : "DINE-IN"}
+              </Text>
+            </View>
+            <View style={{ alignItems: "flex-end", gap: 2 }}>
+              <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
+                ${(group.subtotal || 0).toFixed(2)}
+              </Text>
+              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9, maxWidth: 160 }} numberOfLines={2}>
+                + {taxLoading ? "loading tax..." : taxCents !== null ? `tax ${formatCentsUsd(taxCents)}` : ""}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Pressable
+            onPress={() => {
+              if (groupClosed) {
+                Alert.alert(
+                  "Closed right now",
+                  `${group.restaurantName} isn't taking orders at the moment. Come back during open hours to check out.`,
+                );
+                return;
+              }
+              openRestaurant(group.restaurantId, group.orderType, true);
+            }}
+            hitSlop={6}
+            disabled={groupClosed}
+            accessibilityState={{ disabled: groupClosed }}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+              backgroundColor: groupClosed ? colors.pressableBg : "#FF9933",
+              opacity: groupClosed ? 0.7 : 1,
+              borderWidth: groupClosed ? 1 : 0,
+              borderColor: groupClosed ? colors.cardBorder : "transparent",
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: "Manrope_800ExtraBold",
+                color: groupClosed ? colors.textMuted : "#0f0f0f",
+                fontSize: 11,
+                letterSpacing: 0.3,
+              }}
+            >
+              {groupClosed ? "Closed" : "Checkout"}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => openRestaurant(group.restaurantId, group.orderType)}
+            hitSlop={6}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+            }}
+          >
+            <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 11 }}>
+              View
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={{ padding: 10, gap: 8 }}>
+        {group.items.map((row) => {
+          const key = `${row.restaurantId}:${row.menuItemId}:${group.orderType}`;
+          const busy = savingKey === key;
+          return (
+            <View
+              key={key}
+              style={{
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+                borderRadius: 12,
+                padding: 10,
+                backgroundColor: colors.backgroundElevated,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                {row.itemImage ? (
+                  <CachedImage
+                    source={{ uri: row.itemImage }}
+                    style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: colors.pressableBg }}
+                    fallback={
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 10,
+                          backgroundColor: colors.pressableBg,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <ShoppingCart size={18} color={colors.iconMuted} />
+                      </View>
+                    }
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 10,
+                      backgroundColor: colors.pressableBg,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <ShoppingCart size={18} color={colors.iconMuted} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 14 }} numberOfLines={2}>
+                    {row.itemName}
+                  </Text>
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 12 }}>
+                    ${row.unitPrice.toFixed(2)} each
+                  </Text>
+                </View>
+                <Text style={{ fontFamily: "Manrope_700Bold", color: "#FF9933", fontSize: 14 }}>
+                  ${row.subtotal.toFixed(2)}
+                </Text>
+              </View>
+
+              <View style={{ marginTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Pressable
+                    disabled={busy}
+                    onPress={() => {
+                      if (row.quantity <= 1) {
+                        Alert.alert(
+                          "Remove Item",
+                          `Remove ${row.itemName} from your cart?`,
+                          [
+                            { text: "Keep", style: "cancel" },
+                            {
+                              text: "Remove",
+                              style: "destructive",
+                              onPress: () => { void updateQuantity(row, 0); },
+                            },
+                          ]
+                        );
+                        return;
+                      }
+                      void updateQuantity(row, row.quantity - 1);
+                    }}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 15,
+                      backgroundColor: colors.pressableBg,
+                      borderWidth: 1,
+                      borderColor: colors.cardBorder,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: busy ? 0.5 : 1,
+                    }}
+                  >
+                    <Minus size={14} color={colors.textSecondary} />
+                  </Pressable>
+                  <Text style={{ minWidth: 18, textAlign: "center", fontFamily: "Manrope_700Bold", color: colors.text }}>
+                    {row.quantity}
+                  </Text>
+                  <Pressable
+                    disabled={busy}
+                    onPress={() => void updateQuantity(row, row.quantity + 1)}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 15,
+                      backgroundColor: colors.pressableBg,
+                      borderWidth: 1,
+                      borderColor: colors.cardBorder,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: busy ? 0.5 : 1,
+                    }}
+                  >
+                    <Plus size={14} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+                <Pressable
+                  disabled={busy}
+                  onPress={() => {
+                    Alert.alert(
+                      "Remove Item",
+                      `Remove ${row.itemName} from your cart?`,
+                      [
+                        { text: "Keep", style: "cancel" },
+                        {
+                          text: "Remove",
+                          style: "destructive",
+                          onPress: () => { void updateQuantity(row, 0); },
+                        },
+                      ]
+                    );
+                  }}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 15,
+                    backgroundColor: "rgba(239,68,68,0.12)",
+                    borderWidth: 1,
+                    borderColor: "rgba(239,68,68,0.4)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: busy ? 0.5 : 1,
+                  }}
+                >
+                  {busy ? <ActivityIndicator size="small" color="#fca5a5" /> : <Trash2 size={14} color="#fca5a5" />}
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }

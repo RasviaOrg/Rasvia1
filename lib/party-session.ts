@@ -44,6 +44,7 @@ export type PartyItem = {
     price: number;
     image_url: string | null;
     is_vegetarian: boolean | null;
+    stripe_tax_code?: string | null;
   } | null;
 };
 
@@ -573,7 +574,7 @@ export async function fetchSnapshot(
   const [sessRes, memRes, itemRes, payRes] = await Promise.all([
     supabase.from('party_sessions').select('*').eq('id', sessionId).maybeSingle(),
     supabase.from('party_members').select('*').eq('session_id', sessionId).is('left_at', null).order('joined_at', { ascending: true }),
-    supabase.from('party_items').select('*, menu_item:menu_items(id, name, description, price, image_url, is_vegetarian)').eq('session_id', sessionId).order('created_at', { ascending: true }),
+    supabase.from('party_items').select('*, menu_item:menu_items(id, name, description, price, image_url, is_vegetarian, stripe_tax_code)').eq('session_id', sessionId).order('created_at', { ascending: true }),
     supabase.from('party_payments').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
   ]);
   if (sessRes.error || !sessRes.data) throw new Error(sessRes.error?.message ?? 'Session not found.');

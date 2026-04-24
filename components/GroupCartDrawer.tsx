@@ -12,6 +12,9 @@ import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag } from "lucide-react-
 import type { CartItem, GroupMember } from "@/data/mockData";
 import * as Haptics from "expo-haptics";
 import { useAppTheme } from "@/lib/app-theme";
+import { TaxEstimateLine } from "@/components/TaxEstimateLine";
+import { formatCentsUsd } from "@/lib/texas-sales-tax-estimate";
+import { useCartTax } from "@/hooks/useCartTax";
 import Animated, {
   FadeIn,
   FadeInLeft,
@@ -24,7 +27,7 @@ import Animated, {
 let SCREEN_HEIGHT = Dimensions.get("window").height;
 Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
 
-const TAX_CHECKOUT_NOTE = "Tax is calculated at checkout by the restaurant.";
+
 
 interface GroupCartDrawerProps {
   items: CartItem[];
@@ -35,6 +38,8 @@ interface GroupCartDrawerProps {
   onCheckout: () => void;
   isGroupMode?: boolean;
   isClosed?: boolean;
+  /** Restaurant ID needed for the server-side tax quote. */
+  restaurantId: number;
 }
 
 export function GroupCartDrawer({
@@ -46,12 +51,26 @@ export function GroupCartDrawer({
   onCheckout,
   isGroupMode = false,
   isClosed = false,
+  restaurantId,
 }: GroupCartDrawerProps) {
   const { colors, isDark } = useAppTheme();
   const totalQuantity = items.reduce((sum, item) => sum + Math.max(0, Number(item.quantity ?? 0)), 0);
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const cartIsEmpty = totalQuantity <= 0 || subtotal <= 0;
   const checkoutDisabled = isClosed || cartIsEmpty;
+
+  const taxItems = React.useMemo(() => {
+    return items.map((r) => ({
+      price_cents: Math.round(r.price * 100),
+      quantity: r.quantity,
+      stripe_tax_code: r.stripe_tax_code ?? "txcd_20030000",
+    }));
+  }, [items]);
+
+  const { taxCents, loading: taxLoading } = useCartTax(restaurantId, taxItems);
+  
+  const estTotalCents = taxCents !== null ? Math.round(subtotal * 100) + taxCents : null;
+  const estTotalLabel = estTotalCents !== null ? formatCentsUsd(estTotalCents) : "loading...";
 
   const checkoutScale = useSharedValue(1);
   const checkoutStyle = useAnimatedStyle(() => ({
@@ -266,13 +285,17 @@ export function GroupCartDrawer({
           <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 15 }}>
             Subtotal
           </Text>
-          <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 22 }}>
+          <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 18 }}>
             ${subtotal.toFixed(2)}
           </Text>
         </View>
-        <Text style={{ marginBottom: 16, fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
-          {TAX_CHECKOUT_NOTE}
-        </Text>
+        <View style={{ marginBottom: 14 }}>
+          <TaxEstimateLine
+            subtotalDollars={subtotal}
+            taxCents={taxCents}
+            showTotal
+          />
+        </View>
 
         <Animated.View style={checkoutStyle}>
           <Pressable
@@ -313,8 +336,8 @@ export function GroupCartDrawer({
                 : isClosed
                 ? "Currently Closed"
                 : isGroupMode
-                ? "Place Group Order"
-                : "Checkout"}
+                ? `Place Group Order · ${estTotalLabel}`
+                : `Checkout ${estTotalLabel}`}
             </Text>
           </Pressable>
         </Animated.View>

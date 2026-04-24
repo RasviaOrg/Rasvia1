@@ -55,8 +55,11 @@ import { PartyLedger, colorForMember, memberInitials } from '../../components/pa
 import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from '../../lib/menu-tags';
 import { useAppTheme, type AppColors } from '../../lib/app-theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TaxEstimateLine } from '../../components/TaxEstimateLine';
+import { estimatedTaxCentsFromCents, formatCentsUsd, bpsToPercentLabel, resolveDisplayTaxRateBps } from '../../lib/texas-sales-tax-estimate';
+import { useCartTax } from '../../hooks/useCartTax';
 
-const TAX_CHECKOUT_NOTE = 'Tax is calculated at checkout by the restaurant.';
+
 
 function createJoinPartyStyles(colors: AppColors, isDark: boolean) {
   const sheetScrim = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)';
@@ -227,9 +230,10 @@ type MenuItem = {
   category: string | null;
   meal_times?: string[] | null;
   in_stock: boolean;
+  stripe_tax_code?: string;
 };
 
-type Restaurant = { id: number; name: string; image_url: string | null };
+type Restaurant = { id: number; name: string; image_url: string | null; sales_tax_rate_bps?: number | null };
 
 /**
  * Apple Pay / Google Pay show a "save card to this device?" sheet *after*
@@ -460,13 +464,13 @@ export default function JoinPartyScreen() {
       if (!restaurant || restaurant.id !== snap.session.restaurant_id) {
         const { data: rest } = await supabase
           .from('restaurants')
-          .select('id, name, image_url')
+          .select('id, name, image_url, sales_tax_rate_bps')
           .eq('id', snap.session.restaurant_id)
           .maybeSingle();
         if (rest) setRestaurant(rest as Restaurant);
         const { data: menuRows } = await supabase
           .from('menu_items')
-          .select('id, name, description, price, image_url, is_vegetarian, is_spicy, category, meal_times, in_stock')
+          .select('id, name, description, price, image_url, is_vegetarian, is_spicy, category, meal_times, in_stock, stripe_tax_code')
           .eq('restaurant_id', snap.session.restaurant_id)
           .eq('in_stock', true)
           .order('category', { ascending: true })
@@ -808,7 +812,7 @@ export default function JoinPartyScreen() {
             try { await leaveSession(supabase, creds); } catch { /* ignore */ }
             await queueHomeGroupNotice({
               type: "left_group",
-              restaurantName: restaurant?.name ?? snapshot?.restaurant?.name ?? "the group order",
+              restaurantName: restaurant?.name ?? "the group order",
               sessionId,
             });
             await clearPartyCreds(sessionId);
@@ -973,8 +977,11 @@ export default function JoinPartyScreen() {
               <Text style={joinS.summaryLabel}>Group total</Text>
               <Text style={joinS.summaryValue}>{formatCents(session.total_cents)}</Text>
               <View style={{ marginTop: 8 }}>
-                <Text style={[joinS.summaryMeta, { fontWeight: '700' }]}>Tax</Text>
-                <Text style={[joinS.summaryMeta, { marginTop: 2 }]}>{TAX_CHECKOUT_NOTE}</Text>
+                <TaxEstimateLine
+                  subtotalDollars={(session.subtotal_cents ?? 0) / 100}
+                  taxCents={session.tax_cents ?? null}
+                  showTotal
+                />
               </View>
               <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Lock size={12} color={colors.textMuted} />
@@ -1126,7 +1133,7 @@ export default function JoinPartyScreen() {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{formatCents(mySubtotal)}</Text>
               </View>
               <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600', marginTop: 4 }}>
-                {TAX_CHECKOUT_NOTE}
+                + est. tax {formatCentsUsd(estimatedTaxCentsFromCents(mySubtotal, restaurant?.sales_tax_rate_bps))}. Final at payment.
               </Text>
               {myItems.length === 0 ? (
                 <View style={{ marginTop: 10, paddingVertical: 18, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.cardBorder, alignItems: 'center' }}>
@@ -1251,6 +1258,7 @@ export default function JoinPartyScreen() {
           isHost={isHost}
           hostDeciding={hostInReview}
           guestCartLocked={nonHostCartLocked}
+          restaurantId={restaurant?.id}
           onLeave={handleLeave}
         />
 
@@ -1534,6 +1542,7 @@ function CartSummary(props: {
   hostDeciding?: boolean;
   /** When true, non-hosts cannot change line items they would normally edit. */
   guestCartLocked?: boolean;
+  restaurantId?: number;
   onReview?: () => void;
   onRemove: (item: PartyItem) => void;
   onChangeQty: (item: PartyItem, delta: number) => void;
@@ -1543,6 +1552,12 @@ function CartSummary(props: {
   const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
   const total = totalCartCents(props.items);
+  const taxItems = useMemo(() => props.items.map(it => ({
+    price_cents: Math.round(Number(it.menu_item?.price ?? 0) * 100),
+    quantity: it.quantity ?? 1,
+    stripe_tax_code: it.menu_item?.stripe_tax_code ?? "txcd_20030000",
+  })), [props.items]);
+  const { taxCents, loading: taxLoading } = useCartTax(props.restaurantId ?? -1, taxItems);
   const guestLock = props.guestCartLocked === true;
   const confirmRemove = useCallback((it: PartyItem) => {
     Alert.alert(
@@ -1572,7 +1587,11 @@ function CartSummary(props: {
             <Text style={s.cartTotal}>{formatCents(total)}</Text>
           </View>
           <View style={{ marginTop: 6, paddingLeft: 28, paddingRight: 2 }}>
-            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>{TAX_CHECKOUT_NOTE}</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>
+              {taxCents !== null 
+                ? `+ ${formatCentsUsd(taxCents)} tax` 
+                : taxLoading ? '+ calculating tax...' : '+ tax'}
+            </Text>
           </View>
         </View>
         <ChevronRight size={18} color={colors.iconMuted} style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
@@ -1727,6 +1746,12 @@ function ReviewStage({
   }, [modeFromSnapshot]);
 
   const total = totalCartCents(snapshot.items);
+  const taxItems = useMemo(() => snapshot.items.map(it => ({
+    price_cents: Math.round(Number(it.menu_item?.price ?? 0) * 100),
+    quantity: it.quantity ?? 1,
+    stripe_tax_code: it.menu_item?.stripe_tax_code ?? "txcd_20030000",
+  })), [snapshot.items]);
+  const { taxCents, loading: taxLoading } = useCartTax(restaurant?.id ?? -1, taxItems);
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -1737,8 +1762,11 @@ function ReviewStage({
             <Text style={s.summaryLabel}>Group total</Text>
             <Text style={s.summaryValue}>{formatCents(total)}</Text>
             <View style={{ marginTop: 8 }}>
-              <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Tax</Text>
-              <Text style={[s.summaryMeta, { marginTop: 2 }]}>{TAX_CHECKOUT_NOTE}</Text>
+              <TaxEstimateLine
+                subtotalDollars={(total ?? 0) / 100}
+                taxCents={taxCents}
+                showTotal
+              />
             </View>
             <Text style={[s.summaryMeta, { marginTop: 10 }]}>
               {snapshot.members.length} {snapshot.members.length === 1 ? 'member' : 'members'} · {snapshot.items.length} {snapshot.items.length === 1 ? 'item' : 'items'}
@@ -2034,8 +2062,11 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
             <Text style={s.summaryLabel}>Group total</Text>
             <Text style={s.summaryValue}>{formatCents(snapshot.session.total_cents)}</Text>
             <View style={{ marginTop: 8 }}>
-              <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Tax</Text>
-              <Text style={[s.summaryMeta, { marginTop: 2 }]}>{TAX_CHECKOUT_NOTE}</Text>
+              <TaxEstimateLine
+                subtotalDollars={(snapshot.session.subtotal_cents ?? 0) / 100}
+                taxCents={snapshot.session.tax_cents ?? null}
+                showTotal
+              />
             </View>
             <Text style={s.summaryMeta}>
               {snapshot.members.length} members · {snapshot.items.length} items

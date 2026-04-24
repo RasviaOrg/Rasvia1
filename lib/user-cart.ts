@@ -23,6 +23,7 @@ export type UserCartListItem = {
   quantity: number;
   subtotal: number;
   orderType: UserCartOrderType;
+  stripeTaxCode: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,11 +132,12 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
     .order("updated_at", { ascending: false });
   if (cartResp.error && isOrderTypeMissing(cartResp.error)) {
     warnLegacyOnce();
-    cartResp = await supabase
+    const fallbackResp = await supabase
       .from("user_cart_items")
       .select("id, restaurant_id, menu_item_id, quantity")
       .eq("user_id", userId)
       .order("updated_at", { ascending: false });
+    cartResp = fallbackResp as any;
   }
   if (cartResp.error) throw cartResp.error;
   const cartRows = cartResp.data;
@@ -159,7 +161,7 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
       .in("id", restaurantIds),
     supabase
       .from("menu_items")
-      .select("id, name, image_url, price, restaurant_id")
+      .select("id, name, image_url, price, restaurant_id, stripe_tax_code")
       .in("id", menuItemIds),
   ]);
 
@@ -175,7 +177,7 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
     });
   }
 
-  const menuItemMap = new Map<number, { id: number; restaurant_id: number; name: string; image_url: string | null; price: number }>();
+  const menuItemMap = new Map<number, { id: number; restaurant_id: number; name: string; image_url: string | null; price: number; stripe_tax_code: string | null }>();
   for (const row of ((menuItems ?? []) as any[])) {
     menuItemMap.set(Number(row.id), {
       id: Number(row.id),
@@ -183,6 +185,7 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
       name: String(row.name ?? "Menu Item"),
       image_url: row.image_url ? String(row.image_url) : null,
       price: Number(row.price ?? 0),
+      stripe_tax_code: row.stripe_tax_code ? String(row.stripe_tax_code) : null,
     });
   }
 
@@ -207,6 +210,7 @@ export async function fetchUserCartList(userId: string): Promise<UserCartListIte
       quantity,
       subtotal: unitPrice * quantity,
       orderType,
+      stripeTaxCode: menuItem.stripe_tax_code,
     });
   }
 
@@ -252,11 +256,12 @@ export async function fetchRestaurantCartRows(userId: string, restaurantId: numb
     .eq("restaurant_id", restaurantId);
   if (resp.error && isOrderTypeMissing(resp.error)) {
     warnLegacyOnce();
-    resp = await supabase
+    const fallbackResp = await supabase
       .from("user_cart_items")
       .select("id, restaurant_id, menu_item_id, quantity")
       .eq("user_id", userId)
       .eq("restaurant_id", restaurantId);
+    resp = fallbackResp as any;
   }
   if (resp.error) throw resp.error;
   return (resp.data ?? []) as Array<{

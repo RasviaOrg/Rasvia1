@@ -29,6 +29,7 @@ export interface MenuItem {
   isVegetarian: boolean;
   spiceLevel: number;
   mealTimes: string[];
+  stripe_tax_code?: string; // Optional for backward compatibility with mock data
 }
 
 export interface CartItem extends MenuItem {
