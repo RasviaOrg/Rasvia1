@@ -33,6 +33,19 @@ verify_jwt = false
 # Verifies party member_token manually in-function.
 entrypoint = "./functions/cancel-party-session/index.ts"
 
+[functions.party-lock]
+enabled = true
+verify_jwt = false
+# Host-only; validates party member_token and quotes Stripe Tax before locking.
+import_map = "./functions/party-lock/deno.json"
+entrypoint = "./functions/party-lock/index.ts"
+
+[functions.quote-cart-tax]
+enabled = true
+verify_jwt = false
+# Used by the app for cart tax estimates; shared logic with party-lock.
+entrypoint = "./functions/quote-cart-tax/index.ts"
+
 [functions.party-reap]
 enabled = true
 verify_jwt = false

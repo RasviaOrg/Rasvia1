@@ -90,9 +90,13 @@ async function handleCheckoutCompleted(
     ? session.payment_intent
     : paymentIntent?.id ?? null
   const platformFeeCents = (paymentIntent as any)?.application_fee_amount ?? 0
-  // Extract tax from Stripe Tax (automatic_tax). total_details is present
-  // when Stripe Tax was active on this session; 0 otherwise.
-  const taxCents = (session as any).total_details?.amount_tax ?? 0
+  const sessionMeta = (session.metadata || {}) as Record<string, string>
+  // Automatic Tax: amount_tax. Quoted line-item tax (create-checkout, dine-in / takeout):
+  // pass-through via metadata so reporting matches the in-app engine.
+  const quotedTax = parseInt(sessionMeta.sales_tax_cents ?? '', 10)
+  const taxCents = Number.isFinite(quotedTax) && quotedTax >= 0
+    ? quotedTax
+    : ((session as { total_details?: { amount_tax?: number } }).total_details?.amount_tax ?? 0)
 
   if (isPartyV2Session(session)) {
     const { data, error } = await supabase.rpc('party_settle_payment', {
@@ -105,12 +109,11 @@ async function handleCheckoutCompleted(
     }
 
     // Persist platform fee and tax on the party_payment row
-    const meta = (session.metadata || {}) as Record<string, string>
-    if (meta.party_payment_id) {
+    if (sessionMeta.party_payment_id) {
       await supabase.from('party_payments').update({
         platform_fee_cents: platformFeeCents,
         tax_cents: taxCents,
-      }).eq('id', meta.party_payment_id)
+      }).eq('id', sessionMeta.party_payment_id)
     }
     return
   }

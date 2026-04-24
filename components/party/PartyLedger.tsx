@@ -5,10 +5,17 @@ import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import Animated, { FadeIn, FadeInDown, Layout } from 'react-native-reanimated';
 import { Check, Clock, Crown, AlertCircle, RefreshCcw } from 'lucide-react-native';
 import {
+  type PartyItem,
   type PartyMember,
   type PartyPayment,
   formatCents,
 } from '../../lib/party-session';
+import {
+  isAssignedPaymentMode,
+  isPerPersonPaymentMode,
+  memberPretaxCentsAssigned,
+  memberPretaxCentsPerPerson,
+} from '../../lib/party-per-person-pretax';
 import { useAppTheme } from '../../lib/app-theme';
 
 const MEMBER_COLORS = ['#FF9933', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#06B6D4', '#EF4444'];
@@ -25,6 +32,18 @@ export function memberInitials(name: string): string {
   return (parts[0]!.charAt(0) + parts[parts.length - 1]!.charAt(0)).toUpperCase();
 }
 
+function splitShareSubtotalTax(
+  amountCents: number,
+  orderSubtotalCents: number,
+  orderTaxCents: number,
+): { pre: number; tx: number } {
+  const due = orderSubtotalCents + orderTaxCents;
+  if (due <= 0 || amountCents <= 0) return { pre: amountCents, tx: 0 };
+  const pre = Math.round((amountCents * orderSubtotalCents) / due);
+  const tx = amountCents - pre;
+  return { pre, tx };
+}
+
 type LedgerRowProps = {
   member: PartyMember;
   payment: PartyPayment | undefined;
@@ -32,6 +51,14 @@ type LedgerRowProps = {
   isSelf: boolean;
   isHost: boolean;
   showCoverButton: boolean;
+  orderSubtotalCents?: number;
+  orderTaxCents?: number;
+  /** Cart pretax (per person / assigned). */
+  ledgerPretaxCents?: number | null;
+  /**
+   * When true with `ledgerPretaxCents`, Sales tax = `amount - pre` (matches what they were charged; DB line tax can be stale).
+   */
+  impliedTaxFromPretax?: boolean;
   onCover?: () => void;
   onRetry?: () => void;
   onPress?: () => void;
@@ -85,6 +112,7 @@ function usePartyLedgerStyles() {
         statusDot: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
         statusLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
         amount: { color: colors.text, fontWeight: '700', fontSize: 14 },
+        shareBreakdown: { color: colors.textMuted, fontSize: 11, fontWeight: '600', marginTop: 2, textAlign: 'right' },
         coverBtn: {
           backgroundColor: 'rgba(255,153,51,0.16)',
           borderWidth: 1,
@@ -128,7 +156,21 @@ function StatusDot({ status }: { status: PartyPayment['status'] | 'idle' }) {
   );
 }
 
-function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, onCover, onRetry, onPress }: LedgerRowProps) {
+function LedgerRow({
+  member,
+  payment,
+  index,
+  isSelf,
+  isHost,
+  showCoverButton,
+  orderSubtotalCents,
+  orderTaxCents,
+  ledgerPretaxCents,
+  impliedTaxFromPretax,
+  onCover,
+  onRetry,
+  onPress,
+}: LedgerRowProps) {
   const styles = usePartyLedgerStyles();
   const { colors } = useAppTheme();
   const status = payment?.status ?? 'idle';
@@ -136,6 +178,17 @@ function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, on
   const color = MEMBER_COLORS[index % MEMBER_COLORS.length];
   const isPaid = status === 'paid' || status === 'covered';
   const isFailed = status === 'failed' || status === 'cancelled';
+  const showShareBreakdown =
+    orderSubtotalCents != null &&
+    orderTaxCents != null &&
+    (orderSubtotalCents > 0 || orderTaxCents > 0) &&
+    amount > 0;
+  const shareParts =
+    showShareBreakdown && impliedTaxFromPretax && ledgerPretaxCents != null && ledgerPretaxCents >= 0
+      ? { pre: ledgerPretaxCents, tx: Math.max(0, amount - ledgerPretaxCents) }
+      : showShareBreakdown
+        ? splitShareSubtotalTax(amount, orderSubtotalCents!, orderTaxCents!)
+        : null;
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 60)} layout={Layout.springify()}>
@@ -175,6 +228,11 @@ function LedgerRow({ member, payment, index, isSelf, isHost, showCoverButton, on
 
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <Text style={[styles.amount, isPaid && { color: '#22C55E' }]}>{formatCents(amount)}</Text>
+          {shareParts ? (
+            <Text style={styles.shareBreakdown} numberOfLines={2}>
+              Subtotal {formatCents(shareParts.pre)} · Sales tax {formatCents(shareParts.tx)}
+            </Text>
+          ) : null}
           {showCoverButton && !isPaid && amount > 0 && !isSelf ? (
             <Pressable onPress={onCover} style={styles.coverBtn}>
               <Text style={styles.coverBtnText}>Pay for them</Text>
@@ -196,13 +254,53 @@ export function PartyLedger(props: {
   payments: PartyPayment[];
   selfMemberId: string | null;
   isHost: boolean;
+  /** When set with orderTaxCents, each row shows subtotal · tax lines (proportional to order). */
+  orderSubtotalCents?: number;
+  orderTaxCents?: number;
+  /** For each pays their own: pass cart + mode so subtotal/tax follows items, not order ratio. */
+  items?: PartyItem[];
+  paymentMode?: string | null;
+  staffManaged?: boolean;
   onCoverMember?: (memberId: string) => void;
   onRetry?: () => void;
   onMemberTap?: (memberId: string) => void;
 }) {
   const styles = usePartyLedgerStyles();
   const { colors } = useAppTheme();
-  const { members, payments, selfMemberId, isHost, onCoverMember, onRetry, onMemberTap } = props;
+  const {
+    members,
+    payments,
+    selfMemberId,
+    isHost,
+    orderSubtotalCents,
+    orderTaxCents,
+    items,
+    paymentMode,
+    staffManaged,
+    onCoverMember,
+    onRetry,
+    onMemberTap,
+  } = props;
+
+  /** Per-member subtotal + tax from cart lines and `item.tax_cents` (not order-wide ratios). */
+  const itemLineBreakdown = useMemo(() => {
+    if (!items?.length) return null;
+    if (isPerPersonPaymentMode(paymentMode ?? undefined)) {
+      const pre: Record<string, number> = {};
+      for (const m of members) {
+        pre[m.id] = memberPretaxCentsPerPerson(items, members, m.id, !!staffManaged);
+      }
+      return { pre };
+    }
+    if (isAssignedPaymentMode(paymentMode ?? undefined)) {
+      const pre: Record<string, number> = {};
+      for (const m of members) {
+        pre[m.id] = memberPretaxCentsAssigned(items, members, m.id, !!staffManaged);
+      }
+      return { pre };
+    }
+    return null;
+  }, [items, members, paymentMode, staffManaged]);
 
   const paidCount = useMemo(
     () => payments.filter((p) => p.status === 'paid' || p.status === 'covered').length,
@@ -245,6 +343,10 @@ export function PartyLedger(props: {
               isSelf={isSelf}
               isHost={isHost}
               showCoverButton={isHost && !isSelf}
+              orderSubtotalCents={orderSubtotalCents}
+              orderTaxCents={orderTaxCents}
+              ledgerPretaxCents={itemLineBreakdown ? (itemLineBreakdown.pre[m.id] ?? null) : null}
+              impliedTaxFromPretax={!!itemLineBreakdown}
               onCover={() => onCoverMember?.(m.id)}
               onRetry={onRetry}
               onPress={onMemberTap ? () => onMemberTap(m.id) : undefined}

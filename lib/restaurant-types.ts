@@ -308,15 +308,31 @@ export interface UIMenuItem {
     communityImageCredit: string | null;
 }
 
+const DEFAULT_STRIPE_PRODUCT_TAX_CODE = "txcd_40060003";
+
+/**
+ * PTC for cart or menu: DB rows use `stripe_tax_code`; in-memory UIMenuItem / spread CartItem uses `stripeTaxCode`.
+ * If both are missing, use the same default as create-checkout and quote-cart-tax.
+ */
+export function resolveStripeProductTaxCode(item: {
+    stripe_tax_code?: string | null;
+    stripeTaxCode?: string | null;
+}): string {
+    if (typeof item.stripe_tax_code === "string" && item.stripe_tax_code.trim()) {
+        return item.stripe_tax_code.trim();
+    }
+    if (typeof item.stripeTaxCode === "string" && item.stripeTaxCode.trim()) {
+        return item.stripeTaxCode.trim();
+    }
+    return DEFAULT_STRIPE_PRODUCT_TAX_CODE;
+}
+
 /**
  * Map Supabase menu item to UI format
  */
 
 export function mapMenuItemToUI(item: SupabaseMenuItem): UIMenuItem {
-    const stripeTaxCode =
-        typeof item.stripe_tax_code === "string" && item.stripe_tax_code.trim()
-            ? item.stripe_tax_code.trim()
-            : "txcd_40060003";
+    const stripeTaxCode = resolveStripeProductTaxCode(item);
     const normalizedImage =
         item.image_url && /^https?:\/\//i.test(item.image_url)
             ? item.image_url

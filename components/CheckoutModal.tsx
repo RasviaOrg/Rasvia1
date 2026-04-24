@@ -42,7 +42,7 @@ import { TaxEstimateLine } from "@/components/TaxEstimateLine";
 import { formatCentsUsd } from "@/lib/texas-sales-tax-estimate";
 import { useCartTax } from "@/hooks/useCartTax";
 import type { CartItem } from "@/data/mockData";
-import type { OrderType } from "@/lib/restaurant-types";
+import { resolveStripeProductTaxCode, type OrderType } from "@/lib/restaurant-types";
 
 interface CheckoutModalProps {
     visible: boolean;
@@ -169,11 +169,15 @@ export function CheckoutModal({
     const subtotal = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
     const hasItems = totalQuantity > 0 && subtotal > 0;
     
-    const taxItems = useMemo(() => cartItems.map(i => ({
-        price_cents: Math.round(i.price * 100),
-        quantity: i.quantity,
-        stripe_tax_code: i.stripe_tax_code ?? "txcd_20030000",
-    })), [cartItems]);
+    const taxItems = useMemo(
+        () =>
+            cartItems.map((i) => ({
+                price_cents: Math.round(i.price * 100),
+                quantity: i.quantity,
+                stripe_tax_code: resolveStripeProductTaxCode(i as { stripe_tax_code?: string; stripeTaxCode?: string }),
+            })),
+        [cartItems]
+    );
     const { taxCents, loading: taxLoading } = useCartTax(Number(restaurantId), taxItems);
     const estTotalCents = taxCents !== null ? Math.round(subtotal * 100) + taxCents : null;
     const estTotalLabel = estTotalCents !== null ? formatCentsUsd(estTotalCents) : "loading...";

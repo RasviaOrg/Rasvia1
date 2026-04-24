@@ -1,5 +1,9 @@
 // supabase/functions/create-checkout/index.ts
 //
+// Solo dine-in / takeout: line-item subtotal + a fixed "sales tax" line computed by the same
+// `stripe.tax.calculations` logic as `quote-cart-tax` (restaurant address), with `automatic_tax`
+// disabled so Hosted Checkout does not recompute tax from the card billing address.
+//
 // Supports three flows, gated by request body shape:
 //
 //  1) Solo authenticated checkout (non-party)
@@ -77,8 +81,11 @@ type RestaurantCheckoutRow = {
   platform_fee_bps: number | null
   sales_tax_rate_bps: number | null
   stripe_manual_tax_rate_id: string | null
+  /** Used with Stripe Tax (same as quote-cart-tax) for origin-based pickup / dine-in. */
+  street_address: string | null
   city: string | null
   state: string | null
+  postal_code: string | null
   country: string | null
 }
 
@@ -362,13 +369,60 @@ async function ensureRestaurantManualTaxRate(args: {
   return createdId
 }
 
+/**
+ * Identical to `supabase/functions/quote-cart-tax` so Checkout totals match the in-app quote
+ * (restaurant address as customer_details for pickup / dine-in).
+ */
+async function quoteCartTaxExclusiveCents(
+  stripe: Stripe,
+  restaurant: RestaurantCheckoutRow,
+  orderItems: CanonicalCartItem[],
+  connectId: string,
+): Promise<number> {
+  if (orderItems.length === 0) return 0
+  const address = {
+    line1: asString(restaurant.street_address) || 'Unknown',
+    city: asString(restaurant.city) || 'Unknown',
+    state: asString(restaurant.state) || 'TX',
+    postal_code: asString(restaurant.postal_code) || '75001',
+    country: (asString(restaurant.country) || 'US').toUpperCase() || 'US',
+  }
+  const calcParams = {
+    currency: 'usd' as const,
+    customer_details: {
+      address_source: 'shipping' as const,
+      address,
+    },
+    line_items: orderItems.map((item, i) => ({
+      amount: Math.max(0, Math.round(item.price * 100) * item.quantity),
+      tax_behavior: 'exclusive' as const,
+      tax_code: item.stripe_tax_code || DEFAULT_TAX_CODE,
+      reference: `item_${i}`,
+    })),
+  }
+  let calculation
+  if (connectId) {
+    try {
+      calculation = await stripe.tax.calculations.create(calcParams, { stripeAccount: connectId })
+    } catch (e) {
+      console.warn('create-checkout: connect tax calc failed, retrying platform', e)
+      calculation = await stripe.tax.calculations.create(calcParams)
+    }
+  } else {
+    calculation = await stripe.tax.calculations.create(calcParams)
+  }
+  return Math.max(0, Math.round(Number(calculation.tax_amount_exclusive ?? 0)))
+}
+
 async function fetchRestaurantCheckout(
   supabase: SupabaseClient,
   restaurantId: number,
 ): Promise<RestaurantCheckoutRow | null> {
   const { data, error } = await supabase
     .from('restaurants')
-    .select('id, name, stripe_account_id, platform_fee_bps, sales_tax_rate_bps, stripe_manual_tax_rate_id, city, state, country')
+    .select(
+      'id, name, stripe_account_id, platform_fee_bps, sales_tax_rate_bps, stripe_manual_tax_rate_id, street_address, city, state, postal_code, country',
+    )
     .eq('id', restaurantId)
     .maybeSingle()
 
@@ -387,7 +441,9 @@ async function fetchRestaurantCheckout(
   if (!fallback.data) return null
 
   return {
-    ...(fallback.data as Omit<RestaurantCheckoutRow, 'sales_tax_rate_bps' | 'stripe_manual_tax_rate_id'>),
+    ...(fallback.data as Omit<RestaurantCheckoutRow, 'sales_tax_rate_bps' | 'stripe_manual_tax_rate_id' | 'street_address' | 'postal_code'>),
+    street_address: null,
+    postal_code: null,
     sales_tax_rate_bps: 0,
     stripe_manual_tax_rate_id: null,
   }
@@ -553,22 +609,24 @@ async function handlePartyV2(args: {
         {
           price_data: {
             currency: 'usd',
-            tax_behavior: 'exclusive',
+            tax_behavior: 'inclusive',
             product_data: {
               name: `${sanitizeLabel(restaurant.name, 'Rasvia Partner', 120)} · Group order`,
               description: `${targetLabel} — ${memberLabel}`,
-              tax_code: DEFAULT_TAX_CODE,
             },
             unit_amount: amountCents,
           },
-          // manual tax_rates removed
           quantity: 1,
         },
       ],
       mode: 'payment',
       success_url: successUrl,
       cancel_url: cancelUrl,
-      automatic_tax: { enabled: true, liability: { type: 'account' } },
+      // `unit_amount` is the final charge; tax was rolled in during party-lock.
+      tax_id_collection: { enabled: false },
+      // Per-member `amountCents` already includes this guest's full share of Stripe Tax
+      // (precomputed in party-lock); do not add automatic tax on top.
+      automatic_tax: { enabled: false },
       metadata: {
         party_session_id: partySessionId,
         party_member_id: targetMemberId,
@@ -805,26 +863,74 @@ async function handleSoloOrLegacyParty(args: {
   const subtotalCents = Math.round(subtotal * 100)
   const platformFeeBps = Number(restaurant.platform_fee_bps ?? 0)
   const applicationFeeCents = Math.round((subtotalCents * platformFeeBps) / 10000)
-  // Switch to Stripe Automatic Tax (removed manualTaxRateId caching logic)
-  const manualTaxRateId = undefined;
+  // Dine-in / takeout: same tax engine as quote-cart-tax + a fixed "Sales tax" line so Hosted
+  // Checkout matches the in-app total without billing-address recalculation. (Option 1.)
+  const useQuotedTaxLine = requestedOrderType === 'dine_in' || requestedOrderType === 'takeout'
+
+  let taxCents = 0
+  if (useQuotedTaxLine) {
+    try {
+      taxCents = await quoteCartTaxExclusiveCents(stripe, restaurant, orderItems, stripeAccountId)
+    } catch (e) {
+      console.error('create-checkout: quoteCartTaxExclusiveCents failed', e)
+      return json(
+        {
+          error:
+            'Could not compute sales tax for this order. Please check Stripe Tax is enabled, then try again.',
+        },
+        500,
+      )
+    }
+  }
+
+  const salesTaxLineLabel =
+    asString(restaurant.state).toUpperCase() === 'TX'
+      ? 'Texas sales and use tax (estimated, pickup / dine-in)'
+      : 'Sales tax (estimated, pickup / dine-in)'
+
+  // With automatic_tax off, use `unspecified` so Checkout does not treat food lines as
+  // "exclusive + TBD tax" and show the “Enter address to calculate” row (that UI is for Automatic Tax).
+  const lineItemTaxBehavior: 'unspecified' | 'exclusive' = useQuotedTaxLine ? 'unspecified' : 'exclusive'
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = orderItems.map((item) => ({
+    price_data: {
+      currency: 'usd',
+      tax_behavior: lineItemTaxBehavior,
+      product_data: {
+        name: item.name,
+      },
+      unit_amount: Math.round(item.price * 100),
+    },
+    quantity: item.quantity,
+  }))
+
+  if (useQuotedTaxLine && taxCents > 0) {
+    lineItems.push({
+      price_data: {
+        currency: 'usd',
+        tax_behavior: 'unspecified',
+        product_data: {
+          name: salesTaxLineLabel,
+          description: 'Based on the restaurant’s location, consistent with the in-app estimate.',
+        },
+        unit_amount: taxCents,
+      },
+      quantity: 1,
+    })
+  }
 
   try {
     const baseCheckoutParams: Stripe.Checkout.SessionCreateParams = {
       payment_method_types: ['card'],
-      line_items: orderItems.map((item) => ({
-        price_data: {
-          currency: 'usd',
-          tax_behavior: 'exclusive',
-          product_data: {
-            name: item.name,
-            tax_code: item.stripe_tax_code || DEFAULT_TAX_CODE,
-          },
-          unit_amount: Math.round(item.price * 100),
-        },
-        // manual tax_rates removed
-        quantity: item.quantity,
-      })),
-      automatic_tax: { enabled: true, liability: { type: 'account' } },
+      line_items: lineItems,
+      // Let Stripe recalculate at payment only when we are not using the quoted line-item tax.
+      ...(useQuotedTaxLine
+        ? { automatic_tax: { enabled: false } }
+        : {
+            automatic_tax: {
+              enabled: true,
+              liability: { type: 'account', account: stripeAccountId },
+            },
+          }),
       mode: 'payment',
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -832,11 +938,18 @@ async function handleSoloOrLegacyParty(args: {
         party_session_id: partySessionId || '',
         customer_name: customerName,
         restaurant_id: String(restaurantId),
+        sales_tax_cents: String(taxCents),
+        tax_display_mode: useQuotedTaxLine ? 'quoted_line_item' : 'automatic',
+        /** Present on sessions created by create-checkout with Option 1 tax — verify in Dashboard or API. */
+        rasvia_tax: useQuotedTaxLine ? 'line_item_v1' : 'automatic',
       },
       payment_intent_data: {
         application_fee_amount: applicationFeeCents,
         transfer_data: {
           destination: stripeAccountId,
+        },
+        metadata: {
+          sales_tax_cents: String(taxCents),
         },
       },
     }

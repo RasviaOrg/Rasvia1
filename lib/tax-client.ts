@@ -12,8 +12,13 @@ export async function fetchCartTaxQuote(restaurantId: number, items: Array<{ pri
 
   if (error) {
     console.warn("Failed to fetch tax quote from server. Falling back to 0 temporarily.", error);
-    return 0; // Return 0 or maybe an error state
+    return 0;
   }
 
-  return data?.tax_amount_exclusive ?? 0;
+  if (data && typeof data === "object" && "error" in data && (data as { error?: string }).error) {
+    console.warn("quote-cart-tax returned error:", (data as { error: string }).error);
+    return 0;
+  }
+
+  return typeof data?.tax_amount_exclusive === "number" ? data.tax_amount_exclusive : 0;
 }

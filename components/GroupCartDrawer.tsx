@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag } from "lucide-react-native";
 import type { CartItem, GroupMember } from "@/data/mockData";
+import { resolveStripeProductTaxCode } from "@/lib/restaurant-types";
 import * as Haptics from "expo-haptics";
 import { useAppTheme } from "@/lib/app-theme";
 import { TaxEstimateLine } from "@/components/TaxEstimateLine";
@@ -63,7 +64,7 @@ export function GroupCartDrawer({
     return items.map((r) => ({
       price_cents: Math.round(r.price * 100),
       quantity: r.quantity,
-      stripe_tax_code: r.stripe_tax_code ?? "txcd_20030000",
+      stripe_tax_code: resolveStripeProductTaxCode(r as CartItem),
     }));
   }, [items]);
 
@@ -281,19 +282,16 @@ export function GroupCartDrawer({
 
       {/* Footer */}
       <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: Platform.OS === "ios" ? 36 : 24, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 15 }}>
-            Subtotal
-          </Text>
-          <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 18 }}>
-            ${subtotal.toFixed(2)}
-          </Text>
-        </View>
+        <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 12, letterSpacing: 0.6, marginBottom: 8 }}>
+          Order summary
+        </Text>
         <View style={{ marginBottom: 14 }}>
           <TaxEstimateLine
             subtotalDollars={subtotal}
             taxCents={taxCents}
+            showSubtotal
             showTotal
+            totalHero
           />
         </View>
 

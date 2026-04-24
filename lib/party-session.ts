@@ -36,6 +36,8 @@ export type PartyItem = {
   special_requests: string | null;
   split_member_ids: string[];
   assigned_payer_id: string | null;
+  /** Line sales tax in cents, set on lock from Stripe Tax. */
+  tax_cents?: number;
   created_at: string;
   menu_item?: {
     id: number;
@@ -403,6 +405,42 @@ export async function setPaymentMode(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Edge invoke / JSON error body (lock + checkout, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function readInvokeErrorBody(
+  error: unknown,
+  fallback: string,
+): Promise<{ message: string; code?: string; title?: string }> {
+  if (!error) return { message: fallback };
+  const anyErr = error as { message?: string; context?: unknown };
+  const ctx = anyErr.context as Response | undefined;
+  if (ctx && typeof (ctx as Response).text === 'function') {
+    try {
+      const raw = await (ctx as Response).clone().text();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as { error?: string; message?: string; code?: string; title?: string };
+          const message = parsed?.error || parsed?.message;
+          if (message) {
+            return {
+              message: String(message),
+              code: parsed?.code ? String(parsed.code) : undefined,
+              title: parsed?.title ? String(parsed.title) : undefined,
+            };
+          }
+        } catch {
+          return { message: raw.slice(0, 500) };
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return { message: anyErr?.message || fallback };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Lifecycle
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -410,13 +448,25 @@ export async function lockSession(
   supabase: SupabaseClient,
   creds: PartyCreds,
 ): Promise<PartySnapshot> {
-  const { data, error } = await supabase.rpc('party_lock_session', {
-    p_session_id: creds.sessionId,
-    p_member_id: creds.memberId,
-    p_token: creds.memberToken,
+  const { data, error } = await supabase.functions.invoke('party-lock', {
+    body: {
+      party_session_id: creds.sessionId,
+      party_member_id: creds.memberId,
+      party_member_token: creds.memberToken,
+    },
   });
-  if (error) throw new Error(mapRpcError(error));
-  return data as PartySnapshot;
+  if (error) {
+    const { message } = await readInvokeErrorBody(error, 'Could not lock the cart.');
+    throw new Error(message);
+  }
+  const result = data as { ok?: boolean; error?: string; already?: boolean } | null;
+  if (result && typeof result === 'object' && 'error' in result && (result as { error?: string }).error) {
+    throw new Error(String((result as { error: string }).error));
+  }
+  if (!result?.ok) {
+    throw new Error('Could not lock the cart.');
+  }
+  return fetchSnapshot(supabase, creds.sessionId);
 }
 
 export async function unlockSession(
@@ -482,33 +532,8 @@ export function isCheckoutUnavailable(err: unknown): err is CheckoutError {
  * sees is "Edge Function returned a non-2xx status code".
  */
 async function extractCheckoutError(error: unknown): Promise<CheckoutErrorShape> {
-  const fallback: CheckoutErrorShape = { message: 'Failed to create checkout.' };
-  if (!error) return fallback;
-  const anyErr = error as { message?: string; context?: unknown };
-  const ctx = anyErr.context as Response | undefined;
-  if (ctx && typeof (ctx as Response).text === 'function') {
-    try {
-      const raw = await (ctx as Response).clone().text();
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          const message = parsed?.error || parsed?.message;
-          if (message) {
-            return {
-              message: String(message),
-              code: parsed?.code ? String(parsed.code) : undefined,
-              title: parsed?.title ? String(parsed.title) : undefined,
-            };
-          }
-        } catch {
-          return { message: raw.slice(0, 500) };
-        }
-      }
-    } catch {
-      // ignore — fall through to the generic message below
-    }
-  }
-  return { message: anyErr?.message || fallback.message };
+  const body = await readInvokeErrorBody(error, 'Failed to create checkout.');
+  return { message: body.message, code: body.code, title: body.title };
 }
 
 export async function startCheckout(
@@ -574,7 +599,7 @@ export async function fetchSnapshot(
   const [sessRes, memRes, itemRes, payRes] = await Promise.all([
     supabase.from('party_sessions').select('*').eq('id', sessionId).maybeSingle(),
     supabase.from('party_members').select('*').eq('session_id', sessionId).is('left_at', null).order('joined_at', { ascending: true }),
-    supabase.from('party_items').select('*, menu_item:menu_items(id, name, description, price, image_url, is_vegetarian, stripe_tax_code)').eq('session_id', sessionId).order('created_at', { ascending: true }),
+    supabase.from('party_items').select('*, menu_item:menu_items(id, name, description, price, image_url, is_vegetarian, stripe_tax_code)').eq('session_id', sessionId).order('created_at', { ascending: true }).order('id', { ascending: true }),
     supabase.from('party_payments').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
   ]);
   if (sessRes.error || !sessRes.data) throw new Error(sessRes.error?.message ?? 'Session not found.');

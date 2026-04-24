@@ -686,7 +686,8 @@ export default function JoinPartyScreen() {
     if (items.length === 0) { Alert.alert('Empty cart', 'Add at least one item before checking out.'); return; }
     setBusy(true);
     try {
-      await lockSession(supabase, creds);
+      const nextSnap = await lockSession(supabase, creds);
+      setSnapshot(nextSnap);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       Alert.alert('Could not lock cart', err instanceof Error ? err.message : 'Try again.');
@@ -974,13 +975,14 @@ export default function JoinPartyScreen() {
           />
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
             <Animated.View entering={FadeInDown} style={joinS.headerCard}>
-              <Text style={joinS.summaryLabel}>Group total</Text>
-              <Text style={joinS.summaryValue}>{formatCents(session.total_cents)}</Text>
-              <View style={{ marginTop: 8 }}>
+              <Text style={joinS.summaryLabel}>Order summary</Text>
+              <View style={{ marginTop: 4 }}>
                 <TaxEstimateLine
                   subtotalDollars={(session.subtotal_cents ?? 0) / 100}
                   taxCents={session.tax_cents ?? null}
+                  showSubtotal
                   showTotal
+                  totalHero
                 />
               </View>
               <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -995,6 +997,11 @@ export default function JoinPartyScreen() {
                 payments={payments}
                 selfMemberId={creds.memberId}
                 isHost={isHost}
+                orderSubtotalCents={session.subtotal_cents ?? 0}
+                orderTaxCents={session.tax_cents ?? 0}
+                items={items}
+                paymentMode={session.payment_mode}
+                staffManaged={session.staff_managed}
                 onCoverMember={handleCoverMember}
                 onRetry={handlePayMyShare}
                 onMemberTap={(id) => {
@@ -1028,7 +1035,11 @@ export default function JoinPartyScreen() {
 
             {isHost ? (
               <View style={{ marginTop: 20, gap: 8 }}>
-                {session.status === 'locked' && !payments.some((p) => p.status === 'paid' || p.status === 'covered') ? (
+                {session.status === 'locked' && !payments.some(
+                  (p) =>
+                    p.status === 'paid' ||
+                    (p.status === 'covered' && (p.covered_by_member_id != null || p.amount_cents > 0)),
+                ) ? (
                   <Pressable onPress={handleUnlock} disabled={busy} style={joinS.secondaryBtn}>
                     <Unlock size={16} color={colors.textMuted} />
                     <Text style={joinS.secondaryBtnText}>Back to editing</Text>
@@ -1555,7 +1566,7 @@ function CartSummary(props: {
   const taxItems = useMemo(() => props.items.map(it => ({
     price_cents: Math.round(Number(it.menu_item?.price ?? 0) * 100),
     quantity: it.quantity ?? 1,
-    stripe_tax_code: it.menu_item?.stripe_tax_code ?? "txcd_20030000",
+    stripe_tax_code: it.menu_item?.stripe_tax_code ?? "txcd_40060003",
   })), [props.items]);
   const { taxCents, loading: taxLoading } = useCartTax(props.restaurantId ?? -1, taxItems);
   const guestLock = props.guestCartLocked === true;
@@ -1749,7 +1760,7 @@ function ReviewStage({
   const taxItems = useMemo(() => snapshot.items.map(it => ({
     price_cents: Math.round(Number(it.menu_item?.price ?? 0) * 100),
     quantity: it.quantity ?? 1,
-    stripe_tax_code: it.menu_item?.stripe_tax_code ?? "txcd_20030000",
+    stripe_tax_code: it.menu_item?.stripe_tax_code ?? "txcd_40060003",
   })), [snapshot.items]);
   const { taxCents, loading: taxLoading } = useCartTax(restaurant?.id ?? -1, taxItems);
   return (
@@ -1759,13 +1770,14 @@ function ReviewStage({
         <TopBar title="Review" subtitle={restaurant?.name ?? undefined} onBack={onBack} />
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 180 }}>
           <Animated.View entering={FadeInDown} style={s.headerCard}>
-            <Text style={s.summaryLabel}>Group total</Text>
-            <Text style={s.summaryValue}>{formatCents(total)}</Text>
-            <View style={{ marginTop: 8 }}>
+            <Text style={s.summaryLabel}>Order summary</Text>
+            <View style={{ marginTop: 4 }}>
               <TaxEstimateLine
                 subtotalDollars={(total ?? 0) / 100}
                 taxCents={taxCents}
+                showSubtotal
                 showTotal
+                totalHero
               />
             </View>
             <Text style={[s.summaryMeta, { marginTop: 10 }]}>
@@ -2059,13 +2071,14 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
           </Animated.View>
 
           <Animated.View entering={FadeInDown.delay(120)} style={[s.headerCard, { marginTop: 20 }]}>
-            <Text style={s.summaryLabel}>Group total</Text>
-            <Text style={s.summaryValue}>{formatCents(snapshot.session.total_cents)}</Text>
-            <View style={{ marginTop: 8 }}>
+            <Text style={s.summaryLabel}>Order summary</Text>
+            <View style={{ marginTop: 4 }}>
               <TaxEstimateLine
                 subtotalDollars={(snapshot.session.subtotal_cents ?? 0) / 100}
                 taxCents={snapshot.session.tax_cents ?? null}
+                showSubtotal
                 showTotal
+                totalHero
               />
             </View>
             <Text style={s.summaryMeta}>
@@ -2087,6 +2100,11 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
               payments={snapshot.payments}
               selfMemberId={creds.memberId}
               isHost={me?.role === 'host'}
+              orderSubtotalCents={snapshot.session.subtotal_cents ?? 0}
+              orderTaxCents={snapshot.session.tax_cents ?? 0}
+              items={snapshot.items}
+              paymentMode={snapshot.session.payment_mode}
+              staffManaged={snapshot.session.staff_managed}
             />
           </View>
         </ScrollView>

@@ -10,8 +10,12 @@ interface TaxEstimateLineProps {
   taxCents: number | null;
   /** Override font size for the amount (default 14). */
   amountFontSize?: number;
-  /** If true, also render an "Total" row below. */
+  /** If true, also render a "Total" row below. */
   showTotal?: boolean;
+  /** If true, show a "Subtotal" line above tax (makes pre-tax + tax = total unambiguous). */
+  showSubtotal?: boolean;
+  /** One prominent final number on the Total row (no separate hero amount above this block). */
+  totalHero?: boolean;
 }
 
 /**
@@ -22,6 +26,8 @@ export function TaxEstimateLine({
   taxCents,
   amountFontSize = 14,
   showTotal = false,
+  showSubtotal = false,
+  totalHero = false,
 }: TaxEstimateLineProps) {
   const { colors } = useAppTheme();
 
@@ -30,6 +36,28 @@ export function TaxEstimateLine({
 
   return (
     <View>
+      {showSubtotal ? (
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <Text
+            style={{
+              fontFamily: "Manrope_600SemiBold",
+              color: colors.textMuted,
+              fontSize: 14,
+            }}
+          >
+            Subtotal
+          </Text>
+          <Text
+            style={{
+              fontFamily: "JetBrainsMono_600SemiBold",
+              color: colors.text,
+              fontSize: amountFontSize,
+            }}
+          >
+            {formatCentsUsd(subtotalCents)}
+          </Text>
+        </View>
+      ) : null}
       {/* ── Tax line ── */}
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <Text
@@ -39,7 +67,7 @@ export function TaxEstimateLine({
             fontSize: 14,
           }}
         >
-          Sales Tax
+          Sales tax
         </Text>
         {taxCents === null ? (
           <ActivityIndicator size="small" color={colors.textMuted} />
@@ -63,7 +91,7 @@ export function TaxEstimateLine({
             style={{
               fontFamily: "Manrope_700Bold",
               color: colors.text,
-              fontSize: 15,
+              fontSize: totalHero ? 16 : 15,
             }}
           >
             Total
@@ -75,7 +103,7 @@ export function TaxEstimateLine({
               style={{
                 fontFamily: "JetBrainsMono_600SemiBold",
                 color: colors.text,
-                fontSize: 17,
+                fontSize: totalHero ? 30 : 17,
               }}
             >
               {formatCentsUsd(totalCents)}

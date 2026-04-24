@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@^13.10.0"
 import { createClient } from "npm:@supabase/supabase-js@^2.39.0"
+import { quoteStripeTaxForCart } from "../_shared/quote-stripe-tax.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,43 +37,26 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16', httpClient: Stripe.createFetchHttpClient() })
 
-    const { data: restaurant, error: restErr } = await supabase
-      .from('restaurants')
-      .select('id, name, street_address, city, state, postal_code, country, stripe_account_id')
-      .eq('id', restaurant_id)
-      .maybeSingle()
+    const lines = (line_items as { price_cents: number; quantity: number; stripe_tax_code?: string }[]).map((
+      item,
+    ) => ({
+      price_cents: item.price_cents,
+      quantity: item.quantity,
+      stripe_tax_code: item.stripe_tax_code || 'txcd_40060003',
+    }))
 
-    if (restErr || !restaurant) {
-      return json({ error: 'Restaurant not found' }, 404)
-    }
-
-    // Stripe Tax Origin
-    const address = {
-      line1: restaurant.street_address || 'Unknown',
-      city: restaurant.city || 'Unknown',
-      state: restaurant.state || 'TX',
-      postal_code: restaurant.postal_code || '75001',
-      country: restaurant.country || 'US',
-    }
-
-    // Create a calculation
-    const calculation = await stripe.tax.calculations.create({
+    const { taxAmountExclusive, calculationId, lineItemTaxCents } = await quoteStripeTaxForCart(
+      supabase,
+      stripe,
+      Number(restaurant_id),
+      lines,
       currency,
-      customer_details: {
-        address_source: 'shipping',
-        address, // Default origin sourcing for pickup
-      },
-      line_items: line_items.map((item: any, i: number) => ({
-        amount: Math.round(item.price_cents * item.quantity), // Subtotal for line
-        tax_behavior: 'exclusive',
-        tax_code: item.stripe_tax_code || 'txcd_20030000',
-        reference: `item_${i}`,
-      })),
-    })
+    )
 
     return json({
-      tax_amount_exclusive: calculation.tax_amount_exclusive,
-      calculation_id: calculation.id,
+      tax_amount_exclusive: taxAmountExclusive,
+      calculation_id: calculationId,
+      line_item_tax_cents: lineItemTaxCents,
     })
 
   } catch (err: any) {

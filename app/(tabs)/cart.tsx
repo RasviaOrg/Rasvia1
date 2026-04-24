@@ -608,7 +608,7 @@ function CartGroupCard({
       group.items.map((r) => ({
         price_cents: Math.round(r.unitPrice * 100),
         quantity: r.quantity,
-        stripe_tax_code: r.stripeTaxCode ?? "txcd_20030000",
+        stripe_tax_code: r.stripeTaxCode ?? "txcd_40060003",
       })),
     [group.items]
   );
