@@ -1213,6 +1213,7 @@ export default function HostPartyScreen() {
           </Animated.View>
         )}
       </SafeAreaView>
+
     </>
   );
 }

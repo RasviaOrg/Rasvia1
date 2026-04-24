@@ -8,7 +8,7 @@ import {
   Dimensions,
   Platform,
 } from "react-native";
-import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag } from "lucide-react-native";
+import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag, Camera } from "lucide-react-native";
 import type { CartItem, GroupMember } from "@/data/mockData";
 import { resolveStripeProductTaxCode } from "@/lib/restaurant-types";
 import * as Haptics from "expo-haptics";
@@ -70,8 +70,8 @@ export function GroupCartDrawer({
 
   const { taxCents, loading: taxLoading } = useCartTax(restaurantId, taxItems);
   
-  const estTotalCents = taxCents !== null ? Math.round(subtotal * 100) + taxCents : null;
-  const estTotalLabel = estTotalCents !== null ? formatCentsUsd(estTotalCents) : "loading...";
+  const estTotalCents = !taxLoading && taxCents !== null ? Math.round(subtotal * 100) + taxCents : null;
+  const estTotalLabel = estTotalCents !== null ? formatCentsUsd(estTotalCents) : "...";
 
   const checkoutScale = useSharedValue(1);
   const checkoutStyle = useAnimatedStyle(() => ({
@@ -220,10 +220,27 @@ export function GroupCartDrawer({
               borderBottomColor: colors.cardBorder,
             }}
           >
-            <Image
-              source={{ uri: item.image }}
-              style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: colors.pressableBg }}
-            />
+            {item.image ? (
+              <Image
+                source={{ uri: item.image }}
+                style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: colors.pressableBg }}
+              />
+            ) : (
+              <View
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 12,
+                  backgroundColor: isDark ? "#1b1b1b" : colors.pressableBg,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                }}
+              >
+                <Camera size={18} color={colors.iconMuted} strokeWidth={1.5} />
+              </View>
+            )}
             <View style={{ flex: 1, marginLeft: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Text
@@ -288,7 +305,7 @@ export function GroupCartDrawer({
         <View style={{ marginBottom: 14 }}>
           <TaxEstimateLine
             subtotalDollars={subtotal}
-            taxCents={taxCents}
+            taxCents={taxLoading ? null : taxCents}
             showSubtotal
             showTotal
             totalHero

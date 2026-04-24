@@ -91,15 +91,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 'Onboarding lookup timed out'
             );
             const { data, error } = profileResp ?? {};
-            if (error || !data) return true; // needs onboarding
+            if (error) return false; // network/server error — don't block established users
+            if (!data) return true;  // no profile row yet — genuinely needs onboarding
             return !data.onboarding_completed;
         } catch {
-            // We used to return false here, which silently let users into the
-            // app even if their profile wasn't actually set up — the home tab
-            // would flash and onboarding would never run. Treat ambiguous
-            // failures as "still needs onboarding" so the gate keeps them on
-            // the onboarding flow until we successfully read their profile.
-            return true;
+            // On timeout or unexpected errors, assume onboarding is done so
+            // established users aren't repeatedly redirected to onboarding.
+            return false;
         }
     }, []);
 

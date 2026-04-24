@@ -193,12 +193,14 @@ function LedgerRow({
   return (
     <Animated.View entering={FadeInDown.delay(index * 60)} layout={Layout.springify()}>
       <Pressable onPress={onPress} style={styles.row}>
-        <View style={[styles.avatar, { backgroundColor: member.avatar_url ? colors.pressableBg : color, overflow: 'hidden' }]}>
-          {member.avatar_url ? (
-            <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
-          ) : (
-            <Text style={styles.avatarText}>{memberInitials(member.display_name)}</Text>
-          )}
+        <View style={[styles.avatar, { backgroundColor: member.avatar_url ? colors.pressableBg : color }]}>
+          <View style={{ width: '100%', height: '100%', borderRadius: 18, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+            {member.avatar_url ? (
+              <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <Text style={styles.avatarText}>{memberInitials(member.display_name)}</Text>
+            )}
+          </View>
           {member.role === 'host' ? (
             <View style={styles.crown}>
               <Crown size={10} color="#FFF" strokeWidth={3} />
@@ -229,9 +231,10 @@ function LedgerRow({
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <Text style={[styles.amount, isPaid && { color: '#22C55E' }]}>{formatCents(amount)}</Text>
           {shareParts ? (
-            <Text style={styles.shareBreakdown} numberOfLines={2}>
-              Subtotal {formatCents(shareParts.pre)} · Sales tax {formatCents(shareParts.tx)}
-            </Text>
+            <View>
+              <Text style={styles.shareBreakdown}>Subtotal {formatCents(shareParts.pre)}</Text>
+              <Text style={styles.shareBreakdown}>Sales tax {formatCents(shareParts.tx)}</Text>
+            </View>
           ) : null}
           {showCoverButton && !isPaid && amount > 0 && !isSelf ? (
             <Pressable onPress={onCover} style={styles.coverBtn}>

@@ -143,6 +143,10 @@ function createJoinPartyStyles(colors: AppColors, isDark: boolean) {
     dangerBtnText: { color: '#EF4444', fontWeight: '700' },
     dangerBtnSolid: { backgroundColor: '#EF4444', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
     dangerBtnSolidText: { color: '#FFF', fontWeight: '800' },
+    neverMindBtnLarge: { backgroundColor: colors.pressableBg, paddingVertical: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 14, borderWidth: 1, borderColor: hairline },
+    neverMindBtnLargeText: { color: colors.text, fontWeight: '800', fontSize: 16 },
+    dangerBtnOutline: { borderWidth: 1.5, borderColor: '#EF4444', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10, alignSelf: 'center' },
+    dangerBtnOutlineText: { color: '#EF4444', fontWeight: '700', fontSize: 13 },
     textBtn: { paddingVertical: 12, alignItems: 'center' },
     textBtnText: { color: colors.textMuted },
 
@@ -1345,13 +1349,17 @@ function MemberChip({
       if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onPress?.();
     }} style={[s.memberChip, isSelf && { borderColor: '#FF9933' }]}>
-      <View style={[s.avatarSm, { backgroundColor: member.avatar_url ? colors.pressableBg : color || fallback, overflow: 'hidden' }]}>
-        {member.avatar_url ? (
-          <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
-        ) : (
-          <Text style={s.avatarSmText}>{memberInitials(member.display_name)}</Text>
-        )}
-        {member.role === 'host' ? <Crown size={10} color="#FFF" style={{ position: 'absolute', top: -2, right: -2 }} strokeWidth={3} /> : null}
+      <View style={[s.avatarSm, { backgroundColor: member.avatar_url ? colors.pressableBg : color || fallback }]}>
+        <View style={{ width: '100%', height: '100%', borderRadius: 13.5, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+          {member.avatar_url ? (
+            <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
+          ) : (
+            <Text style={s.avatarSmText}>{memberInitials(member.display_name)}</Text>
+          )}
+        </View>
+        {member.role === 'host' ? (
+          <View style={s.crownBadge}><Crown size={10} color="#FFF" strokeWidth={3} /></View>
+        ) : null}
       </View>
       <Text style={s.memberChipText} numberOfLines={1}>
         {isSelf ? `${member.display_name} · You` : member.display_name}
@@ -1597,12 +1605,17 @@ function CartSummary(props: {
             <Text style={s.cartTitle}>{props.items.length} item{props.items.length === 1 ? '' : 's'}</Text>
             <Text style={s.cartTotal}>{formatCents(total)}</Text>
           </View>
-          <View style={{ marginTop: 6, paddingLeft: 28, paddingRight: 2 }}>
-            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>
-              {taxCents !== null 
-                ? `+ ${formatCentsUsd(taxCents)} tax` 
-                : taxLoading ? '+ calculating tax...' : '+ tax'}
-            </Text>
+          <View style={{ marginTop: 6, paddingLeft: 28, paddingRight: 2, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {taxLoading ? (
+              <>
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>+ tax</Text>
+                <ActivityIndicator size="small" color={colors.textMuted} style={{ transform: [{ scale: 0.55 }] }} />
+              </>
+            ) : (
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>
+                {taxCents !== null ? `+ ${formatCentsUsd(taxCents)} tax` : '+ tax'}
+              </Text>
+            )}
           </View>
         </View>
         <ChevronRight size={18} color={colors.iconMuted} style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
@@ -1658,7 +1671,7 @@ function CartSummary(props: {
         })(        ) : (
           <View style={[s.primaryBtn, { flex: 2, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }]}>
             <Text style={[s.primaryBtnText, { color: colors.textMuted, fontSize: 14 }]}>
-              {props.hostDeciding ? 'Host is deciding how to pay' : 'Waiting on host…'}
+              {props.hostDeciding ? 'Host is deciding how to pay...' : 'Waiting on host…'}
             </Text>
           </View>
         )}
@@ -1774,7 +1787,7 @@ function ReviewStage({
             <View style={{ marginTop: 4 }}>
               <TaxEstimateLine
                 subtotalDollars={(total ?? 0) / 100}
-                taxCents={taxCents}
+                taxCents={taxLoading ? null : taxCents}
                 showSubtotal
                 showTotal
                 totalHero
@@ -1939,11 +1952,11 @@ function CancelSheet({ visible, onCancel, onConfirm, busy }: { visible: boolean;
       <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutDown.duration(160)} style={s.cancelSheet}>
         <Text style={s.sheetTitle}>Cancel group order?</Text>
         <Text style={s.sheetBody}>Any paid shares will be refunded via Stripe. This can&apos;t be undone.</Text>
-        <Pressable onPress={() => { tap(); onConfirm(); }} disabled={busy} style={[s.dangerBtnSolid, busy && { opacity: 0.6 }]}>
-          {busy ? <ActivityIndicator color="#FFF" /> : <Text style={s.dangerBtnSolidText}>Cancel & refund</Text>}
+        <Pressable onPress={() => { tap(); onCancel(); }} style={s.neverMindBtnLarge}>
+          <Text style={s.neverMindBtnLargeText}>Never mind</Text>
         </Pressable>
-        <Pressable onPress={() => { tap(); onCancel(); }} style={s.neverMindBtn}>
-          <Text style={s.neverMindBtnText}>Never mind</Text>
+        <Pressable onPress={() => { tap(); onConfirm(); }} disabled={busy} style={[s.dangerBtnOutline, busy && { opacity: 0.6 }]}>
+          {busy ? <ActivityIndicator color="#EF4444" /> : <Text style={s.dangerBtnOutlineText}>Cancel & refund</Text>}
         </Pressable>
       </Animated.View>
     </Animated.View>
@@ -1974,12 +1987,14 @@ function MemberItemsSheet({
       <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
       <Animated.View entering={FadeInDown.duration(180)} style={s.memberSheet}>
         <View style={s.memberSheetHeader}>
-          <View style={[s.avatarMd, { backgroundColor: member.avatar_url ? colors.pressableBg : color, overflow: 'hidden' }]}>
-            {member.avatar_url ? (
-              <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
-            ) : (
-              <Text style={s.avatarMdText}>{memberInitials(member.display_name)}</Text>
-            )}
+          <View style={[s.avatarMd, { backgroundColor: member.avatar_url ? colors.pressableBg : color }]}>
+            <View style={{ width: '100%', height: '100%', borderRadius: 22, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+              {member.avatar_url ? (
+                <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
+              ) : (
+                <Text style={s.avatarMdText}>{memberInitials(member.display_name)}</Text>
+              )}
+            </View>
             {member.role === 'host' ? (
               <View style={s.crownBadge}><Crown size={10} color="#FFF" strokeWidth={3} /></View>
             ) : null}

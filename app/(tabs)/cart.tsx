@@ -130,9 +130,26 @@ export default function CartScreen() {
   const showCartLoadingBlur = loading && !!session?.user?.id;
 
   const [groupTaxMap, setGroupTaxMap] = useState<Record<string, number>>({});
+  const [groupTaxLoadingMap, setGroupTaxLoadingMap] = useState<Record<string, boolean>>({});
+
   const handleTaxComputed = useCallback((groupKey: string, taxCents: number) => {
     setGroupTaxMap((prev) => prev[groupKey] === taxCents ? prev : { ...prev, [groupKey]: taxCents });
+    setGroupTaxLoadingMap((prev) => prev[groupKey] === false ? prev : { ...prev, [groupKey]: false });
   }, []);
+
+  const handleTaxLoading = useCallback((groupKey: string, isLoading: boolean) => {
+    setGroupTaxLoadingMap((prev) => prev[groupKey] === isLoading ? prev : { ...prev, [groupKey]: isLoading });
+  }, []);
+
+  const grandTaxLoading = useMemo(
+    () => grouped.some((g) => groupTaxLoadingMap[g.groupKey] !== false),
+    [grouped, groupTaxLoadingMap],
+  );
+
+  const grandTaxCents = useMemo(
+    () => grouped.reduce((sum, g) => sum + (groupTaxMap[g.groupKey] ?? 0), 0),
+    [grouped, groupTaxMap],
+  );
 
   const grandEstTotalCents = useMemo(() => {
     return grouped.reduce((sum, g) => {
@@ -503,6 +520,7 @@ export default function CartScreen() {
                   savingKey={savingKey}
                   updateQuantity={updateQuantity}
                   onTaxComputed={(cents) => handleTaxComputed(group.groupKey, cents)}
+                  onTaxLoading={(isLoading) => handleTaxLoading(group.groupKey, isLoading)}
                 />
               ))}
             </ScrollView>
@@ -527,9 +545,18 @@ export default function CartScreen() {
                 <Text style={{ color: "#FF9933", fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 26 }}>
                   {grandEstTotalLabel}
                 </Text>
-                <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11, marginTop: 4 }}>
-                  Subtotal ${grandTotal.toFixed(2)} + tax.
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+                  <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                    Subtotal {formatCentsUsd(Math.round(grandTotal * 100))} + tax
+                  </Text>
+                  {grandTaxLoading ? (
+                    <ActivityIndicator size="small" color={colors.textMuted} style={{ transform: [{ scale: 0.55 }] }} />
+                  ) : (
+                    <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                      {formatCentsUsd(grandTaxCents)}
+                    </Text>
+                  )}
+                </View>
               </View>
               <Pressable
                 onPress={handleCheckoutPress}
@@ -540,8 +567,8 @@ export default function CartScreen() {
                   backgroundColor: checkoutDisabled
                     ? colors.pressableBg
                     : pressed
-                    ? "#e88829"
-                    : "#FF9933",
+                    ? (isDark ? "#e88829" : "#ea6a00")
+                    : (isDark ? "#FF9933" : "#f97316"),
                   opacity: checkoutDisabled ? 0.85 : 1,
                   borderRadius: 14,
                   paddingHorizontal: 22,
@@ -558,16 +585,19 @@ export default function CartScreen() {
                   borderColor: checkoutDisabled ? colors.cardBorder : "transparent",
                 })}
               >
-                <ShoppingCart size={16} color={checkoutDisabled ? colors.textMuted : "#0f0f0f"} />
+                <ShoppingCart
+                  size={16}
+                  color={checkoutDisabled ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff"}
+                />
                 <Text
                   style={{
-                    color: checkoutDisabled ? colors.textMuted : "#0f0f0f",
-                    fontFamily: "Manrope_800ExtraBold",
+                    color: checkoutDisabled ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff",
+                    fontFamily: "Manrope_700Bold",
                     fontSize: 15,
                     letterSpacing: 0.3,
                   }}
                 >
-                  {cartIsEmpty ? "Cart empty" : !anyOpen ? "Closed" : `Checkout`}
+                  {cartIsEmpty ? "Cart empty" : !anyOpen ? "Closed" : "Checkout"}
                 </Text>
               </Pressable>
             </View>
@@ -589,6 +619,7 @@ function CartGroupCard({
   savingKey,
   updateQuantity,
   onTaxComputed,
+  onTaxLoading,
 }: {
   group: RestaurantCartGroup;
   isGroupClosed: (id: number) => boolean;
@@ -596,8 +627,9 @@ function CartGroupCard({
   savingKey: string | null;
   updateQuantity: (row: UserCartListItem, nextQty: number) => Promise<void>;
   onTaxComputed: (cents: number) => void;
+  onTaxLoading: (isLoading: boolean) => void;
 }) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const isTakeout = group.orderType === "takeout";
   const PillIcon = isTakeout ? Truck : UtensilsCrossed;
   const pillColor = isTakeout ? "#60A5FA" : "#FF9933";
@@ -613,6 +645,10 @@ function CartGroupCard({
     [group.items]
   );
   const { taxCents, loading: taxLoading } = useCartTax(group.restaurantId, taxItems);
+
+  useEffect(() => {
+    onTaxLoading(taxLoading);
+  }, [taxLoading, onTaxLoading]);
 
   useEffect(() => {
     if (taxCents !== null) {
@@ -698,13 +734,22 @@ function CartGroupCard({
                 {isTakeout ? "TAKEOUT" : "DINE-IN"}
               </Text>
             </View>
-            <View style={{ alignItems: "flex-end", gap: 2 }}>
+            <View style={{ alignItems: "center", gap: 1 }}>
+              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9, letterSpacing: 0.2 }}>
+                Subtotal
+              </Text>
               <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
                 ${(group.subtotal || 0).toFixed(2)}
               </Text>
-              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9, maxWidth: 160 }} numberOfLines={2}>
-                + {taxLoading ? "loading tax..." : taxCents !== null ? `tax ${formatCentsUsd(taxCents)}` : ""}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                {taxLoading ? (
+                  <ActivityIndicator size="small" color={colors.textMuted} style={{ transform: [{ scale: 0.55 }] }} />
+                ) : taxCents !== null ? (
+                  <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9 }}>
+                    {`+ tax ${formatCentsUsd(taxCents)}`}
+                  </Text>
+                ) : null}
+              </View>
             </View>
           </View>
         </View>
@@ -724,19 +769,28 @@ function CartGroupCard({
             disabled={groupClosed}
             accessibilityState={{ disabled: groupClosed }}
             style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 5,
               paddingHorizontal: 10,
               paddingVertical: 6,
-              borderRadius: 999,
-              backgroundColor: groupClosed ? colors.pressableBg : "#FF9933",
+              borderRadius: 10,
+              backgroundColor: groupClosed
+                ? colors.pressableBg
+                : isDark ? "#FF9933" : "#f97316",
               opacity: groupClosed ? 0.7 : 1,
               borderWidth: groupClosed ? 1 : 0,
               borderColor: groupClosed ? colors.cardBorder : "transparent",
             }}
           >
+            <ShoppingCart
+              size={11}
+              color={groupClosed ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff"}
+            />
             <Text
               style={{
-                fontFamily: "Manrope_800ExtraBold",
-                color: groupClosed ? colors.textMuted : "#0f0f0f",
+                fontFamily: "Manrope_700Bold",
+                color: groupClosed ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff",
                 fontSize: 11,
                 letterSpacing: 0.3,
               }}
@@ -750,7 +804,7 @@ function CartGroupCard({
             style={{
               paddingHorizontal: 10,
               paddingVertical: 6,
-              borderRadius: 999,
+              borderRadius: 10,
               borderWidth: 1,
               borderColor: colors.cardBorder,
             }}
