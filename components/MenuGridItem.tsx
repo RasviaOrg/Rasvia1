@@ -147,7 +147,7 @@ export function MenuGridItem({
                 style={{
                   backgroundColor: quickAddMuted
                     ? colors.pressableBg
-                    : (isDark ? "#c2410c" : "#b45309"),
+                    : (isDark ? "#f97316" : "#fb923c"),
                   width: 34,
                   height: 34,
                   borderRadius: 17,
@@ -155,7 +155,7 @@ export function MenuGridItem({
                   justifyContent: "center",
                   borderWidth: quickAddMuted ? 1 : 0,
                   borderColor: quickAddMuted ? colors.cardBorder : "rgba(255,255,255,0.12)",
-                  shadowColor: quickAddMuted ? "transparent" : (isDark ? "#c2410c" : "#b45309"),
+                  shadowColor: quickAddMuted ? "transparent" : (isDark ? "#f97316" : "#fb923c"),
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: quickAddMuted ? 0 : 0.25,
                   shadowRadius: 6,
@@ -170,12 +170,12 @@ export function MenuGridItem({
             {item.isPopular && (
               <View
                 className="absolute top-2 left-2 px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: "rgba(255, 153, 51, 0.25)" }}
+                style={{ backgroundColor: "rgba(251, 146, 60, 0.22)" }}
               >
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
-                    color: "#FF9933",
+                    color: "#fdba74",
                     fontSize: 10,
                   }}
                 >
@@ -285,7 +285,7 @@ export function MenuGridItem({
               <Text
                 style={{
                   fontFamily: "JetBrainsMono_600SemiBold",
-                  color: item.isAvailable === false ? colors.textMuted : "#FF9933",
+                  color: item.isAvailable === false ? colors.textMuted : "#fb923c",
                   fontSize: 14,
                 }}
               >

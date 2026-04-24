@@ -35,6 +35,8 @@ import * as SecureStore from 'expo-secure-store';
 import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
+import { joinSession, completeJoinCredentials } from "../lib/party-session";
+import { savePartyCreds, loadPartyCreds } from "../lib/party-credentials";
 import { useNotifications } from "../lib/notifications-context";
 import { useLocation } from "../lib/location-context";
 import { haversineDistance } from "../lib/restaurant-types";
@@ -57,10 +59,35 @@ type SortOption = "none" | "waitTime" | "distance";
 type Step = "select" | "starting" | "created";
 const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 
+function partyJoinDisplayName(user: { user_metadata?: Record<string, unknown> }): string {
+  const m = user.user_metadata ?? {};
+  const first = typeof m.first_name === "string" ? m.first_name.trim() : "";
+  const last = typeof m.last_name === "string" ? m.last_name.trim() : "";
+  const combo = [first, last].filter(Boolean).join(" ").trim();
+  if (combo) return combo.slice(0, 80);
+  const full =
+    (typeof m.full_name === "string" && m.full_name.trim()) ||
+    (typeof m.name === "string" && m.name.trim()) ||
+    (typeof m.display_name === "string" && m.display_name.trim()) ||
+    "";
+  return (full || "Host").slice(0, 80);
+}
+
+async function bootstrapHostPartyJoinCredentials(
+  sessionId: string,
+  user: { id: string; user_metadata?: Record<string, unknown> },
+) {
+  const name = partyJoinDisplayName(user);
+  const existing = await loadPartyCreds(sessionId);
+  const jr = await joinSession(supabase, sessionId, name);
+  const creds = await completeJoinCredentials(supabase, sessionId, jr, existing);
+  await savePartyCreds(creds);
+}
+
 export default function HostPartyScreen() {
   const router = useRouter();
   const { colors, isDark } = useAppTheme();
-  const saffronBtnBg = isDark ? "#FF9933" : "#c2410c";
+  const saffronBtnBg = isDark ? "#FF9933" : "#f97316";
   const saffronBtnFg = isDark ? "#0f0f0f" : "#ffffff";
   const { session } = useAuth();
   const { addEvent } = useNotifications();
@@ -181,6 +208,12 @@ export default function HostPartyScreen() {
         // Register the session in the device-local active-party index so the
         // home screen can surface a "rejoin" banner if the host navigates away.
         await addActiveParty(sess.id);
+
+        try {
+          await bootstrapHostPartyJoinCredentials(sess.id, session!.user);
+        } catch {
+          // Host can still share the link; creds recover on next join via reissue RPC.
+        }
 
         addEvent({
           type: "group_created",
@@ -357,6 +390,14 @@ export default function HostPartyScreen() {
               try {
                 await supabase.from("party_items").delete().eq("session_id", existingSession.id);
                 await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", existingSession.id);
+                await addEvent({
+                  type: "group_cancelled",
+                  restaurantName: existingSession.restaurantName,
+                  restaurantId: "",
+                  entryId: existingSession.id,
+                  partySize: 0,
+                  timestamp: new Date().toISOString(),
+                });
                 if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
                 await removeActiveParty(existingSession.id);
                 setExistingSession(null);
@@ -411,6 +452,12 @@ export default function HostPartyScreen() {
 
       // Track in the home-screen active-party index.
       await addActiveParty(data.id);
+
+      try {
+        await bootstrapHostPartyJoinCredentials(data.id, session.user);
+      } catch {
+        // Same as auto-start: non-fatal; join flow can reissue a token when needed.
+      }
 
       addEvent({
         type: "group_created",
@@ -576,6 +623,14 @@ export default function HostPartyScreen() {
                           try {
                             await supabase.from("party_items").delete().eq("session_id", existingSession.id);
                             await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", existingSession.id);
+                            await addEvent({
+                              type: "group_cancelled",
+                              restaurantName: existingSession.restaurantName,
+                              restaurantId: "",
+                              entryId: existingSession.id,
+                              partySize: 0,
+                              timestamp: new Date().toISOString(),
+                            });
                             if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
                             await removeActiveParty(existingSession.id);
                             setExistingSession(null);
@@ -797,7 +852,7 @@ export default function HostPartyScreen() {
                                 <Text
                                   style={{
                                     fontFamily: "Manrope_500Medium",
-                                    color: colors.textMuted,
+                                    color: isDark ? colors.textMuted : colors.textSecondary,
                                     fontSize: 12,
                                     marginTop: 2,
                                   }}

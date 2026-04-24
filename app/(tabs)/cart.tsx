@@ -19,6 +19,7 @@ import {
 } from "@/lib/user-cart";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { parsePartySessionIdFromInput } from "@/lib/parse-party-session-input";
+import { estimatedTaxRangeCentsFromSubtotalDollars, formatUsdRangeFromCents } from "@/lib/texas-sales-tax-estimate";
 
 type RestaurantCartGroup = {
   /** Composite key — restaurantId + orderType. A user can legitimately have
@@ -109,6 +110,11 @@ export default function CartScreen() {
     () => grouped.reduce((sum, group) => sum + group.subtotal, 0),
     [grouped]
   );
+  const grandTotalTaxLabel = useMemo(() => {
+    if (grandTotal <= 0) return null;
+    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(grandTotal);
+    return formatUsdRangeFromCents(minCents, maxCents);
+  }, [grandTotal]);
 
   // Pull the "currently closed" set once — used to disable checkout CTAs for
   // restaurants that aren't taking orders right now. Re-evaluates every 60s.
@@ -121,7 +127,9 @@ export default function CartScreen() {
     () => grouped.filter((g) => !isGroupClosed(g.restaurantId)),
     [grouped, isGroupClosed]
   );
+  const cartIsEmpty = grouped.length === 0;
   const anyOpen = openGroups.length > 0;
+  const checkoutDisabled = cartIsEmpty || !anyOpen;
   const showCartLoadingBlur = loading && !!session?.user?.id;
 
   const updateQuantity = useCallback(
@@ -562,9 +570,21 @@ export default function CartScreen() {
                             {isTakeout ? "TAKEOUT" : "DINE-IN"}
                           </Text>
                         </View>
-                        <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
-                          ${(group.subtotal || 0).toFixed(2)}
-                        </Text>
+                        <View style={{ alignItems: "flex-end", gap: 2 }}>
+                          <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#FF9933", fontSize: 12 }}>
+                            ${(group.subtotal || 0).toFixed(2)}
+                          </Text>
+                          {(() => {
+                            const st = group.subtotal || 0;
+                            if (st <= 0) return null;
+                            const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(st);
+                            return (
+                              <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9, maxWidth: 140 }} numberOfLines={2}>
+                                + tax est. {formatUsdRangeFromCents(minCents, maxCents)}
+                              </Text>
+                            );
+                          })()}
+                        </View>
                       </View>
                     </View>
                     {/* Inline per-group actions — lets the user go straight
@@ -806,44 +826,49 @@ export default function CartScreen() {
                 <Text style={{ color: "#FF9933", fontFamily: "BricolageGrotesque_800ExtraBold", fontSize: 26 }}>
                   ${grandTotal.toFixed(2)}
                 </Text>
+                {grandTotalTaxLabel ? (
+                  <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11, marginTop: 4 }}>
+                    Est. sales tax (8.25%): {grandTotalTaxLabel}
+                  </Text>
+                ) : null}
               </View>
               <Pressable
                 onPress={handleCheckoutPress}
                 accessibilityLabel="Checkout"
-                disabled={!anyOpen}
-                accessibilityState={{ disabled: !anyOpen }}
+                disabled={checkoutDisabled}
+                accessibilityState={{ disabled: checkoutDisabled }}
                 style={({ pressed }) => ({
-                  backgroundColor: !anyOpen
+                  backgroundColor: checkoutDisabled
                     ? colors.pressableBg
                     : pressed
                     ? "#e88829"
                     : "#FF9933",
-                  opacity: !anyOpen ? 0.85 : 1,
+                  opacity: checkoutDisabled ? 0.85 : 1,
                   borderRadius: 14,
                   paddingHorizontal: 22,
                   paddingVertical: 14,
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 8,
-                  shadowColor: !anyOpen ? "transparent" : "#FF9933",
-                  shadowOpacity: !anyOpen ? 0 : 0.25,
+                  shadowColor: checkoutDisabled ? "transparent" : "#FF9933",
+                  shadowOpacity: checkoutDisabled ? 0 : 0.25,
                   shadowOffset: { width: 0, height: 4 },
                   shadowRadius: 12,
-                  elevation: !anyOpen ? 0 : 4,
-                  borderWidth: !anyOpen ? 1 : 0,
-                  borderColor: !anyOpen ? colors.cardBorder : "transparent",
+                  elevation: checkoutDisabled ? 0 : 4,
+                  borderWidth: checkoutDisabled ? 1 : 0,
+                  borderColor: checkoutDisabled ? colors.cardBorder : "transparent",
                 })}
               >
-                <ShoppingCart size={16} color={!anyOpen ? colors.textMuted : "#0f0f0f"} />
+                <ShoppingCart size={16} color={checkoutDisabled ? colors.textMuted : "#0f0f0f"} />
                 <Text
                   style={{
-                    color: !anyOpen ? colors.textMuted : "#0f0f0f",
+                    color: checkoutDisabled ? colors.textMuted : "#0f0f0f",
                     fontFamily: "Manrope_800ExtraBold",
                     fontSize: 15,
                     letterSpacing: 0.3,
                   }}
                 >
-                  {!anyOpen ? "Closed" : "Checkout"}
+                  {cartIsEmpty ? "Cart empty" : !anyOpen ? "Closed" : "Checkout"}
                 </Text>
               </Pressable>
             </View>

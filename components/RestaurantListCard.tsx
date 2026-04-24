@@ -200,12 +200,12 @@ export function RestaurantListCard({
               )}
             </View>
 
-            {/* Cuisine */}
+            {/* Cuisine — slightly darker in light mode for contrast on grey cards */}
             <Text
               style={{
                 fontFamily: "Manrope_500Medium",
-                color: colors.textMuted,
-                fontSize: 11,
+                color: isDark ? colors.textMuted : colors.textSecondary,
+                fontSize: 12,
                 marginBottom: 7,
               }}
               numberOfLines={1}

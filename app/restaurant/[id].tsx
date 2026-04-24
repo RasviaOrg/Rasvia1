@@ -164,6 +164,8 @@ export default function RestaurantDetail() {
   const [selectedItem, setSelectedItem] = useState<UIMenuItem | null>(null);
   const [showSelectedItemSettings, setShowSelectedItemSettings] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const cartItemsRef = useRef<CartItem[]>([]);
+  cartItemsRef.current = cartItems;
   const [showCart, setShowCart] = useState(false);
   const reorderSeeded = useRef(false);
   const [isFavorited, setIsFavorited] = useState(false);
@@ -900,11 +902,45 @@ export default function RestaurantDetail() {
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
-      setCartItems((prev) => {
-        const updated = prev.map((ci) =>
-          ci.id === itemId
-            ? { ...ci, quantity: Math.max(0, ci.quantity + delta) }
-            : ci
+      const prev = cartItemsRef.current;
+      const current = prev.find((ci) => ci.id === itemId);
+      if (delta < 0 && current && current.quantity === 1) {
+        Alert.alert("Remove from cart?", `Remove “${current.name}” from your order?`, [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Remove",
+            style: "destructive",
+            onPress: () => {
+              setCartItems((p) => {
+                const updated = p.map((ci) =>
+                  ci.id === itemId
+                    ? { ...ci, quantity: Math.max(0, ci.quantity - 1) }
+                    : ci
+                );
+                const next = updated.filter((ci) => ci.quantity > 0);
+                const restaurantId = Number(id);
+                const menuItemId = Number(itemId);
+                const userId = session?.user?.id;
+                if (userId && Number.isFinite(restaurantId) && Number.isFinite(menuItemId)) {
+                  const nextQuantity = next.find((ci) => Number(ci.id) === menuItemId)?.quantity ?? 0;
+                  void upsertUserCartItem({
+                    userId,
+                    restaurantId,
+                    menuItemId,
+                    quantity: nextQuantity,
+                    orderType: checkoutOrderType,
+                  }).catch(() => {});
+                }
+                return next;
+              });
+            },
+          },
+        ]);
+        return;
+      }
+      setCartItems((p) => {
+        const updated = p.map((ci) =>
+          ci.id === itemId ? { ...ci, quantity: Math.max(0, ci.quantity + delta) } : ci
         );
         const next = updated.filter((ci) => ci.quantity > 0);
         const restaurantId = Number(id);
@@ -1499,18 +1535,23 @@ export default function RestaurantDetail() {
                     <View
                       key={tag}
                       style={{
-                        backgroundColor: "rgba(255, 153, 51, 0.85)",
+                        backgroundColor: isDark ? "rgba(255, 153, 51, 0.85)" : "rgba(234, 88, 12, 0.92)",
                         borderRadius: 10,
-                        paddingHorizontal: 6,
-                        paddingVertical: 1,
+                        paddingHorizontal: 7,
+                        paddingVertical: 2,
                         marginRight: 4,
+                        borderWidth: isDark ? 0 : 1,
+                        borderColor: "rgba(194, 65, 12, 0.35)",
                       }}
                     >
                       <Text
                         style={{
-                          fontFamily: "Manrope_500Medium",
+                          fontFamily: "Manrope_600SemiBold",
                           color: "#ffffff",
-                          fontSize: 9,
+                          fontSize: 11,
+                          textShadowColor: "rgba(0,0,0,0.35)",
+                          textShadowOffset: { width: 0, height: 1 },
+                          textShadowRadius: 2,
                         }}
                       >
                         {tag}
@@ -1740,14 +1781,19 @@ export default function RestaurantDetail() {
                     key={tag}
                     className="rounded-full px-2.5 py-0.5 mr-2"
                     style={{
-                      backgroundColor: "rgba(255, 153, 51, 0.85)",
+                      backgroundColor: isDark ? "rgba(255, 153, 51, 0.88)" : "rgba(234, 88, 12, 0.92)",
+                      borderWidth: isDark ? 0 : 1,
+                      borderColor: "rgba(194, 65, 12, 0.3)",
                     }}
                   >
                     <Text
                       style={{
                         fontFamily: "Manrope_600SemiBold",
                         color: "#ffffff",
-                        fontSize: 11,
+                        fontSize: 12,
+                        textShadowColor: "rgba(0,0,0,0.4)",
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: 3,
                       }}
                     >
                       {tag}
@@ -2310,7 +2356,7 @@ export default function RestaurantDetail() {
                 >
                   <Text
                     style={{
-                      color: selectedMenuFilters.length === 0 ? (isDark ? "#FF9933" : "#b45309") : colors.textMuted,
+                      color: selectedMenuFilters.length === 0 ? (isDark ? "#FF9933" : "#fb923c") : colors.textMuted,
                       fontFamily: "Manrope_700Bold",
                       fontSize: 12,
                     }}
@@ -2501,14 +2547,14 @@ export default function RestaurantDetail() {
                           ? colors.pressableBg
                           : isDark
                             ? "#FF9933"
-                            : "#c2410c",
+                            : "#f97316",
                       shadowColor: !ownerRoleResolved
                         ? "transparent"
                         : footerPrimaryDisabled
                           ? "transparent"
                           : isDark
                             ? "#FF9933"
-                            : "#c2410c",
+                            : "#f97316",
                       shadowOffset: { width: 0, height: 4 },
                       shadowOpacity: !ownerRoleResolved
                         ? 0
@@ -2995,7 +3041,7 @@ export default function RestaurantDetail() {
                 onPress={handleConfirmJoin}
                 disabled={joining}
                 style={{
-                  backgroundColor: isDark ? colors.saffron : "#b45309",
+                  backgroundColor: isDark ? colors.saffron : "#fb923c",
                   borderRadius: 16,
                   padding: 18,
                   alignItems: "center",
@@ -3003,9 +3049,9 @@ export default function RestaurantDetail() {
                 }}
               >
                 {joining ? (
-                  <ActivityIndicator color={isDark ? "#0f0f0f" : "#ffffff"} />
+                  <ActivityIndicator color="#0f0f0f" />
                 ) : (
-                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isDark ? "#0f0f0f" : "#ffffff", fontSize: 18 }}>
+                  <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: "#0f0f0f", fontSize: 18 }}>
                     Join Waitlist · {customParty !== "" ? (parseInt(customParty) || "?") : partySize} {(customParty !== "" ? (parseInt(customParty) || 1) : partySize) === 1 ? "guest" : "guests"}
                   </Text>
                 )}
@@ -3113,8 +3159,8 @@ export default function RestaurantDetail() {
               }}
               style={({ pressed }) => ({
                 backgroundColor: pressed
-                  ? (isDark ? "#e88829" : "#9a3412")
-                  : (isDark ? colors.saffron : "#b45309"),
+                  ? (isDark ? "#e88829" : "#ea580c")
+                  : (isDark ? colors.saffron : "#fb923c"),
                 borderRadius: 14,
                 paddingVertical: 14,
                 alignItems: "center",
@@ -3124,7 +3170,7 @@ export default function RestaurantDetail() {
               <Text
                 style={{
                   fontFamily: "Manrope_800ExtraBold",
-                  color: isDark ? "#0f0f0f" : "#ffffff",
+                  color: "#0f0f0f",
                   fontSize: 15,
                   letterSpacing: 0.3,
                 }}

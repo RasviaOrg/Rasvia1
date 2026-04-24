@@ -589,7 +589,7 @@ export default function DiningPreferencesScreen() {
                     }}
                     disabled={savingPrefs}
                     style={{
-                      backgroundColor: isDark ? "#FF9933" : "#b45309",
+                      backgroundColor: isDark ? "#FF9933" : "#fb923c",
                       borderRadius: 14,
                       height: 48,
                       alignItems: "center",

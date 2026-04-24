@@ -98,6 +98,7 @@ function liveStepIndex(status: OrderStatus): number {
 
 const HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia_home-live-order-dismissed-ids_v1";
 const HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia_home-waitlist-seated-dismissed-entry-ids_v1";
+const HOME_GROUP_NOTICE_KEY = "rasvia_home_group_notice_v1";
 
 /** Live order banner: Received → Preparing → Ready → Served (orange → blue → teal → green) */
 const LIVE_ORDER_CARD_BG = [
@@ -151,7 +152,7 @@ export default function DiscoveryFeed() {
     locationLabel,
   } = useLocation();
   const [addressBarExpanded, setAddressBarExpanded] = useState(false);
-  const { notificationBadgeCount } = useNotifications();
+  const { notificationBadgeCount, addEvent } = useNotifications();
   const closedRestaurantIds = useClosedRestaurantIds();
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [showSearch, setShowSearch] = useState(false);
@@ -659,6 +660,27 @@ export default function DiscoveryFeed() {
     ? `rasvia_active_group_order_${currentUserId}`
     : null;
 
+  const consumeHomeGroupNotice = useCallback(async () => {
+    try {
+      const raw = await SecureStore.getItemAsync(HOME_GROUP_NOTICE_KEY);
+      if (!raw) return;
+      await SecureStore.deleteItemAsync(HOME_GROUP_NOTICE_KEY);
+      const parsed = JSON.parse(raw) as {
+        type?: string;
+        restaurantName?: string;
+      };
+      if (parsed?.type === "left_group") {
+        const name = (parsed.restaurantName ?? "").trim();
+        Alert.alert(
+          "Left group order",
+          name ? `You left the group order at ${name}.` : "You left the group order.",
+        );
+      }
+    } catch {
+      // non-blocking
+    }
+  }, []);
+
   const discardGroupOrder = useCallback(async (sessId: string) => {
     Alert.alert(
       "Cancel Group Order",
@@ -673,8 +695,17 @@ export default function DiscoveryFeed() {
               await supabase.from("party_items").delete().eq("session_id", sessId);
               await supabase.from("party_sessions").update({ status: "cancelled" }).eq("id", sessId);
               if (activeOrderKey) await SecureStore.deleteItemAsync(activeOrderKey);
+              await addEvent({
+                type: "group_cancelled",
+                restaurantName: activeGroupOrder?.restaurantName ?? "Restaurant",
+                restaurantId: "",
+                entryId: sessId,
+                partySize: Number(activeGroupOrder?.memberCount ?? 0),
+                timestamp: new Date().toISOString(),
+              });
               setActiveGroupOrder(null);
               if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              Alert.alert("Group order cancelled", "The group order was cancelled and removed.");
             } catch {
               Alert.alert("Error", "Could not cancel the order. Try again.");
             }
@@ -682,7 +713,7 @@ export default function DiscoveryFeed() {
         },
       ]
     );
-  }, [activeOrderKey]);
+  }, [activeOrderKey, activeGroupOrder?.restaurantName, addEvent]);
 
   // Check for active group orders — user-scoped key, lightweight
   const checkActiveGroupOrder = useCallback(async () => {
@@ -1130,12 +1161,14 @@ export default function DiscoveryFeed() {
       void fetchFavoriteRestaurantIds();
       void fetchLiveOrder();
       void fetchLiveWaitlist();
+      void consumeHomeGroupNotice();
     }, [
       refreshActiveGroupOrders,
       checkActiveGroupOrder,
       fetchFavoriteRestaurantIds,
       fetchLiveOrder,
       fetchLiveWaitlist,
+      consumeHomeGroupNotice,
     ]),
   );
 
@@ -2849,7 +2882,14 @@ export default function DiscoveryFeed() {
                   <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.textSecondary, fontSize: 22, letterSpacing: -0.3, marginBottom: 4 }}>
                     You May Like
                   </Text>
-                  <Text style={{ fontFamily: "Manrope_500Medium", color: "#999999", fontSize: 14, marginTop: 2 }}>
+                  <Text
+                    style={{
+                      fontFamily: "Manrope_500Medium",
+                      color: isDark ? colors.textMuted : colors.textSecondary,
+                      fontSize: 14,
+                      marginTop: 2,
+                    }}
+                  >
                     Based on your taste in {personalization.topCuisineTags.slice(0, 2).join(" & ")}
                   </Text>
                 </View>

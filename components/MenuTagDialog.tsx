@@ -342,8 +342,8 @@ export function MenuTagDialog({
                 onPress={() => void handleSubmit()}
                 style={{
                   borderWidth: 1,
-                  borderColor: isDark ? "rgba(255,153,51,0.45)" : "#b45309",
-                  backgroundColor: isDark ? "rgba(255,153,51,0.14)" : "#b45309",
+                  borderColor: isDark ? "rgba(255,153,51,0.45)" : "#f97316",
+                  backgroundColor: isDark ? "rgba(255,153,51,0.14)" : "#fb923c",
                   borderRadius: 10,
                   paddingHorizontal: 14,
                   paddingVertical: 10,
@@ -353,8 +353,8 @@ export function MenuTagDialog({
                   opacity: busy ? 0.7 : 1,
                 }}
               >
-                {busy && <ActivityIndicator color={isDark ? colors.saffron : "#ffffff"} size="small" />}
-                <Text style={{ color: isDark ? colors.saffron : "#ffffff", fontFamily: "Manrope_700Bold", fontSize: 13 }}>
+                {busy && <ActivityIndicator color={isDark ? colors.saffron : "#0f0f0f"} size="small" />}
+                <Text style={{ color: isDark ? colors.saffron : "#0f0f0f", fontFamily: "Manrope_700Bold", fontSize: 13 }}>
                   {mode === "create" ? "Add Tag" : "Save"}
                 </Text>
               </Pressable>

@@ -1666,7 +1666,7 @@ export default function ProfileSettingsScreen() {
                         onPress={handleSaveProfile}
                         style={{
                           flex: 1,
-                          backgroundColor: isDark ? colors.saffron : "#b45309",
+                          backgroundColor: isDark ? colors.saffron : "#fb923c",
                           borderRadius: 12,
                           height: 48,
                           alignItems: "center",

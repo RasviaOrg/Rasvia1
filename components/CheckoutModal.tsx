@@ -38,6 +38,7 @@ import { isInvalidJwtEdgeFunctionError, parseEdgeFunctionError } from "@/lib/edg
 import { withTimeout } from "@/lib/with-timeout";
 import { getCheckoutUrlOrThrow } from "@/lib/checkout-response";
 import { clearUserCartForRestaurant } from "@/lib/user-cart";
+import { estimatedTaxRangeCentsFromSubtotalDollars, formatUsdRangeFromCents } from "@/lib/texas-sales-tax-estimate";
 import type { CartItem } from "@/data/mockData";
 import type { OrderType } from "@/lib/restaurant-types";
 
@@ -162,7 +163,29 @@ export function CheckoutModal({
     const [hasStripe, setHasStripe] = useState(false);
     const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
 
+    const totalQuantity = cartItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity ?? 0)), 0);
     const subtotal = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
+    const hasItems = totalQuantity > 0 && subtotal > 0;
+    const cartIsEmpty = !hasItems;
+    const missingCustomerName = !existingOrderId && !customerName.trim();
+    const ctaDisabled = placing || cartIsEmpty || missingCustomerName;
+    const ctaColor = ctaDisabled ? colors.textMuted : ctaOnSaffron;
+    const ctaLabel = cartIsEmpty
+        ? "Cart empty"
+        : existingOrderId
+            ? `Add Items · $${subtotal.toFixed(2)}`
+            : paymentMethod === 'card'
+                ? `Pay with Card · $${subtotal.toFixed(2)}`
+                : orderType === "takeout"
+                    ? `Place Takeout · $${subtotal.toFixed(2)}`
+                    : orderType === "pre_order"
+                        ? `Pre-Order · $${subtotal.toFixed(2)}`
+                        : `Place Order · $${subtotal.toFixed(2)}`;
+    const subtotalTaxEstLabel = useMemo(() => {
+        if (subtotal <= 0) return null;
+        const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(subtotal);
+        return formatUsdRangeFromCents(minCents, maxCents);
+    }, [subtotal]);
 
     // Wipe the shared server-side cart for this restaurant. Run after a
     // successful order so the user's cart doesn't still contain items that
@@ -883,6 +906,16 @@ export function CheckoutModal({
                                     <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 14 }}>Subtotal</Text>
                                     <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 16 }}>${subtotal.toFixed(2)}</Text>
                                 </View>
+                                {subtotalTaxEstLabel ? (
+                                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+                                        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
+                                            Est. sales tax (8.25%)
+                                        </Text>
+                                        <Text style={{ fontFamily: "JetBrainsMono_500Medium", color: colors.textMuted, fontSize: 14 }}>
+                                            {subtotalTaxEstLabel}
+                                        </Text>
+                                    </View>
+                                ) : null}
                                 <View style={{ marginTop: 4 }}>
                                     <Text style={{ ...S.label, marginBottom: 8 }}>Payment Method</Text>
                                     <View style={{ flexDirection: "row", gap: 8 }}>
@@ -956,11 +989,11 @@ export function CheckoutModal({
                             {/* ── Place Order Button ── */}
                             <Pressable
                                 onPress={handlePlaceOrder}
-                                disabled={placing || cartItems.length === 0 || (!existingOrderId && !customerName.trim())}
+                                disabled={ctaDisabled}
                                 style={{
                                     backgroundColor:
-                                        cartItems.length === 0 || (!existingOrderId && !customerName.trim())
-                                            ? colors.switchTrackOff
+                                        ctaDisabled
+                                            ? colors.backgroundElevated
                                             : colors.saffron,
                                     borderRadius: 18,
                                     paddingVertical: 17,
@@ -968,35 +1001,29 @@ export function CheckoutModal({
                                     flexDirection: "row",
                                     justifyContent: "center",
                                     gap: 10,
-                                    opacity: placing ? 0.8 : 1,
+                                    opacity: placing ? 0.8 : ctaDisabled ? 0.92 : 1,
                                     shadowColor: colors.saffron,
                                     shadowOffset: { width: 0, height: 4 },
-                                    shadowOpacity: cartItems.length > 0 ? 0.3 : 0,
+                                    shadowOpacity: ctaDisabled ? 0 : 0.3,
                                     shadowRadius: 12,
-                                    elevation: cartItems.length > 0 ? 8 : 0,
+                                    elevation: ctaDisabled ? 0 : 8,
+                                    borderWidth: ctaDisabled ? 1 : 0,
+                                    borderColor: ctaDisabled ? colors.cardBorder : "transparent",
                                 }}
                             >
                                 {placing ? (
-                                    <ActivityIndicator color={ctaOnSaffron} />
+                                    <ActivityIndicator color={ctaColor} />
                                 ) : (
                                     <>
                                         {paymentMethod === 'card'
-                                            ? <CreditCard size={18} color={ctaOnSaffron} />
+                                            ? <CreditCard size={18} color={ctaColor} />
                                             : orderType === "takeout"
-                                                ? <Truck size={18} color={ctaOnSaffron} />
+                                                ? <Truck size={18} color={ctaColor} />
                                                 : orderType === "pre_order"
-                                                    ? <Clock size={18} color={ctaOnSaffron} />
-                                                    : <ShoppingBag size={18} color={ctaOnSaffron} />}
-                                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: ctaOnSaffron, fontSize: 17 }}>
-                                            {existingOrderId
-                                                ? `Add Items · $${subtotal.toFixed(2)}`
-                                                : paymentMethod === 'card'
-                                                    ? `Pay with Card · $${subtotal.toFixed(2)}`
-                                                    : orderType === "takeout"
-                                                        ? `Place Takeout · $${subtotal.toFixed(2)}`
-                                                        : orderType === "pre_order"
-                                                            ? `Pre-Order · $${subtotal.toFixed(2)}`
-                                                            : `Place Order · $${subtotal.toFixed(2)}`}
+                                                    ? <Clock size={18} color={ctaColor} />
+                                                    : <ShoppingBag size={18} color={ctaColor} />}
+                                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: ctaColor, fontSize: 17 }}>
+                                            {ctaLabel}
                                         </Text>
                                     </>
                                 )}

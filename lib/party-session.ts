@@ -86,6 +86,11 @@ export type PartySession = {
    * `party_add_item`, and the UI hides the menu browse for guests.
    */
   staff_managed?: boolean;
+  /**
+   * True while the host is on the pre-lock review screen; guests should not
+   * add to or edit the shared cart.
+   */
+  host_in_review?: boolean;
 };
 
 export type PartySnapshot = {
@@ -127,6 +132,62 @@ export function credsFromJoinResult(
     memberId: result.member_id,
     memberToken: token,
   };
+}
+
+/**
+ * Rotate + return a fresh bearer for the signed-in user's row in this session.
+ * Returns null if not signed in or RPC fails (e.g. not a member).
+ */
+export async function reissuePartyMemberToken(
+  supabase: SupabaseClient,
+  sessionId: string,
+): Promise<PartyCreds | null> {
+  const { data: authData } = await supabase.auth.getSession();
+  if (!authData.session?.user) return null;
+  const { data, error } = await supabase.rpc('party_reissue_member_token', {
+    p_session_id: sessionId,
+  });
+  if (error) return null;
+  const d = data as {
+    member_id?: string;
+    member_token?: string;
+  } | null;
+  if (!d?.member_id || !d.member_token) return null;
+  return {
+    sessionId,
+    memberId: String(d.member_id),
+    memberToken: String(d.member_token),
+  };
+}
+
+/**
+ * Same as {@link credsFromJoinResult}, but when the server omits `member_token`
+ * on rejoin, never trust a stale cached bearer alone for signed-in users — we
+ * ask `party_reissue_member_token` first so the hash matches Postgres.
+ */
+export async function completeJoinCredentials(
+  supabase: SupabaseClient,
+  sessionId: string,
+  result: JoinResult,
+  existing: PartyCreds | null,
+): Promise<PartyCreds> {
+  if (result.member_token) {
+    return credsFromJoinResult(sessionId, result, existing);
+  }
+
+  const reissued = await reissuePartyMemberToken(supabase, sessionId);
+  if (reissued) {
+    return reissued;
+  }
+
+  const mergedToken = existing?.memberToken ?? null;
+  if (mergedToken) {
+    return credsFromJoinResult(sessionId, result, existing);
+  }
+
+  throw new Error(
+    'Could not restore your session link. Sign in and join again, or ask the host for a new invite.',
+  );
 }
 
 export type StartCheckoutResult = {
@@ -488,6 +549,19 @@ export async function startCheckout(
   };
 }
 
+/** Host-only: flags that the host is on the review / payment-mode screen. */
+export async function setHostInReview(
+  supabase: SupabaseClient,
+  sessionId: string,
+  inReview: boolean,
+): Promise<void> {
+  const { error } = await supabase
+    .from('party_sessions')
+    .update({ host_in_review: inReview })
+    .eq('id', sessionId);
+  if (error) throw new Error(error.message);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Snapshot fetch (server-assembled join of session + members + items + payments)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -568,6 +642,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   menu_item_unavailable: 'That menu item is out of stock.',
   item_not_found: 'That item is no longer in the cart.',
   display_name_required: 'Please enter your name.',
+  not_authenticated: 'Sign in to restore this group order link.',
+  no_active_membership: 'You are not part of this group order. Ask the host for a fresh invite.',
   already_paid: 'This share has already been paid.',
   payment_not_found: 'Payment record not found.',
   amount_mismatch: 'The payment amount no longer matches. Please refresh.',

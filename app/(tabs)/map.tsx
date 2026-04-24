@@ -2163,7 +2163,7 @@ function MapSearchOverlay({
   const sortChipInactiveBorder = colors.cardBorder;
   const muted = colors.textMuted;
   const accent = isDark ? "#FF9933" : colors.textSecondary;
-  const sortSelected = isDark ? "#FF9933" : "#9a3412";
+  const sortSelected = isDark ? "#FF9933" : "#ea580c";
 
   const parseDistance = (d: string | undefined) => parseFloat((d ?? "").replace(/[^0-9.]/g, "")) || Infinity;
 

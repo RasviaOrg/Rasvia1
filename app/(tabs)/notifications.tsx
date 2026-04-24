@@ -117,6 +117,18 @@ function buildEventSubtitle(event: NotificationEvent): string {
       return `The group order at ${r} was submitted. Check the restaurant page for confirmation or pickup details.`;
     case "group_ended":
       return `The group order at ${r} has ended. Start a new session when you're ready to order together again.`;
+    case "group_cancelled": {
+      const refunded = Number(event.metadata?.refunded ?? 0);
+      const failed = Number(event.metadata?.failed ?? 0);
+      const parts = [`The group order at ${r} was cancelled.`];
+      if (refunded > 0) {
+        parts.push(` ${refunded} payment refund${refunded === 1 ? "" : "s"} processed.`);
+      }
+      if (failed > 0) {
+        parts.push(` ${failed} refund${failed === 1 ? "" : "s"} could not be completed automatically.`);
+      }
+      return parts.join("");
+    }
     case "order_placed":
       return `Your order at ${r} is in. Track status and receipts anytime in My orders.`;
     case "review_report_submitted":
@@ -223,6 +235,11 @@ const EVENT_CONFIG: Record<
   },
   group_ended: {
     label: (r) => `Group order at ${r} was ended`,
+    color: "#EF4444",
+    icon: XCircle,
+  },
+  group_cancelled: {
+    label: (r) => `Group order cancelled at ${r}`,
     color: "#EF4444",
     icon: XCircle,
   },
@@ -917,6 +934,7 @@ export default function NotificationsScreen() {
       case "group_item_added":
       case "group_submitted":
       case "group_ended":
+      case "group_cancelled":
         return restaurantId ? `/restaurant/${restaurantId}` : null;
       case "menu_image_submitted":
       case "menu_image_request_new":

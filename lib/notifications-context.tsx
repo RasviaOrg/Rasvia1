@@ -37,6 +37,7 @@ export type NotificationEventType =
   | "group_item_added"
   | "group_submitted"
   | "group_ended"
+  | "group_cancelled"
   | "review_report_submitted"
   | "review_report_new"
   | "review_report_declined"

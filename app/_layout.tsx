@@ -125,9 +125,9 @@ function AuthGate() {
   const lastTabRef = useRef<TabKey>("home");
   const prevHadSessionRef = useRef(false);
   const prevSignedInUserIdRef = useRef<string | null>(null);
-  // One-shot guard so the cold-boot landing reset below only runs once per
-  // mount (not every time pathname changes afterwards).
-  const didInitialLandingResetRef = useRef(false);
+  /** `Date.now()` when a signed-in, onboarded user became ready (used for tab boot window only). */
+  const sessionReadyAtRef = useRef<number | null>(null);
+  const didBootTabResetRef = useRef(false);
 
   useBackgroundRoutePrefetch(!!session && !needsOnboarding && !loading);
 
@@ -150,37 +150,57 @@ function AuthGate() {
     const hasSession = !!session?.user;
     if (hasSession && !prevHadSessionRef.current) {
       lastTabRef.current = "home";
-      const p = pathname ?? "";
-      if (p.startsWith("/cart")) {
-        router.replace("/");
-      }
     }
     prevHadSessionRef.current = hasSession;
-  }, [session?.user, pathname, router]);
+  }, [session?.user]);
 
-  // Cold-boot landing guard: Expo Router / React Navigation can restore the
-  // previously focused tab (typically `cart`) after a dev reload or fast
-  // refresh, and `unstable_settings.initialRouteName` is not always honored
-  // in that case. Force any non-home tab back to `/` exactly once after auth
-  // resolves. Deep links to stack screens (restaurant/[id], order-
-  // confirmation, reset-password, etc.) are intentionally left alone.
   useEffect(() => {
     if (loading) return;
-    if (didInitialLandingResetRef.current) return;
-    if (!session?.user || needsOnboarding) return;
-    didInitialLandingResetRef.current = true;
+    if (!session?.user || needsOnboarding) {
+      if (!session?.user) {
+        sessionReadyAtRef.current = null;
+        didBootTabResetRef.current = false;
+      }
+      return;
+    }
+    if (sessionReadyAtRef.current == null) {
+      sessionReadyAtRef.current = Date.now();
+    }
+  }, [loading, session?.user, needsOnboarding]);
 
+  // Cold-boot: nav can restore a non-home tab (often /cart) *after* the first
+  // frame shows `/`, so we must not "lock" on that first home frame. For a
+  // short window only, send the user to Home. After that, tab changes are
+  // intentional. Stack routes (e.g. /restaurant/...) are untouched.
+  useEffect(() => {
+    if (loading) return;
+    if (!session?.user || needsOnboarding) return;
+    if (didBootTabResetRef.current) return;
+    const t0 = sessionReadyAtRef.current;
+    if (t0 == null) return;
+    const age = Date.now() - t0;
+    if (age > 350) {
+      didBootTabResetRef.current = true;
+      return;
+    }
     const p = pathname ?? "";
     const isNonHomeTab =
-      p === "/cart" ||
-      p === "/map" ||
-      p === "/notifications" ||
-      p === "/profile";
+      p === "/cart" || p === "/map" || p === "/notifications" || p === "/profile";
     if (isNonHomeTab) {
+      didBootTabResetRef.current = true;
       lastTabRef.current = "home";
       router.replace("/");
     }
   }, [loading, session?.user, needsOnboarding, pathname, router]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!session?.user || needsOnboarding) return;
+    const t = setTimeout(() => {
+      if (!didBootTabResetRef.current) didBootTabResetRef.current = true;
+    }, 450);
+    return () => clearTimeout(t);
+  }, [loading, session?.user, needsOnboarding, session?.user?.id]);
 
   useEffect(() => {
     if (!loading) {

@@ -593,7 +593,7 @@ export function ExpandedLocationSettings({ onApplied }: Props) {
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
-              color: isDark ? "#FFB566" : "#c2410c",
+              color: isDark ? "#FFB566" : "#f97316",
               fontSize: 12,
               lineHeight: 16,
             }}

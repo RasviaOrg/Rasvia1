@@ -338,7 +338,7 @@ export default function ResetPasswordScreen() {
               onPress={handleResetPassword}
               disabled={!canSubmit}
               style={{
-                backgroundColor: canSubmit ? (isDark ? "#FF9933" : "#b45309") : colors.switchTrackOff,
+                backgroundColor: canSubmit ? (isDark ? "#FF9933" : "#fb923c") : colors.switchTrackOff,
                 borderRadius: 16,
                 height: 56,
                 alignItems: "center",

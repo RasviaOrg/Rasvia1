@@ -150,7 +150,7 @@ export default function EmailVerifyScreen() {
                     <Pressable
                         onPress={handleBackToSignIn}
                         style={{
-                            backgroundColor: isDark ? "#FF9933" : "#b45309",
+                            backgroundColor: isDark ? "#FF9933" : "#fb923c",
                             borderRadius: 16,
                             height: 56,
                             alignItems: "center",

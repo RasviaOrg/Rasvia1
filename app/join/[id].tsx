@@ -36,11 +36,13 @@ import {
 
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth-context';
+import { useNotifications } from '../../lib/notifications-context';
 import {
-  joinSession, credsFromJoinResult, addItem, updateItemQuantity, removeItem,
+  joinSession, completeJoinCredentials, reissuePartyMemberToken, addItem, updateItemQuantity, removeItem,
+  isPartyUnauthorizedMessage,
   setPaymentMode, setItemSplit, assignItemPayer,
   lockSession, unlockSession, startCheckout, cancelSession, leaveSession,
-  fetchSnapshot, CheckoutError,
+  setHostInReview, fetchSnapshot, CheckoutError,
   formatCents, memberById, paymentForMember, isFullyPaid, totalCartCents,
   type PartyCreds, type PartySnapshot, type PaymentMode, type PartyMember, type PartyItem,
 } from '../../lib/party-session';
@@ -49,15 +51,17 @@ import {
 } from '../../lib/party-credentials';
 import { addActiveParty, removeActiveParty } from '../../lib/party-active';
 import { subscribeToParty } from '../../lib/party-realtime';
+import { estimatedTaxRangeCentsFromSubtotalCents, formatUsdRangeFromCents } from '../../lib/texas-sales-tax-estimate';
 import { PartyLedger, colorForMember, memberInitials } from '../../components/party/PartyLedger';
 import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from '../../lib/menu-tags';
 import { useAppTheme, type AppColors } from '../../lib/app-theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function createJoinPartyStyles(colors: AppColors, isDark: boolean) {
   const sheetScrim = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)';
   const hairline = colors.cardBorder;
   /** Solid CTAs: bright saffron reads harsh on light grey; burnt orange + white label reads cleaner. */
-  const primaryBtnBg = isDark ? '#FF9933' : '#c2410c';
+  const primaryBtnBg = isDark ? '#FF9933' : '#f97316';
   const primaryBtnFg = '#ffffff';
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -234,6 +238,7 @@ type Restaurant = { id: number; name: string; image_url: string | null };
  * just under a second so the wallet sheet keeps the foreground.
  */
 const WALLET_INTERACTION_GRACE_MS = 900;
+const HOME_GROUP_NOTICE_KEY = "rasvia_home_group_notice_v1";
 
 /** Drop home-screen banner cache when it points at this session (guest leave / cancel). */
 async function clearHomeActiveGroupOrderCache(userId: string | undefined, sid: string) {
@@ -251,6 +256,22 @@ async function clearHomeActiveGroupOrderCache(userId: string | undefined, sid: s
   }
 }
 
+async function queueHomeGroupNotice(payload: { type: "left_group"; restaurantName?: string | null; sessionId: string }) {
+  try {
+    await SecureStore.setItemAsync(
+      HOME_GROUP_NOTICE_KEY,
+      JSON.stringify({
+        type: payload.type,
+        restaurantName: payload.restaurantName ?? "the group order",
+        sessionId: payload.sessionId,
+        ts: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // non-blocking
+  }
+}
+
 const PAYMENT_MODES: { key: PaymentMode; title: string; subtitle: string }[] = [
   { key: 'host_pays',   title: 'Host covers everyone', subtitle: 'You pay the whole bill.' },
   { key: 'equal_split', title: 'Split evenly',         subtitle: 'Everyone pays the same share.' },
@@ -263,6 +284,7 @@ export default function JoinPartyScreen() {
   const params = useLocalSearchParams<{ id: string; checkout_status?: string; reason?: string }>();
   const sessionId = String(params.id || '').trim();
   const { session: authSession } = useAuth();
+  const { addEvent } = useNotifications();
 
   const [creds, setCreds] = useState<PartyCreds | null>(null);
   const [credsLoaded, setCredsLoaded] = useState(false);
@@ -297,6 +319,15 @@ export default function JoinPartyScreen() {
   const me = creds ? members.find((m) => m.id === creds.memberId) ?? null : null;
   const isHost = me?.role === 'host';
   const myPayment = creds ? paymentForMember(payments, creds.memberId) : null;
+  const hostInReview = session?.host_in_review === true;
+  const nonHostCartLocked = !isHost && hostInReview;
+
+  const showCartLockAlert = useCallback(() => {
+    Alert.alert(
+      'Cart locked',
+      'Cart locked. Host is currently deciding how the bill should be paid.',
+    );
+  }, []);
 
   const hapticTap = useCallback(() => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -503,7 +534,7 @@ export default function JoinPartyScreen() {
     try {
       const existing = await loadPartyCreds(sessionId);
       const result = await joinSession(supabase, sessionId, name);
-      const next = credsFromJoinResult(sessionId, result, existing);
+      const next = await completeJoinCredentials(supabase, sessionId, result, existing);
       setCreds(next);
       await savePartyCreds(next);
       // Record in the device-local active-party index so the home screen can
@@ -518,8 +549,38 @@ export default function JoinPartyScreen() {
     }
   };
 
+  const recoverCredsAfterUnauthorized = useCallback(
+    async (memberId: string): Promise<PartyCreds | null> => {
+      if (!sessionId) return null;
+      const rotated = await reissuePartyMemberToken(supabase, sessionId);
+      if (rotated) {
+        await savePartyCreds(rotated);
+        setCreds(rotated);
+        return rotated;
+      }
+      const displayName =
+        snapshot?.members.find((x) => x.id === memberId)?.display_name?.trim() || nameInput.trim();
+      if (!displayName) return null;
+      try {
+        const existing = await loadPartyCreds(sessionId);
+        const jr = await joinSession(supabase, sessionId, displayName);
+        const next = await completeJoinCredentials(supabase, sessionId, jr, existing);
+        await savePartyCreds(next);
+        setCreds(next);
+        return next;
+      } catch {
+        return null;
+      }
+    },
+    [sessionId, snapshot?.members, nameInput],
+  );
+
   const handleAddItem = async (menuItemId: number) => {
     if (!creds) return;
+    if (nonHostCartLocked) {
+      showCartLockAlert();
+      return;
+    }
     // Optimistic +1 so the badge reacts instantly — the real snapshot will
     // replace this within a few hundred ms via realtime.
     setPendingAdds((prev) => ({ ...prev, [menuItemId]: (prev[menuItemId] ?? 0) + 1 }));
@@ -527,6 +588,18 @@ export default function JoinPartyScreen() {
     try {
       await addItem(supabase, creds, menuItemId, 1);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (isPartyUnauthorizedMessage(msg)) {
+        const fresh = await recoverCredsAfterUnauthorized(creds.memberId);
+        if (fresh) {
+          try {
+            await addItem(supabase, fresh, menuItemId, 1);
+            return;
+          } catch {
+            /* fall through to revert + alert */
+          }
+        }
+      }
       setPendingAdds((prev) => {
         const next = { ...prev };
         const current = next[menuItemId] ?? 0;
@@ -539,21 +612,55 @@ export default function JoinPartyScreen() {
 
   const handleChangeQty = async (item: PartyItem, delta: number) => {
     if (!creds) return;
+    if (nonHostCartLocked) {
+      showCartLockAlert();
+      return;
+    }
     const nextQty = Math.max(0, (item.quantity ?? 1) + delta);
     try {
       await updateItemQuantity(supabase, creds, item.id, nextQty);
       hapticTap();
     } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (isPartyUnauthorizedMessage(msg)) {
+        const fresh = await recoverCredsAfterUnauthorized(creds.memberId);
+        if (fresh) {
+          try {
+            await updateItemQuantity(supabase, fresh, item.id, nextQty);
+            hapticTap();
+            return;
+          } catch {
+            /* fall through */
+          }
+        }
+      }
       Alert.alert('Could not update item', err instanceof Error ? err.message : 'Try again.');
     }
   };
 
   const handleRemoveItem = async (item: PartyItem) => {
     if (!creds) return;
+    if (nonHostCartLocked) {
+      showCartLockAlert();
+      return;
+    }
     try {
       await removeItem(supabase, creds, item.id);
       if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (isPartyUnauthorizedMessage(msg)) {
+        const fresh = await recoverCredsAfterUnauthorized(creds.memberId);
+        if (fresh) {
+          try {
+            await removeItem(supabase, fresh, item.id);
+            if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            return;
+          } catch {
+            /* fall through */
+          }
+        }
+      }
       Alert.alert('Could not remove item', err instanceof Error ? err.message : 'Try again.');
     }
   };
@@ -661,6 +768,17 @@ export default function JoinPartyScreen() {
     setBusy(true);
     try {
       const result = await cancelSession(supabase, creds);
+      const rid = restaurant?.id ?? snapshot?.session.restaurant_id;
+      const rname = restaurant?.name ?? 'Restaurant';
+      void addEvent({
+        type: 'group_cancelled',
+        restaurantName: rname,
+        restaurantId: rid != null ? String(rid) : '',
+        entryId: sessionId,
+        partySize: members.length,
+        timestamp: new Date().toISOString(),
+        metadata: { refunded: result.refunded, failed: result.failed },
+      });
       Alert.alert('Group order cancelled', `${result.refunded} payment${result.refunded === 1 ? '' : 's'} refunded.`);
       await clearPartyCreds(sessionId);
       await removeActiveParty(sessionId);
@@ -687,10 +805,15 @@ export default function JoinPartyScreen() {
           style: 'destructive',
           onPress: async () => {
             try { await leaveSession(supabase, creds); } catch { /* ignore */ }
+            await queueHomeGroupNotice({
+              type: "left_group",
+              restaurantName: restaurant?.name ?? snapshot?.restaurant?.name ?? "the group order",
+              sessionId,
+            });
             await clearPartyCreds(sessionId);
             await removeActiveParty(sessionId);
             await clearHomeActiveGroupOrderCache(authSession?.user?.id, sessionId);
-            router.back();
+            router.replace('/');
           },
         },
       ],
@@ -848,6 +971,17 @@ export default function JoinPartyScreen() {
             <Animated.View entering={FadeInDown} style={joinS.headerCard}>
               <Text style={joinS.summaryLabel}>Group total</Text>
               <Text style={joinS.summaryValue}>{formatCents(session.total_cents)}</Text>
+              {(() => {
+                const base = session.subtotal_cents > 0 ? session.subtotal_cents : session.total_cents;
+                if (base <= 0) return null;
+                const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(base);
+                return (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={[joinS.summaryMeta, { fontWeight: '700' }]}>Est. sales tax (8.25%)</Text>
+                    <Text style={[joinS.summaryMeta, { marginTop: 2 }]}>{formatUsdRangeFromCents(minCents, maxCents)}</Text>
+                  </View>
+                );
+              })()}
               <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Lock size={12} color={colors.textMuted} />
                 <Text style={joinS.summaryMeta}>{members.length} {members.length === 1 ? 'member' : 'members'} · {items.length} {items.length === 1 ? 'item' : 'items'}</Text>
@@ -926,6 +1060,7 @@ export default function JoinPartyScreen() {
   if (view === 'review' && session.status === 'open') {
     return wrapJoin(
       <ReviewStage
+        sessionId={sessionId}
         snapshot={snapshot!}
         restaurant={restaurant}
         creds={creds}
@@ -955,6 +1090,8 @@ export default function JoinPartyScreen() {
       (sum, it) => sum + Math.round(Number(it.menu_item?.price ?? 0) * 100) * Math.max(1, it.quantity),
       0,
     );
+    const mySubtotalTaxRange =
+      mySubtotal > 0 ? estimatedTaxRangeCentsFromSubtotalCents(mySubtotal) : null;
     return wrapJoin(
       <>
         <Stack.Screen options={{ headerShown: false }} />
@@ -993,9 +1130,17 @@ export default function JoinPartyScreen() {
 
             <View style={{ marginTop: 20 }}>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>Your items</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>Subtotal</Text>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{formatCents(mySubtotal)}</Text>
               </View>
+              {mySubtotalTaxRange ? (
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700' }}>Est. sales tax (8.25%)</Text>
+                  <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 12 }}>
+                    {formatUsdRangeFromCents(mySubtotalTaxRange.minCents, mySubtotalTaxRange.maxCents)}
+                  </Text>
+                </View>
+              ) : null}
               {myItems.length === 0 ? (
                 <View style={{ marginTop: 10, paddingVertical: 18, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.cardBorder, alignItems: 'center' }}>
                   <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: 'center' }}>
@@ -1094,6 +1239,8 @@ export default function JoinPartyScreen() {
                 hapticTap();
                 setSelectedMenuItem(item);
               }}
+              cartLocked={nonHostCartLocked}
+              onCartLocked={showCartLockAlert}
             />
           )}
           ListEmptyComponent={
@@ -1115,6 +1262,8 @@ export default function JoinPartyScreen() {
           onChangeQty={handleChangeQty}
           canEdit={true}
           isHost={isHost}
+          hostDeciding={hostInReview}
+          guestCartLocked={nonHostCartLocked}
           onLeave={handleLeave}
         />
 
@@ -1131,6 +1280,8 @@ export default function JoinPartyScreen() {
           onClose={() => setSelectedMenuItem(null)}
           onAdd={() => selectedMenuItem ? handleAddItem(selectedMenuItem.id) : undefined}
           menuTags={menuTags}
+          cartLocked={nonHostCartLocked}
+          onCartLocked={showCartLockAlert}
         />
       </View>
     </>
@@ -1246,12 +1397,37 @@ function CategoryChips({ tags, active, onChange }: { tags: MenuTagConfig[]; acti
   );
 }
 
-function MenuRow({ item, inCartCount, onAdd, onOpenDetails }: { item: MenuItem; inCartCount: number; onAdd: () => void; onOpenDetails: () => void }) {
+function MenuRow({
+  item, inCartCount, onAdd, onOpenDetails, cartLocked, onCartLocked,
+}: {
+  item: MenuItem; inCartCount: number; onAdd: () => void; onOpenDetails: () => void;
+  cartLocked: boolean; onCartLocked: () => void;
+}) {
   const s = useJoinS();
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
+  const triggerDetails = () => {
+    if (cartLocked) {
+      onCartLocked();
+      return;
+    }
+    onOpenDetails();
+  };
+  const triggerAdd = () => {
+    if (cartLocked) {
+      onCartLocked();
+      return;
+    }
+    onAdd();
+  };
   return (
-    <Animated.View entering={FadeInDown} style={s.menuRow}>
-      <Pressable onPress={onOpenDetails} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+    <Animated.View
+      entering={FadeInDown}
+      style={[
+        s.menuRow,
+        cartLocked && { opacity: isDark ? 0.45 : 0.5, backgroundColor: isDark ? 'rgba(15,15,15,0.5)' : 'rgba(0,0,0,0.04)' },
+      ]}
+    >
+      <Pressable onPress={triggerDetails} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         {item.image_url ? (
           <CachedImage source={{ uri: item.image_url }} style={s.menuImg} />
         ) : (
@@ -1269,8 +1445,15 @@ function MenuRow({ item, inCartCount, onAdd, onOpenDetails }: { item: MenuItem; 
           <Text style={s.menuPrice}>${Number(item.price).toFixed(2)}</Text>
         </View>
       </Pressable>
-      <Pressable onPress={onAdd} style={s.addBtn}>
-        <Plus size={16} color="#ffffff" strokeWidth={3} />
+      <Pressable
+        onPress={triggerAdd}
+        style={[
+          s.addBtn,
+          cartLocked && { backgroundColor: colors.cardBorder, opacity: 0.9 },
+        ]}
+        disabled={false}
+      >
+        <Plus size={16} color={cartLocked ? colors.textMuted : '#ffffff'} strokeWidth={3} />
         {inCartCount > 0 ? <Text style={s.addBtnCount}>{inCartCount}</Text> : null}
       </Pressable>
     </Animated.View>
@@ -1282,14 +1465,19 @@ function MenuItemDetailsModal({
   onClose,
   onAdd,
   menuTags,
+  cartLocked,
+  onCartLocked,
 }: {
   item: MenuItem | null;
   onClose: () => void;
   onAdd: () => void;
   menuTags: MenuTagConfig[];
+  cartLocked: boolean;
+  onCartLocked: () => void;
 }) {
   const s = useJoinS();
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   if (!item) return null;
   const tags = normalizeMenuItemTags(item.meal_times ?? [], menuTags.filter((t) => t.enabled));
   const tagMap = new Map(menuTags.map((t) => [t.key, t]));
@@ -1297,7 +1485,7 @@ function MenuItemDetailsModal({
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.sheetBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={s.itemDetailsSheet}>
+        <View style={[s.itemDetailsSheet, { marginBottom: Math.max(12, insets.bottom + 8) }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Text style={s.itemDetailsTitle}>Item details</Text>
             <Pressable onPress={onClose} style={s.memberSheetClose}>
@@ -1326,8 +1514,21 @@ function MenuItemDetailsModal({
           </View>
           <View style={{ marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={s.itemDetailsPrice}>${Number(item.price).toFixed(2)}</Text>
-            <Pressable onPress={onAdd} style={[s.primaryBtn, { paddingHorizontal: 18, paddingVertical: 12 }]}>
-              <Text style={s.primaryBtnText}>Add to cart</Text>
+            <Pressable
+              onPress={() => {
+                if (cartLocked) {
+                  onCartLocked();
+                  return;
+                }
+                onAdd();
+              }}
+              style={[
+                s.primaryBtn,
+                { paddingHorizontal: 18, paddingVertical: 12 },
+                cartLocked && { opacity: 0.55, backgroundColor: colors.cardBorder },
+              ]}
+            >
+              <Text style={s.primaryBtnText}>{cartLocked ? 'Cart locked' : 'Add to cart'}</Text>
             </Pressable>
           </View>
         </View>
@@ -1342,6 +1543,10 @@ function CartSummary(props: {
   selfMemberId: string;
   canEdit: boolean;
   isHost: boolean;
+  /** When true, non-hosts see copy that the host is picking a payment mode. */
+  hostDeciding?: boolean;
+  /** When true, non-hosts cannot change line items they would normally edit. */
+  guestCartLocked?: boolean;
   onReview?: () => void;
   onRemove: (item: PartyItem) => void;
   onChangeQty: (item: PartyItem, delta: number) => void;
@@ -1351,6 +1556,12 @@ function CartSummary(props: {
   const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
   const total = totalCartCents(props.items);
+  const taxEstLabel = useMemo(() => {
+    if (total <= 0) return null;
+    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(total);
+    return formatUsdRangeFromCents(minCents, maxCents);
+  }, [total]);
+  const guestLock = props.guestCartLocked === true;
   const confirmRemove = useCallback((it: PartyItem) => {
     Alert.alert(
       "Remove item",
@@ -1372,10 +1583,18 @@ function CartSummary(props: {
         if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setOpen((v) => !v);
       }} style={s.cartHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <ShoppingCart size={18} color="#FF9933" />
-          <Text style={s.cartTitle}>{props.items.length} item{props.items.length === 1 ? '' : 's'}</Text>
-          <Text style={s.cartTotal}>{formatCents(total)}</Text>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <ShoppingCart size={18} color="#FF9933" />
+            <Text style={s.cartTitle}>{props.items.length} item{props.items.length === 1 ? '' : 's'}</Text>
+            <Text style={s.cartTotal}>{formatCents(total)}</Text>
+          </View>
+          {taxEstLabel ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, paddingLeft: 28, paddingRight: 2 }}>
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>Est. sales tax (8.25%)</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700' }}>{taxEstLabel}</Text>
+            </View>
+          ) : null}
         </View>
         <ChevronRight size={18} color={colors.iconMuted} style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
       </Pressable>
@@ -1389,7 +1608,7 @@ function CartSummary(props: {
                 key={it.id}
                 item={it}
                 members={props.members}
-                canEdit={it.added_by_member_id === props.selfMemberId || props.isHost}
+                canEdit={(it.added_by_member_id === props.selfMemberId || props.isHost) && !guestLock}
                 onRemove={() => confirmRemove(it)}
                 onChangeQty={(delta) => {
                   if (delta < 0 && (it.quantity ?? 1) <= 1) {
@@ -1427,9 +1646,11 @@ function CartSummary(props: {
               <Text style={s.primaryBtnText}>{label}</Text>
             </Pressable>
           );
-        })() : (
+        })(        ) : (
           <View style={[s.primaryBtn, { flex: 2, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }]}>
-            <Text style={[s.primaryBtnText, { color: colors.textMuted }]}>Waiting on host…</Text>
+            <Text style={[s.primaryBtnText, { color: colors.textMuted, fontSize: 14 }]}>
+              {props.hostDeciding ? 'Host is deciding how to pay' : 'Waiting on host…'}
+            </Text>
           </View>
         )}
       </View>
@@ -1492,8 +1713,10 @@ function CartRow({ item, members, canEdit, onRemove, onChangeQty }: {
 }
 
 function ReviewStage({
+  sessionId,
   snapshot, restaurant, creds, onBack, onAssignPayer, onSetSplit, onSetMode, onLock, busy,
 }: {
+  sessionId: string;
   snapshot: PartySnapshot; restaurant: Restaurant | null; creds: PartyCreds;
   onBack: () => void; onAssignPayer: (itemId: string, payerId: string) => Promise<void>;
   onSetSplit: (itemId: string, memberIds: string[]) => Promise<void>;
@@ -1502,6 +1725,20 @@ function ReviewStage({
 }) {
   const s = useJoinS();
   const { colors } = useAppTheme();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await setHostInReview(supabase, sessionId, true);
+      } catch (e) {
+        if (!cancelled) console.warn('setHostInReview', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      void setHostInReview(supabase, sessionId, false).catch(() => {});
+    };
+  }, [sessionId]);
   const modeFromSnapshot = (snapshot.session.payment_mode === 'split' ? 'per_person'
     : snapshot.session.payment_mode === 'assign' ? 'assigned'
     : snapshot.session.payment_mode) as PaymentMode;
@@ -1511,6 +1748,11 @@ function ReviewStage({
   }, [modeFromSnapshot]);
 
   const total = totalCartCents(snapshot.items);
+  const reviewTaxEstLabel = useMemo(() => {
+    if (total <= 0) return null;
+    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(total);
+    return formatUsdRangeFromCents(minCents, maxCents);
+  }, [total]);
 
   return (
     <>
@@ -1521,7 +1763,13 @@ function ReviewStage({
           <Animated.View entering={FadeInDown} style={s.headerCard}>
             <Text style={s.summaryLabel}>Group total</Text>
             <Text style={s.summaryValue}>{formatCents(total)}</Text>
-            <Text style={s.summaryMeta}>
+            {reviewTaxEstLabel ? (
+              <View style={{ marginTop: 8 }}>
+                <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Est. sales tax (8.25%)</Text>
+                <Text style={[s.summaryMeta, { marginTop: 2 }]}>{reviewTaxEstLabel}</Text>
+              </View>
+            ) : null}
+            <Text style={[s.summaryMeta, { marginTop: reviewTaxEstLabel ? 10 : 4 }]}>
               {snapshot.members.length} {snapshot.members.length === 1 ? 'member' : 'members'} · {snapshot.items.length} {snapshot.items.length === 1 ? 'item' : 'items'}
             </Text>
           </Animated.View>
@@ -1814,6 +2062,20 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
           <Animated.View entering={FadeInDown.delay(120)} style={[s.headerCard, { marginTop: 20 }]}>
             <Text style={s.summaryLabel}>Group total</Text>
             <Text style={s.summaryValue}>{formatCents(snapshot.session.total_cents)}</Text>
+            {(() => {
+              const base =
+                snapshot.session.subtotal_cents > 0
+                  ? snapshot.session.subtotal_cents
+                  : snapshot.session.total_cents;
+              if (base <= 0) return null;
+              const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalCents(base);
+              return (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={[s.summaryMeta, { fontWeight: '700' }]}>Est. sales tax (8.25%)</Text>
+                  <Text style={[s.summaryMeta, { marginTop: 2 }]}>{formatUsdRangeFromCents(minCents, maxCents)}</Text>
+                </View>
+              );
+            })()}
             <Text style={s.summaryMeta}>
               {snapshot.members.length} members · {snapshot.items.length} items
             </Text>

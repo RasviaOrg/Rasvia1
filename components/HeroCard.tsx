@@ -158,13 +158,20 @@ export function HeroCard({ restaurant, index, onPress, isFavorite, onToggleFavor
               <View
                 key={tag}
                 className="rounded-full px-2.5 py-0.5 mr-2"
-                style={{ backgroundColor: "rgba(255,153,51,0.85)" }}
+                style={{
+                  backgroundColor: isDark ? "rgba(255,153,51,0.88)" : "rgba(234,88,12,0.92)",
+                  borderWidth: isDark ? 0 : 1,
+                  borderColor: "rgba(194,65,12,0.35)",
+                }}
               >
                 <Text
                   style={{
                     fontFamily: "Manrope_600SemiBold",
                     color: "#ffffff",
-                    fontSize: 11,
+                    fontSize: 12,
+                    textShadowColor: "rgba(0,0,0,0.4)",
+                    textShadowOffset: { width: 0, height: 1 },
+                    textShadowRadius: 3,
                   }}
                 >
                   {tag}

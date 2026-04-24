@@ -624,7 +624,7 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
    * we let owners collapse it. Persisted per-restaurant via SecureStore so the
    * preference sticks across app launches.
    */
-  const [tagsCollapsed, setTagsCollapsed] = useState(false);
+  const [tagsCollapsed, setTagsCollapsed] = useState(true);
 
   const tagsCollapsedKey = restaurantId ? `rasvia.menu_tags_collapsed.${restaurantId}` : null;
 
@@ -841,27 +841,6 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     <View>
       {canEdit && (
         <View style={{ marginBottom: 12 }}>
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 10 }}>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowAddItem(true);
-              }}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: "rgba(34,197,94,0.12)",
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: "rgba(34,197,94,0.3)",
-              }}
-            >
-              <Plus size={14} color="#22C55E" />
-              <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#22C55E", fontSize: 12, marginLeft: 4 }}>Add Item</Text>
-            </Pressable>
-          </View>
           <View style={{ backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder, padding: 10 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: tagsCollapsed ? 0 : 8 }}>
               <Pressable
@@ -886,16 +865,16 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
                     flexDirection: "row",
                     alignItems: "center",
                     gap: 4,
-                    backgroundColor: "rgba(255,153,51,0.12)",
+                    backgroundColor: "rgba(255,153,51,0.24)",
                     borderWidth: 1,
-                    borderColor: "rgba(255,153,51,0.4)",
+                    borderColor: "rgba(255,153,51,0.55)",
                     borderRadius: 8,
                     paddingHorizontal: 10,
                     paddingVertical: 6,
                   }}
                 >
                   <Plus size={12} color="#FF9933" />
-                  <Text style={{ color: "#FF9933", fontFamily: "Manrope_700Bold", fontSize: 11 }}>Add Tag</Text>
+                  <Text style={{ color: "#E07820", fontFamily: "Manrope_700Bold", fontSize: 11 }}>Add Tag</Text>
                 </Pressable>
                 {/* Collapse chevron: lets owners shrink the tag list so the
                     item grid below gets more viewport. State is persisted
@@ -1006,6 +985,27 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
               ))}
             </View>
             )}
+          </View>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 10 }}>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowAddItem(true);
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "rgba(34,197,94,0.2)",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "rgba(34,197,94,0.45)",
+              }}
+            >
+              <Plus size={14} color="#16A34A" />
+              <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#16A34A", fontSize: 12, marginLeft: 4 }}>Add Item</Text>
+            </Pressable>
           </View>
         </View>
       )}

@@ -37,6 +37,7 @@ export function FoodDetailModal({
   menuTags,
 }: FoodDetailModalProps) {
   const { colors, isDark } = useAppTheme();
+  const primaryCtaTextColor = isDark ? "#0f0f0f" : "#ffffff";
   const hasImage = !!item.image?.trim();
   const addBlocked = !canAddToCart || item.isAvailable === false;
   const addLabel = !canAddToCart
@@ -393,11 +394,11 @@ export function FoodDetailModal({
                 elevation: addBlocked ? 0 : 8,
               }}
             >
-              {!addBlocked && <Plus size={20} color="#0f0f0f" strokeWidth={3} />}
+              {!addBlocked && <Plus size={20} color={primaryCtaTextColor} strokeWidth={3} />}
               <Text
                 style={{
                   fontFamily: "BricolageGrotesque_700Bold",
-                  color: addBlocked ? colors.textMuted : "#0f0f0f",
+                  color: addBlocked ? colors.textMuted : primaryCtaTextColor,
                   fontSize: addBlocked ? 15 : 17,
                   marginLeft: addBlocked ? 0 : 8,
                   textAlign: "center",

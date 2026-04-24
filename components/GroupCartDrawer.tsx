@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { X, Minus, Plus, Users, Share2, Clock, ShoppingBag } from "lucide-react-
 import type { CartItem, GroupMember } from "@/data/mockData";
 import * as Haptics from "expo-haptics";
 import { useAppTheme } from "@/lib/app-theme";
+import { estimatedTaxRangeCentsFromSubtotalDollars, formatUsdRangeFromCents } from "@/lib/texas-sales-tax-estimate";
 import Animated, {
   FadeIn,
   FadeInLeft,
@@ -46,7 +47,15 @@ export function GroupCartDrawer({
   isClosed = false,
 }: GroupCartDrawerProps) {
   const { colors, isDark } = useAppTheme();
-  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const totalQuantity = items.reduce((sum, item) => sum + Math.max(0, Number(item.quantity ?? 0)), 0);
+  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartIsEmpty = totalQuantity <= 0 || subtotal <= 0;
+  const checkoutDisabled = isClosed || cartIsEmpty;
+  const taxEstLabel = useMemo(() => {
+    if (subtotal <= 0) return null;
+    const { minCents, maxCents } = estimatedTaxRangeCentsFromSubtotalDollars(subtotal);
+    return formatUsdRangeFromCents(minCents, maxCents);
+  }, [subtotal]);
 
   const checkoutScale = useSharedValue(1);
   const checkoutStyle = useAnimatedStyle(() => ({
@@ -54,7 +63,7 @@ export function GroupCartDrawer({
   }));
 
   const handleCheckout = () => {
-    if (isClosed) return;
+    if (checkoutDisabled) return;
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
@@ -257,24 +266,34 @@ export function GroupCartDrawer({
 
       {/* Footer */}
       <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: Platform.OS === "ios" ? 36 : 24, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: taxEstLabel ? 6 : 16 }}>
           <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textMuted, fontSize: 15 }}>
-            Total
+            Subtotal
           </Text>
           <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: colors.text, fontSize: 22 }}>
-            ${total.toFixed(2)}
+            ${subtotal.toFixed(2)}
           </Text>
         </View>
+        {taxEstLabel ? (
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13 }}>
+              Est. sales tax (8.25%)
+            </Text>
+            <Text style={{ fontFamily: "JetBrainsMono_500Medium", color: colors.textMuted, fontSize: 15 }}>
+              {taxEstLabel}
+            </Text>
+          </View>
+        ) : null}
 
         <Animated.View style={checkoutStyle}>
           <Pressable
             onPress={handleCheckout}
-            disabled={isClosed}
+            disabled={checkoutDisabled}
             onPressIn={() => {
-              if (!isClosed) checkoutScale.value = withSpring(0.96);
+              if (!checkoutDisabled) checkoutScale.value = withSpring(0.96);
             }}
             onPressOut={() => {
-              if (!isClosed) checkoutScale.value = withSpring(1);
+              if (!checkoutDisabled) checkoutScale.value = withSpring(1);
             }}
             style={{
               borderRadius: 18,
@@ -283,22 +302,26 @@ export function GroupCartDrawer({
               flexDirection: "row",
               justifyContent: "center",
               gap: 8,
-              backgroundColor: isClosed ? colors.switchTrackOff : (isDark ? "#FF9933" : "#b45309"),
-              opacity: isClosed ? 0.7 : 1,
-              shadowColor: isClosed ? "transparent" : "#FF9933",
+              backgroundColor: checkoutDisabled ? colors.backgroundElevated : (isDark ? "#FF9933" : "#fb923c"),
+              opacity: checkoutDisabled ? 0.92 : 1,
+              shadowColor: checkoutDisabled ? "transparent" : "#FF9933",
               shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: isClosed ? 0 : 0.35,
+              shadowOpacity: checkoutDisabled ? 0 : 0.35,
               shadowRadius: 12,
-              elevation: isClosed ? 0 : 8,
+              elevation: checkoutDisabled ? 0 : 8,
+              borderWidth: checkoutDisabled ? 1 : 0,
+              borderColor: checkoutDisabled ? colors.cardBorder : "transparent",
             }}
           >
-            {isClosed ? (
+            {checkoutDisabled ? (
               <Clock size={16} color={colors.textMuted} />
             ) : (
               <ShoppingBag size={18} color={isDark ? "#0f0f0f" : "#ffffff"} strokeWidth={2.5} />
             )}
-            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isClosed ? colors.textMuted : (isDark ? "#0f0f0f" : "#ffffff"), fontSize: 17 }}>
-              {isClosed
+            <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: checkoutDisabled ? colors.textMuted : (isDark ? "#0f0f0f" : "#ffffff"), fontSize: 17 }}>
+              {cartIsEmpty
+                ? "Cart empty"
+                : isClosed
                 ? "Currently Closed"
                 : isGroupMode
                 ? "Place Group Order"
