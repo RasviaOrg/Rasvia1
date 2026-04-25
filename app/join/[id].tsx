@@ -84,7 +84,7 @@ function createJoinPartyStyles(colors: AppColors, isDark: boolean) {
     joinNotNowBtn: { marginTop: 10, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: hairline, backgroundColor: colors.card },
     joinNotNowText: { color: colors.textMuted, fontWeight: '700' },
 
-    topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 54, paddingBottom: 12, gap: 8 },
+    topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 64, paddingBottom: 12, gap: 8 },
     topTitle: { color: colors.text, fontFamily: 'BricolageGrotesque_700Bold', fontSize: 18 },
     topSubtitle: { color: colors.textMuted, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 },
 
@@ -881,7 +881,7 @@ export default function JoinPartyScreen() {
   if (session.status === 'cancelled') {
     return wrapJoin(
       <>
-        <Stack.Screen options={{ headerShown: false }} />
+        <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
         <View style={joinS.centered}>
           <Animated.View entering={FadeIn} style={{ alignItems: 'center', gap: 10, maxWidth: 340 }}>
             <View style={joinS.cancelledBadge}><X size={32} color="#EF4444" strokeWidth={3} /></View>
@@ -912,7 +912,7 @@ export default function JoinPartyScreen() {
     const hasPrefill = nameInput.trim().length > 0;
     return wrapJoin(
       <>
-        <Stack.Screen options={{ headerShown: false }} />
+        <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={joinS.joinContainer}>
           <Animated.View entering={FadeIn} style={joinS.joinCard}>
             <View style={joinS.joinBadge}>
@@ -927,6 +927,7 @@ export default function JoinPartyScreen() {
               style={joinS.nameInput}
               value={nameInput}
               onChangeText={setNameInput}
+              onBlur={() => setNameInput((v) => v.trim())}
               autoFocus={!hasPrefill}
               selectTextOnFocus
               maxLength={60}
@@ -970,7 +971,7 @@ export default function JoinPartyScreen() {
   if (view === 'pay' && (session.status === 'locked' || session.status === 'paying')) {
     return wrapJoin(
       <>
-        <Stack.Screen options={{ headerShown: false }} />
+        <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
         <View style={joinS.container}>
           <TopBar
             title={restaurant?.name ?? 'Group order'}
@@ -1108,7 +1109,7 @@ export default function JoinPartyScreen() {
     );
     return wrapJoin(
       <>
-        <Stack.Screen options={{ headerShown: false }} />
+        <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
         <View style={joinS.container}>
           <TopBar
             title={restaurant?.name ?? 'Tableside'}
@@ -1194,13 +1195,14 @@ export default function JoinPartyScreen() {
   // ── Browse & Add stage (default) ────────────────────────────────────────
   return wrapJoin(
     <>
-      <Stack.Screen options={{ headerShown: false }} />
+      <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
       <View style={joinS.container}>
         <TopBar
           title={restaurant?.name ?? 'Group order'}
           subtitle={`${members.length} member${members.length === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`}
           rightIcon="share"
-          onBack={() => router.back()}
+          leftStyle={isHost ? 'cancel-x' : 'arrow'}
+          onBack={isHost ? () => { hapticTap(); setShowCancelConfirm(true); } : () => router.back()}
           onRight={handleShare}
         />
 
@@ -1275,6 +1277,10 @@ export default function JoinPartyScreen() {
           guestCartLocked={nonHostCartLocked}
           restaurantId={restaurant?.id}
           onLeave={handleLeave}
+          onGoBack={isHost ? () => {
+            hapticTap();
+            router.push({ pathname: '/host_party', params: { sessionId } } as any);
+          } : undefined}
         />
 
         <MemberItemsSheet
@@ -1293,6 +1299,8 @@ export default function JoinPartyScreen() {
           cartLocked={nonHostCartLocked}
           onCartLocked={showCartLockAlert}
         />
+        {/* Cancel sheet for host X button */}
+        <CancelSheet visible={showCancelConfirm} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
       </View>
     </>
   );
@@ -1302,19 +1310,31 @@ export default function JoinPartyScreen() {
 // Components
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TopBar({ title, subtitle, onBack, rightIcon, onRight }: { title: string; subtitle?: string; onBack?: () => void; rightIcon?: 'share' | 'close'; onRight?: () => void }) {
+function TopBar({ title, subtitle, onBack, leftStyle = 'arrow', rightIcon, onRight }: { title: string; subtitle?: string; onBack?: () => void; leftStyle?: 'arrow' | 'cancel-x'; rightIcon?: 'share' | 'close'; onRight?: () => void }) {
   const s = useJoinS();
   const { colors } = useAppTheme();
   return (
     <View style={s.topBar}>
       <Pressable
         onPress={() => {
-          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           onBack?.();
         }}
         hitSlop={12}
+        style={leftStyle === 'cancel-x' ? {
+          width: 34,
+          height: 34,
+          borderRadius: 17,
+          backgroundColor: 'rgba(239,68,68,0.12)',
+          borderWidth: 1,
+          borderColor: 'rgba(239,68,68,0.35)',
+          alignItems: 'center',
+          justifyContent: 'center',
+        } : undefined}
       >
-        <ArrowLeft size={22} color={colors.text} />
+        {leftStyle === 'cancel-x'
+          ? <X size={18} color="#EF4444" strokeWidth={2.5} />
+          : <ArrowLeft size={22} color={colors.text} />}
       </Pressable>
       <View style={{ flex: 1, marginLeft: 8 }}>
         <Text style={s.topTitle} numberOfLines={1}>{title}</Text>
@@ -1566,6 +1586,8 @@ function CartSummary(props: {
   onRemove: (item: PartyItem) => void;
   onChangeQty: (item: PartyItem, delta: number) => void;
   onLeave: () => void;
+  /** Host-only: navigates back to the QR/share page without leaving. */
+  onGoBack?: () => void;
 }) {
   const s = useJoinS();
   const { colors } = useAppTheme();
@@ -1647,9 +1669,10 @@ function CartSummary(props: {
       <View style={{ flexDirection: 'row', padding: 12, gap: 10 }}>
         <Pressable onPress={() => {
           if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          props.onLeave();
+          if (props.isHost && props.onGoBack) props.onGoBack();
+          else props.onLeave();
         }} style={[s.secondaryBtn, { flex: 1 }]}>
-          <Text style={s.secondaryBtnText}>Leave</Text>
+          <Text style={s.secondaryBtnText}>{props.isHost ? 'Go Back' : 'Leave'}</Text>
         </Pressable>
         {props.isHost ? (() => {
           const needsGuests = props.members.length < 2;
@@ -1778,7 +1801,7 @@ function ReviewStage({
   const { taxCents, loading: taxLoading } = useCartTax(restaurant?.id ?? -1, taxItems);
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
+      <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
       <View style={s.container}>
         <TopBar title="Review" subtitle={restaurant?.name ?? undefined} onBack={onBack} />
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 180 }}>
@@ -2068,7 +2091,7 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
   const myPayment = paymentForMember(snapshot.payments, creds.memberId);
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
+      <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
       <View style={s.container}>
         <ScrollView
           contentContainerStyle={{ padding: 20, paddingTop: 80, paddingBottom: 140 }}

@@ -457,7 +457,7 @@ function EditableMenuItem({
     <View style={{ position: "relative" }}>
       <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} menuTags={menuTags} />
 
-      {isCustomStripeTaxCode(item.stripeTaxCode) && (
+      {canEdit && isCustomStripeTaxCode(item.stripeTaxCode) && (
         <View
           style={{
             position: "absolute",

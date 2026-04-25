@@ -1728,6 +1728,7 @@ export default function DiscoveryFeed() {
           {activeGroupOrders.length > 0 && (
             <Animated.View
               entering={FadeInDown.duration(360)}
+              exiting={FadeOutDown.duration(400)}
               style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 8 }}
             >
               {activeGroupOrders.map((party) => (

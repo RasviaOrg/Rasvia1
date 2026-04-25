@@ -795,6 +795,7 @@ export function CheckoutModal({
                                     <TextInput
                                         value={customerName}
                                         onChangeText={setCustomerName}
+                                        onBlur={() => setCustomerName((v) => v.trim())}
                                         placeholder="e.g. John Doe"
                                         placeholderTextColor={colors.textMuted}
                                         style={{
@@ -889,6 +890,7 @@ export function CheckoutModal({
                                 <TextInput
                                     value={notes}
                                     onChangeText={setNotes}
+                                    onBlur={() => setNotes((v) => v.trim())}
                                     placeholder="Allergies, preferences, requests..."
                                     placeholderTextColor={colors.textMuted}
                                     multiline

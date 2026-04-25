@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   Animated as RNAnimated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import {
   Bell,
   BellRing,
@@ -44,6 +44,8 @@ import {
   type ActiveWaitlistEntry,
 } from "@/lib/notifications-context";
 import { useAppTheme } from "@/lib/app-theme";
+import { useAuth } from "@/lib/auth-context";
+import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
 
 // ==========================================
 // RELATIVE TIME HELPER
@@ -884,14 +886,33 @@ function NotificationRow({
 export default function NotificationsScreen() {
   const { colors } = useAppTheme();
   const router = useRouter();
+  const { session } = useAuth();
   const {
     events,
     activeEntries,
     clearAll,
+    markAllRead,
     refreshActive,
     removeEvent,
     dismissEntry,
   } = useNotifications();
+
+  // Mirror the same loading-blur gate the other tabs use.
+  // Keep the veil up until the entrance spring (~380 ms) plus one rAF tick.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setReady(true), 420);
+    return () => clearTimeout(id);
+  }, []);
+  const showBlur = !ready && !!session?.user?.id;
+
+  // Mark all notifications as read when the Alerts tab comes into focus.
+  // Wrapped in try/catch so any unexpected error can't crash the screen.
+  useFocusEffect(
+    useCallback(() => {
+      try { markAllRead(); } catch {}
+    }, [markAllRead])
+  );
 
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -964,6 +985,7 @@ export default function NotificationsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.homeBg }} edges={["top"]}>
         <TabScreenEntrance>
+        {showBlur && <LoadingBlurOverlay />}
         <View style={{ flex: 1, backgroundColor: colors.homeBg }}>
         {/* Header */}
         <View

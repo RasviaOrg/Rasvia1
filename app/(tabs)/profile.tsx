@@ -1546,6 +1546,7 @@ export default function ProfileSettingsScreen() {
                         <TextInput
                           value={tempFirstName}
                           onChangeText={setTempFirstName}
+                          onBlur={() => setTempFirstName((v) => v.trim())}
                           style={{
                             backgroundColor: colors.pressableBg,
                             borderRadius: 12,
@@ -1566,6 +1567,7 @@ export default function ProfileSettingsScreen() {
                         <TextInput
                           value={tempLastName}
                           onChangeText={setTempLastName}
+                          onBlur={() => setTempLastName((v) => v.trim())}
                           style={{
                             backgroundColor: colors.pressableBg,
                             borderRadius: 12,

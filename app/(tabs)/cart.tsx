@@ -4,14 +4,14 @@ import { CachedImage } from "@/components/CachedImage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { Minus, Plus, ShoppingCart, Trash2, UtensilsCrossed, Truck, Users } from "lucide-react-native";
+import { Crown, Minus, Plus, ShoppingCart, Trash2, UtensilsCrossed, Truck, Users, X } from "lucide-react-native";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 import { useAppTheme } from "@/lib/app-theme";
 import { LoadingBlurOverlay } from "@/components/LoadingBlurOverlay";
 import { TabScreenEntrance } from "@/components/TabScreenEntrance";
 import { TaxEstimateLine } from "@/components/TaxEstimateLine";
 import { formatCentsUsd } from "@/lib/texas-sales-tax-estimate";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 import { useCartTax } from "@/hooks/useCartTax";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -23,6 +23,20 @@ import {
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { parsePartySessionIdFromInput } from "@/lib/parse-party-session-input";
 import { supabase } from "@/lib/supabase";
+import { loadActiveParties, removeActiveParty, subscribeActiveParties } from "@/lib/party-active";
+import { loadPartyCreds, clearPartyCreds } from "@/lib/party-credentials";
+import { cancelSession, leaveSession } from "@/lib/party-session";
+import * as SecureStore from "expo-secure-store";
+
+type ActiveGroupInfo = {
+  sessionId: string;
+  restaurantName: string;
+  restaurantId: number;
+  memberCount: number;
+  itemCount: number;
+  subtotalCents: number;
+  isHost: boolean;
+};
 
 type RestaurantCartGroup = {
   /** Composite key — restaurantId + orderType. A user can legitimately have
@@ -51,6 +65,9 @@ export default function CartScreen() {
   const reqCounter = useRef(0);
   const hasCompletedCartLoadRef = useRef(false);
   const [joinGroupInput, setJoinGroupInput] = useState("");
+  const [activeGroup, setActiveGroup] = useState<ActiveGroupInfo | null>(null);
+  const [activeGroupLoading, setActiveGroupLoading] = useState(false);
+  const [leavingGroup, setLeavingGroup] = useState(false);
 
   useEffect(() => {
     hasCompletedCartLoadRef.current = false;
@@ -79,6 +96,118 @@ export default function CartScreen() {
       void reloadCart("soft");
     }, [reloadCart])
   );
+
+  const loadActiveGroup = useCallback(async () => {
+    setActiveGroupLoading(true);
+    try {
+      const ids = await loadActiveParties();
+      if (ids.length === 0) { setActiveGroup(null); return; }
+      const sessionId = ids[0];
+      const creds = await loadPartyCreds(sessionId);
+      if (!creds) { await removeActiveParty(sessionId); setActiveGroup(null); return; }
+
+      const [sessRes, memRes, itemRes] = await Promise.all([
+        supabase.from('party_sessions').select('restaurant_id, status').eq('id', sessionId).maybeSingle(),
+        supabase.from('party_members').select('id, role').eq('session_id', sessionId).is('left_at', null),
+        supabase.from('party_items').select('quantity, menu_item:menu_items(price)').eq('session_id', sessionId),
+      ]);
+      if (!sessRes.data) { setActiveGroup(null); return; }
+      const status = String(sessRes.data.status ?? '');
+      if (status === 'completed' || status === 'cancelled') {
+        await removeActiveParty(sessionId);
+        setActiveGroup(null);
+        return;
+      }
+      const restaurantId = sessRes.data.restaurant_id as number;
+      let restaurantName = 'Restaurant';
+      try {
+        const { data: r } = await supabase.from('restaurants').select('name').eq('id', restaurantId).maybeSingle();
+        if ((r as any)?.name) restaurantName = String((r as any).name);
+      } catch { /* ignore */ }
+      const members = (memRes.data ?? []) as { id: string; role: string }[];
+      const isHost = members.some(m => m.id === creds.memberId && m.role === 'host');
+      const rawItems = (itemRes.data ?? []) as unknown as { quantity: number | null; menu_item: { price: number } | null }[];
+      const itemCount = rawItems.reduce((s, it) => s + (it.quantity ?? 1), 0);
+      const subtotalCents = rawItems.reduce((s, it) => {
+        const price = Number((it.menu_item as any)?.price ?? 0);
+        return s + Math.round(price * 100) * (it.quantity ?? 1);
+      }, 0);
+      setActiveGroup({ sessionId, restaurantName, restaurantId, memberCount: members.length, itemCount, subtotalCents, isHost });
+    } catch {
+      setActiveGroup(null);
+    } finally {
+      setActiveGroupLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    void loadActiveGroup();
+    const unsub = subscribeActiveParties(() => { void loadActiveGroup(); });
+    return unsub;
+  }, [loadActiveGroup]));
+
+  const handleCancelActiveGroup = useCallback(() => {
+    if (!activeGroup) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert('Cancel group order?', 'All members will be removed and any payments refunded.', [
+      { text: 'Never mind', style: 'cancel' },
+      {
+        text: 'Cancel & refund',
+        style: 'destructive',
+        onPress: async () => {
+          const creds = await loadPartyCreds(activeGroup.sessionId);
+          if (!creds) return;
+          setLeavingGroup(true);
+          try {
+            await cancelSession(supabase, creds);
+            await clearPartyCreds(activeGroup.sessionId);
+            await removeActiveParty(activeGroup.sessionId);
+            try {
+              const k = `rasvia_active_group_order_${session?.user?.id}`;
+              const raw = await SecureStore.getItemAsync(k);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (String(parsed?.sessionId ?? '') === activeGroup.sessionId) await SecureStore.deleteItemAsync(k);
+              }
+            } catch { /* ignore */ }
+            setActiveGroup(null);
+          } catch (err) {
+            Alert.alert('Cancel failed', err instanceof Error ? err.message : 'Try again.');
+          } finally {
+            setLeavingGroup(false);
+          }
+        },
+      },
+    ]);
+  }, [activeGroup, session?.user?.id]);
+
+  const handleLeaveActiveGroup = useCallback(() => {
+    if (!activeGroup) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert('Leave group order?', 'Your items will be removed if the cart is still open.', [
+      { text: 'Stay', style: 'cancel' },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: async () => {
+          const creds = await loadPartyCreds(activeGroup.sessionId);
+          if (!creds) return;
+          setLeavingGroup(true);
+          try {
+            await leaveSession(supabase, creds);
+            await clearPartyCreds(activeGroup.sessionId);
+            await removeActiveParty(activeGroup.sessionId);
+            setActiveGroup(null);
+          } catch {
+            /* ignore — session might already be gone */
+            setActiveGroup(null);
+          } finally {
+            setLeavingGroup(false);
+          }
+        },
+      },
+    ]);
+  }, [activeGroup]);
 
   const goHome = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -306,124 +435,224 @@ export default function CartScreen() {
           </Text>
         </View>
 
-        <View
-          style={{
+        {activeGroupLoading ? (
+          <View style={{
             marginBottom: 16,
             borderRadius: 14,
             borderWidth: 1,
             borderColor: isDark ? "rgba(255,153,51,0.28)" : "rgba(194,65,12,0.35)",
             backgroundColor: isDark ? "rgba(255,153,51,0.08)" : "rgba(255,153,51,0.12)",
-            padding: 12,
-            gap: 10,
-          }}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <View
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 8,
-                backgroundColor: isDark ? "rgba(255,153,51,0.18)" : "rgba(255,153,51,0.22)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Users size={15} color={colors.saffron} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  fontFamily: "Manrope_700Bold",
-                  fontSize: 13,
-                  color: colors.text,
-                }}
-              >
-                Join a group order
-              </Text>
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  fontSize: 11,
-                  color: colors.textMuted,
-                  marginTop: 2,
-                  lineHeight: 15,
-                }}
-              >
-                Same as scanning the table QR — paste a link or id.
-              </Text>
-            </View>
+            padding: 16,
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 64,
+          }}>
+            <ActivityIndicator size="small" color={colors.saffron} />
           </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <TextInput
-              value={joinGroupInput}
-              onChangeText={setJoinGroupInput}
-              placeholder="Paste link or session id"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="go"
-              onSubmitEditing={() => {
-                const id = parsePartySessionIdFromInput(joinGroupInput);
-                if (!id) {
-                  Alert.alert(
-                    "Could not open group order",
-                    "Paste a full join link or a session id (UUID).",
-                  );
-                  return;
-                }
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setJoinGroupInput("");
-                router.push(`/join/${id}` as any);
-              }}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                fontFamily: "Manrope_500Medium",
-                fontSize: 14,
-                color: colors.text,
-                backgroundColor: colors.backgroundElevated,
-                borderWidth: 1,
-                borderColor: colors.cardBorder,
-                borderRadius: 10,
-                paddingVertical: Platform.OS === "ios" ? 11 : 9,
-                paddingHorizontal: 12,
-              }}
-            />
+        ) : activeGroup ? (
+          /* ── Active group order card ── */
+          <Animated.View entering={FadeInDown.duration(300)} exiting={FadeOut.duration(450)} style={{
+            marginBottom: 16,
+            borderRadius: 14,
+            borderWidth: 1.5,
+            borderColor: isDark ? "rgba(255,153,51,0.4)" : "rgba(194,65,12,0.45)",
+            backgroundColor: isDark ? "rgba(255,153,51,0.1)" : "rgba(255,153,51,0.14)",
+            overflow: "hidden",
+          }}>
+            {/* Header row */}
             <Pressable
               onPress={() => {
-                const id = parsePartySessionIdFromInput(joinGroupInput);
-                if (!id) {
-                  Alert.alert(
-                    "Could not open group order",
-                    "Paste a full join link or a session id (UUID).",
-                  );
-                  return;
-                }
                 if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setJoinGroupInput("");
-                router.push(`/join/${id}` as any);
+                router.push(`/join/${activeGroup.sessionId}` as any);
               }}
-              style={{
-                backgroundColor: colors.saffron,
-                paddingHorizontal: 16,
-                paddingVertical: Platform.OS === "ios" ? 11 : 10,
+              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12 }}
+            >
+              <View style={{
+                width: 36,
+                height: 36,
                 borderRadius: 10,
+                backgroundColor: isDark ? "rgba(255,153,51,0.22)" : "rgba(255,153,51,0.26)",
                 alignItems: "center",
                 justifyContent: "center",
-              }}
-            >
-              <Text
+              }}>
+                {activeGroup.isHost
+                  ? <Crown size={18} color={colors.saffron} />
+                  : <Users size={18} color={colors.saffron} />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 13, color: colors.text }}>
+                  {activeGroup.isHost ? 'Hosting' : 'Group order'} · {activeGroup.restaurantName}
+                </Text>
+                <Text style={{ fontFamily: "Manrope_500Medium", fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                  {activeGroup.memberCount} member{activeGroup.memberCount === 1 ? '' : 's'} · {activeGroup.itemCount} item{activeGroup.itemCount === 1 ? '' : 's'} · {formatCentsUsd(activeGroup.subtotalCents)}
+                </Text>
+              </View>
+              <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: colors.saffron }}>Open →</Text>
+            </Pressable>
+            {/* Action row */}
+            <View style={{
+              flexDirection: "row",
+              borderTopWidth: 1,
+              borderTopColor: isDark ? "rgba(255,153,51,0.2)" : "rgba(194,65,12,0.2)",
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              gap: 8,
+            }}>
+              {leavingGroup ? (
+                <ActivityIndicator size="small" color={colors.textMuted} style={{ flex: 1 }} />
+              ) : activeGroup.isHost ? (
+                <Pressable onPress={handleCancelActiveGroup} style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                  backgroundColor: "rgba(239,68,68,0.1)",
+                  borderWidth: 1,
+                  borderColor: "rgba(239,68,68,0.3)",
+                }}>
+                  <X size={13} color="#EF4444" />
+                  <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: "#EF4444" }}>Cancel order</Text>
+                </Pressable>
+              ) : (
+                <Pressable onPress={handleLeaveActiveGroup} style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                  backgroundColor: colors.backgroundElevated,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                }}>
+                  <Text style={{ fontFamily: "Manrope_700Bold", fontSize: 12, color: colors.textMuted }}>Leave</Text>
+                </Pressable>
+              )}
+            </View>
+          </Animated.View>
+        ) : (
+          /* ── Join a group order ── */
+          <View
+            style={{
+              marginBottom: 16,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: isDark ? "rgba(255,153,51,0.28)" : "rgba(194,65,12,0.35)",
+              backgroundColor: isDark ? "rgba(255,153,51,0.08)" : "rgba(255,153,51,0.12)",
+              padding: 12,
+              gap: 10,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View
                 style={{
-                  fontFamily: "Manrope_700Bold",
-                  fontSize: 13,
-                  color: isDark ? "#0f0f0f" : "#ffffff",
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  backgroundColor: isDark ? "rgba(255,153,51,0.18)" : "rgba(255,153,51,0.22)",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
-                Open
-              </Text>
-            </Pressable>
+                <Users size={15} color={colors.saffron} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontFamily: "Manrope_700Bold",
+                    fontSize: 13,
+                    color: colors.text,
+                  }}
+                >
+                  Join a group order
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: "Manrope_500Medium",
+                    fontSize: 11,
+                    color: colors.textMuted,
+                    marginTop: 2,
+                    lineHeight: 15,
+                  }}
+                >
+                  Same as scanning the table QR — paste a link or id.
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TextInput
+                value={joinGroupInput}
+                onChangeText={setJoinGroupInput}
+                placeholder="Paste link or session id"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="go"
+                onSubmitEditing={() => {
+                  const id = parsePartySessionIdFromInput(joinGroupInput);
+                  if (!id) {
+                    Alert.alert(
+                      "Could not open group order",
+                      "Paste a full join link or a session id (UUID).",
+                    );
+                    return;
+                  }
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setJoinGroupInput("");
+                  router.push(`/join/${id}` as any);
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontFamily: "Manrope_500Medium",
+                  fontSize: 14,
+                  color: colors.text,
+                  backgroundColor: colors.backgroundElevated,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  borderRadius: 10,
+                  paddingVertical: Platform.OS === "ios" ? 11 : 9,
+                  paddingHorizontal: 12,
+                }}
+              />
+              <Pressable
+                onPress={() => {
+                  const id = parsePartySessionIdFromInput(joinGroupInput);
+                  if (!id) {
+                    Alert.alert(
+                      "Could not open group order",
+                      "Paste a full join link or a session id (UUID).",
+                    );
+                    return;
+                  }
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setJoinGroupInput("");
+                  router.push(`/join/${id}` as any);
+                }}
+                style={{
+                  backgroundColor: colors.saffron,
+                  paddingHorizontal: 16,
+                  paddingVertical: Platform.OS === "ios" ? 11 : 10,
+                  borderRadius: 10,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: "Manrope_700Bold",
+                    fontSize: 13,
+                    color: isDark ? "#0f0f0f" : "#ffffff",
+                  }}
+                >
+                  Open
+                </Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
+        )}
 
         {loading ? (
           <View style={{ flex: 1 }} />
@@ -546,14 +775,16 @@ export default function CartScreen() {
                   {grandEstTotalLabel}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-                  <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
-                    Subtotal {formatCentsUsd(Math.round(grandTotal * 100))} + tax
-                  </Text>
                   {grandTaxLoading ? (
-                    <ActivityIndicator size="small" color={colors.textMuted} style={{ transform: [{ scale: 0.55 }] }} />
+                    <>
+                      <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
+                        Subtotal {formatCentsUsd(Math.round(grandTotal * 100))} + tax
+                      </Text>
+                      <ActivityIndicator size="small" color={colors.textMuted} style={{ transform: [{ scale: 0.55 }] }} />
+                    </>
                   ) : (
                     <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium", fontSize: 11 }}>
-                      {formatCentsUsd(grandTaxCents)}
+                      Subtotal {formatCentsUsd(Math.round(grandTotal * 100))} + {grandTaxCents > 0 ? `${formatCentsUsd(grandTaxCents)} tax` : "tax"}
                     </Text>
                   )}
                 </View>
@@ -567,10 +798,10 @@ export default function CartScreen() {
                   backgroundColor: checkoutDisabled
                     ? colors.pressableBg
                     : pressed
-                    ? (isDark ? "#e88829" : "#ea6a00")
-                    : (isDark ? "#FF9933" : "#f97316"),
+                    ? "#e88829"
+                    : "#FF9933",
                   opacity: checkoutDisabled ? 0.85 : 1,
-                  borderRadius: 14,
+                  borderRadius: 10,
                   paddingHorizontal: 22,
                   paddingVertical: 14,
                   flexDirection: "row",
@@ -587,11 +818,11 @@ export default function CartScreen() {
               >
                 <ShoppingCart
                   size={16}
-                  color={checkoutDisabled ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff"}
+                  color={checkoutDisabled ? colors.textMuted : (isDark ? "#0f0f0f" : "#ffffff")}
                 />
                 <Text
                   style={{
-                    color: checkoutDisabled ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff",
+                    color: checkoutDisabled ? colors.textMuted : (isDark ? "#0f0f0f" : "#ffffff"),
                     fontFamily: "Manrope_700Bold",
                     fontSize: 15,
                     letterSpacing: 0.3,
@@ -746,7 +977,7 @@ function CartGroupCard({
                   <ActivityIndicator size="small" color={colors.textMuted} style={{ transform: [{ scale: 0.55 }] }} />
                 ) : taxCents !== null ? (
                   <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 9 }}>
-                    {`+ tax ${formatCentsUsd(taxCents)}`}
+                    {`+ ${formatCentsUsd(taxCents)} tax`}
                   </Text>
                 ) : null}
               </View>
@@ -777,7 +1008,7 @@ function CartGroupCard({
               borderRadius: 10,
               backgroundColor: groupClosed
                 ? colors.pressableBg
-                : isDark ? "#FF9933" : "#f97316",
+                : "#FF9933",
               opacity: groupClosed ? 0.7 : 1,
               borderWidth: groupClosed ? 1 : 0,
               borderColor: groupClosed ? colors.cardBorder : "transparent",
@@ -785,12 +1016,12 @@ function CartGroupCard({
           >
             <ShoppingCart
               size={11}
-              color={groupClosed ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff"}
+              color={groupClosed ? colors.textMuted : (isDark ? "#0f0f0f" : "#ffffff")}
             />
             <Text
               style={{
                 fontFamily: "Manrope_700Bold",
-                color: groupClosed ? colors.textMuted : isDark ? "#0f0f0f" : "#ffffff",
+                color: groupClosed ? colors.textMuted : (isDark ? "#0f0f0f" : "#ffffff"),
                 fontSize: 11,
                 letterSpacing: 0.3,
               }}

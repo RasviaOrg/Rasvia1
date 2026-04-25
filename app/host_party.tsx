@@ -93,7 +93,7 @@ export default function HostPartyScreen() {
   const { addEvent } = useNotifications();
   const { userCoords } = useLocation();
   const closedRestaurantIds = useClosedRestaurantIds();
-  const { restaurantId: paramRestaurantId } = useLocalSearchParams<{ restaurantId?: string }>();
+  const { restaurantId: paramRestaurantId, sessionId: paramSessionId } = useLocalSearchParams<{ restaurantId?: string; sessionId?: string }>();
 
   const currentUserId = session?.user?.id;
   const activeOrderKey = currentUserId
@@ -104,13 +104,19 @@ export default function HostPartyScreen() {
   // effect will fire shortly after mount. Skipping straight to "starting"
   // avoids a one-frame flash of the restaurant picker UI before the
   // session is created.
-  const [step, setStep] = useState<Step>(paramRestaurantId ? "starting" : "select");
+  // When arriving via "Go Back" from the restaurant menu (with an existing
+  // sessionId), jump straight to the QR/share "created" view.
+  const [step, setStep] = useState<Step>(
+    paramSessionId ? "created" : paramRestaurantId ? "starting" : "select"
+  );
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [selectedRestaurant, setSelectedRestaurant] =
     useState<Restaurant | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [shareUrl, setShareUrl] = useState<string>("");
+  const [sessionId, setSessionId] = useState<string | null>(paramSessionId ?? null);
+  const [shareUrl, setShareUrl] = useState<string>(
+    paramSessionId ? `https://rasvia.com/join?id=${paramSessionId}` : ""
+  );
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("none");
@@ -125,6 +131,26 @@ export default function HostPartyScreen() {
     checkExistingSession();
     fetchRestaurants();
   }, []);
+
+  // When navigated back from the restaurant menu via "Go Back", load the
+  // restaurant info so the header subtitle shows the right name.
+  useEffect(() => {
+    if (!paramSessionId) return;
+    const load = async () => {
+      try {
+        const { data } = await supabase
+          .from("party_sessions")
+          .select("restaurant_id, restaurants(id, name, cuisine_tags, image_url, current_wait_time, lat, long)")
+          .eq("id", paramSessionId)
+          .maybeSingle();
+        if (data?.restaurants) {
+          setSelectedRestaurant(data.restaurants as Restaurant);
+        }
+      } catch { /* ignore */ }
+    };
+    void load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramSessionId]);
 
   // Auto-start a group order when a restaurantId param is provided
   useEffect(() => {
@@ -160,13 +186,14 @@ export default function HostPartyScreen() {
       // handleStart reads selectedRestaurant from state, but since we're in an effect,
       // we call the creation logic inline here to avoid stale-closure issues.
       if (existingSession) {
-        setStep("select");
+        // Stay on "starting" (no restaurant list flash) and let the user navigate
+        // directly to their existing session or dismiss.
         Alert.alert(
           "Active Order Exists",
           `You already have an open group order at ${existingSession.restaurantName}. Cancel it or go to it first.`,
           [
-            { text: "Go to Order", onPress: () => router.push(`/join/${existingSession.id}` as any) },
-            { text: "Dismiss", style: "cancel" },
+            { text: "Go to Order", onPress: () => router.replace(`/join/${existingSession.id}` as any) },
+            { text: "Dismiss", style: "cancel", onPress: () => { if (router.canGoBack()) router.back(); else router.replace("/"); } },
           ]
         );
         return;
@@ -504,14 +531,21 @@ export default function HostPartyScreen() {
   };
 
   const goBack = useCallback(() => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/");
-  }, [router]);
+    // When on QR/share page (group order is live), navigate home and leave the
+    // restaurant menu — the group order remains active in the background.
+    if (step === "created") {
+      router.navigate("/" as any);
+    } else if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/");
+    }
+  }, [router, step]);
 
   return (
     <>
       <Stack.Screen
-        options={{ headerShown: false, gestureEnabled: step !== "created" }}
+        options={{ headerShown: false, gestureEnabled: false }}
       />
       <SafeAreaView
         style={{ flex: 1, backgroundColor: colors.background }}
