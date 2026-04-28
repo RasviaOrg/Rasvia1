@@ -16,51 +16,53 @@ export default function PrivacyPolicyScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingHorizontal: 20,
-            paddingTop: 12,
-            paddingBottom: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.cardBorder,
-            backgroundColor: colors.homeHeaderBg,
-          }}
-        >
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.back();
-            }}
+      <View style={{ backgroundColor: colors.homeHeaderBg }}>
+        <SafeAreaView edges={["top"]}>
+          <View
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              backgroundColor: colors.pressableBg,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
-              marginRight: 16,
-              borderWidth: 1,
-              borderColor: colors.cardBorder,
+              paddingHorizontal: 20,
+              paddingTop: 12,
+              paddingBottom: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.cardBorder,
             }}
           >
-            <ArrowLeft size={22} color={colors.text} />
-          </Pressable>
-          <Text
-            style={{
-              fontFamily: "BricolageGrotesque_800ExtraBold",
-              color: colors.text,
-              fontSize: 24,
-              letterSpacing: -0.5,
-            }}
-          >
-            Privacy Policy
-          </Text>
-        </View>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.back();
+              }}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: colors.pressableBg,
+                alignItems: "center",
+                justifyContent: "center",
+                marginRight: 16,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+              }}
+            >
+              <ArrowLeft size={22} color={colors.text} />
+            </Pressable>
+            <Text
+              style={{
+                fontFamily: "BricolageGrotesque_800ExtraBold",
+                color: colors.text,
+                fontSize: 24,
+                letterSpacing: -0.5,
+              }}
+            >
+              Privacy Policy
+            </Text>
+          </View>
+        </SafeAreaView>
+      </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: bottomPad }}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: bottomPad }}>
           <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 13, lineHeight: 20, marginBottom: 28 }}>
             Rasvia (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the Rasvia mobile application. This policy explains how we collect, use, and protect your information. By using Rasvia, you agree to this policy.
           </Text>
@@ -162,8 +164,7 @@ export default function PrivacyPolicyScreen() {
           <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 12, textAlign: "center" }}>
             Effective Date: March 3, 2025{"\n"}Last Updated: March 3, 2026
           </Text>
-        </ScrollView>
-      </SafeAreaView>
+      </ScrollView>
     </View>
   );
 }

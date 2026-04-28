@@ -221,7 +221,7 @@ function AuthGate() {
     const inAuthScreen = segments[0] === "auth";
     const inOnboarding = segments[0] === "onboarding";
     // Allow unauthenticated access to legal pages and email-verify landing
-    const inPublicRoute = inAuthScreen || (segments[0] as string) === "terms" || (segments[0] as string) === "privacy" || (segments[0] as string) === "email-verify" || (segments[0] as string) === "reset-password";
+    const inPublicRoute = inAuthScreen || (segments[0] as string) === "terms" || (segments[0] as string) === "privacy" || (segments[0] as string) === "email-verify" || (segments[0] as string) === "reset-password" || (segments[0] as string) === "join";
 
     if (!session && !inPublicRoute) {
       router.replace("/auth");

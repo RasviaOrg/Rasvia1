@@ -160,7 +160,11 @@ export default function DiscoveryFeed() {
   const [liveOrderTrack, setLiveOrderTrack] = useState<{
     id: string;
     restaurantName: string;
+    restaurantImageUrl?: string | null;
     status: OrderStatus;
+    isGroupOrder?: boolean;
+    /** True when this user is the party host (only they may cancel from the banner). */
+    isGroupOrderHost?: boolean;
   } | null>(null);
   const [allLiveOrders, setAllLiveOrders] = useState<{
     id: string;
@@ -848,10 +852,27 @@ export default function DiscoveryFeed() {
       setLiveOrderTrack(null);
       return;
     }
+
+    const fadeOutOrNull = () => {
+      const prev = liveOrderTrackRef.current;
+      const dismissed = dismissedLiveOrderIdsRef.current;
+      if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
+        liveOrderFadeOutRef.current = true;
+        bannerOpacity.value = withTiming(0, { duration: 620 }, (finished) => {
+          "worklet";
+          if (finished) runOnJS(finishLiveOrderFadeOut)();
+        });
+      } else if (!liveOrderFadeOutRef.current) {
+        liveOrderFadeOutRef.current = false;
+        bannerOpacity.value = 1;
+        setLiveOrderTrack(null);
+      }
+    };
+
     try {
       const { data, error } = await supabase
         .from("orders")
-        .select("id, status, restaurants(name)")
+        .select("id, status, restaurants(name, image_url)")
         .eq("created_by", currentUserId)
         .in("status", ["pending", "pending_payment", "preparing", "ready", "served", "cancelled"])
         .order("created_at", { ascending: false })
@@ -865,48 +886,78 @@ export default function DiscoveryFeed() {
       setAllLiveOrders(allRows.filter((r) => r.status !== "cancelled" && r.status !== "completed"));
 
       const row = data?.[0];
-      if (error || !row) {
-        const prev = liveOrderTrackRef.current;
-        const dismissed = dismissedLiveOrderIdsRef.current;
-        if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
-          liveOrderFadeOutRef.current = true;
-          bannerOpacity.value = withTiming(0, { duration: 620 }, (finished) => {
-            "worklet";
-            if (finished) {
-              runOnJS(finishLiveOrderFadeOut)();
-            }
-          });
-        } else if (!liveOrderFadeOutRef.current) {
-          liveOrderFadeOutRef.current = false;
-          bannerOpacity.value = 1;
-          setLiveOrderTrack(null);
-        }
+      if (!error && row) {
+        // Host Checkout also uses created_by === current user — mark as group order
+        // when this row is tied to a party_sessions.submitted_order_id.
+        const { data: partyForSubmitted } = await supabase
+          .from("party_sessions")
+          .select("id, host_user_id")
+          .eq("submitted_order_id", row.id)
+          .maybeSingle();
+
+        const isGrp = !!partyForSubmitted;
+        const grpHost =
+          isGrp &&
+          String((partyForSubmitted as { host_user_id?: string })?.host_user_id ?? "") === currentUserId;
+
+        liveOrderFadeOutRef.current = false;
+        bannerOpacity.value = 1;
+        setLiveOrderTrack({
+          id: String(row.id),
+          restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
+          restaurantImageUrl: (row.restaurants as { image_url?: string | null } | null)?.image_url ?? null,
+          status: row.status as OrderStatus,
+          isGroupOrder: isGrp,
+          isGroupOrderHost: grpHost,
+        });
         return;
       }
 
-      liveOrderFadeOutRef.current = false;
-      bannerOpacity.value = 1;
-      setLiveOrderTrack({
-        id: String(row.id),
-        restaurantName: (row.restaurants as { name?: string } | null)?.name ?? "Restaurant",
-        status: row.status as OrderStatus,
-      });
-    } catch {
-      const prev = liveOrderTrackRef.current;
-      const dismissed = dismissedLiveOrderIdsRef.current;
-      if (prev && !dismissed.has(prev.id) && !liveOrderFadeOutRef.current) {
-        liveOrderFadeOutRef.current = true;
-        bannerOpacity.value = withTiming(0, { duration: 620 }, (finished) => {
-          "worklet";
-          if (finished) {
-            runOnJS(finishLiveOrderFadeOut)();
-          }
-        });
-      } else if (!liveOrderFadeOutRef.current) {
-        liveOrderFadeOutRef.current = false;
-        bannerOpacity.value = 1;
-        setLiveOrderTrack(null);
+      // No personal order — check if the user is a non-host member of a submitted group order
+        const { data: memberData } = await supabase
+        .from("party_members")
+        .select(
+          "session_id, party_sessions!inner(submitted_order_id, status, host_user_id, restaurants(name, image_url))",
+        )
+        .eq("user_id", currentUserId)
+        .is("left_at", null)
+        .not("party_sessions.submitted_order_id", "is", null)
+        .in("party_sessions.status", ["submitted", "completed"])
+        .order("joined_at", { ascending: false })
+        .limit(1);
+
+      const memberRow = memberData?.[0];
+      const groupSess = memberRow ? (memberRow as any).party_sessions : null;
+      if (groupSess?.submitted_order_id) {
+        const { data: groupOrderData } = await supabase
+          .from("orders")
+          .select("id, status, restaurants(name, image_url)")
+          .eq("id", groupSess.submitted_order_id)
+          .in("status", ["pending", "pending_payment", "preparing", "ready", "served", "cancelled"])
+          .maybeSingle();
+
+        if (groupOrderData) {
+          const hostId = String(groupSess?.host_user_id ?? "");
+          liveOrderFadeOutRef.current = false;
+          bannerOpacity.value = 1;
+          setLiveOrderTrack({
+            id: String(groupOrderData.id),
+            restaurantName: (groupOrderData.restaurants as { name?: string } | null)?.name ?? groupSess.restaurants?.name ?? "Restaurant",
+            restaurantImageUrl:
+              (groupOrderData.restaurants as { image_url?: string | null } | null)?.image_url ??
+              groupSess.restaurants?.image_url ??
+              null,
+            status: groupOrderData.status as OrderStatus,
+            isGroupOrder: true,
+            isGroupOrderHost: !!hostId && hostId === currentUserId,
+          });
+          return;
+        }
       }
+
+      fadeOutOrNull();
+    } catch {
+      fadeOutOrNull();
     }
   }, [currentUserId, finishLiveOrderFadeOut]);
 
@@ -997,6 +1048,12 @@ export default function DiscoveryFeed() {
       supabase.removeChannel(ch);
     };
   }, [currentUserId, fetchLiveOrder]);
+
+  // Re-fetch live order when the active group order changes — catches the
+  // moment a session transitions to "submitted" and sets submitted_order_id.
+  useEffect(() => {
+    if (activeGroupOrder) void fetchLiveOrder();
+  }, [activeGroupOrder, fetchLiveOrder]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -1959,6 +2016,168 @@ export default function DiscoveryFeed() {
                         <Trash2 size={16} color="#FEE2E2" />
                       </Pressable>
                     </View>
+                  ) : liveOrderTrack.isGroupOrder ? (
+                  (() => {
+                    const showHostCancel =
+                      liveOrderTrack.isGroupOrderHost &&
+                      (liveOrderTrack.status === "pending" ||
+                        liveOrderTrack.status === "pending_payment");
+                    return (
+                  <View
+                    style={{
+                      borderRadius: 20,
+                      borderWidth: 1.5,
+                      borderColor: colors.cardBorder,
+                      backgroundColor: colors.card,
+                      padding: 16,
+                      paddingTop: 18,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 14,
+                      position: "relative",
+                    }}
+                  >
+                    {showHostCancel ? (
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void handleCancelLiveOrder(
+                          liveOrderTrack.id,
+                          liveOrderTrack.restaurantName
+                        );
+                      }}
+                      hitSlop={8}
+                      style={{
+                        position: "absolute",
+                        top: 11,
+                        right: 11,
+                        paddingHorizontal: 7,
+                        paddingVertical: 3,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: isDark ? "rgba(248,113,113,0.4)" : "rgba(220,38,38,0.4)",
+                        backgroundColor: isDark ? "rgba(127,29,29,0.4)" : "rgba(254,226,226,0.92)",
+                      }}
+                      accessibilityLabel="Cancel order"
+                    >
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_600SemiBold",
+                          fontSize: 9,
+                          letterSpacing: 0.2,
+                          color: isDark ? "#FCA5A5" : "#B91C1C",
+                        }}
+                      >
+                        Cancel
+                      </Text>
+                    </Pressable>
+                    ) : null}
+                    <View
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 24,
+                        overflow: "hidden",
+                        borderWidth: 1,
+                        borderColor: colors.cardBorder,
+                        backgroundColor: colors.pressableBg,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {liveOrderTrack.restaurantImageUrl ? (
+                        <Image
+                          source={{ uri: liveOrderTrack.restaurantImageUrl }}
+                          style={{ width: "100%", height: "100%" }}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <UtensilsCrossed size={22} color={colors.textMuted} />
+                      )}
+                    </View>
+                    <View style={{ flex: 1, paddingRight: showHostCancel ? 56 : 8 }}>
+                      <Text
+                        style={{
+                          fontFamily: "Manrope_600SemiBold",
+                          color: isDark ? "rgba(250,250,250,0.72)" : "rgba(63,63,70,0.85)",
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Live Group Order
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: "BricolageGrotesque_700Bold",
+                          color: colors.text,
+                          fontSize: 16,
+                          letterSpacing: -0.2,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {liveOrderTrack.restaurantName}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, gap: 4 }}>
+                        {LIVE_TRACK_STEPS.map((step, idx) => {
+                          const cur = liveStepIndex(liveOrderTrack.status);
+                          const active = idx === cur;
+                          const accent = LIVE_ORDER_ACCENT_SOLID[idx] ?? "#555";
+                          const StepIcon = step.Icon;
+                          const lineColor = colors.cardBorder;
+                          return (
+                            <React.Fragment key={step.label}>
+                              {idx > 0 && (
+                                <View
+                                  style={{
+                                    width: 12,
+                                    height: 2,
+                                    backgroundColor: lineColor,
+                                    borderRadius: 1,
+                                  }}
+                                />
+                              )}
+                              <View style={{ alignItems: "center", minWidth: 56 }}>
+                                <View
+                                  style={{
+                                    width: active ? 30 : 26,
+                                    height: active ? 30 : 26,
+                                    borderRadius: 15,
+                                    backgroundColor:
+                                      active ? `${accent}22` : colors.pressableBg,
+                                    borderWidth: 1,
+                                    borderColor: active ? accent : colors.cardBorder,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  <StepIcon
+                                    size={active ? 14 : 12}
+                                    color={active ? accent : colors.textMuted}
+                                  />
+                                </View>
+                                <Text
+                                  style={{
+                                    fontFamily: active ? "Manrope_700Bold" : "Manrope_500Medium",
+                                    fontSize: 9,
+                                    color: active ? accent : colors.textMuted,
+                                    marginTop: 4,
+                                    textAlign: "center",
+                                  }}
+                                  numberOfLines={1}
+                                >
+                                  {step.label}
+                                </Text>
+                              </View>
+                            </React.Fragment>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+                    );
+                  })()
                   ) : (
                   <Animated.View
                     style={[
@@ -2086,11 +2305,6 @@ export default function DiscoveryFeed() {
                       })}
                     </View>
                   </View>
-                  {/* No chevron — the X cancel button already anchors the
-                      right edge; a second right-arrow was redundant. */}
-                  {/* Cancel button — top-right icon, only meaningful for
-                      not-yet-prepared orders. Paid-card orders go through the
-                      "Contact the restaurant" prompt instead. */}
                   {(liveOrderTrack.status === "pending" ||
                     liveOrderTrack.status === "pending_payment") && (
                     <Pressable

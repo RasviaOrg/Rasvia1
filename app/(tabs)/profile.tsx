@@ -114,6 +114,9 @@ export default function ProfileSettingsScreen() {
   const [tempFirstName, setTempFirstName] = useState("");
   const [tempLastName, setTempLastName] = useState("");
   const [tempPhone, setTempPhone] = useState("");
+  const [origFirstName, setOrigFirstName] = useState("");
+  const [origLastName, setOrigLastName] = useState("");
+  const [origPhone, setOrigPhone] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -261,8 +264,16 @@ export default function ProfileSettingsScreen() {
     setTempFirstName(first);
     setTempLastName(last);
     setTempPhone(phoneNumber);
+    setOrigFirstName(first);
+    setOrigLastName(last);
+    setOrigPhone(phoneNumber);
     setEditingProfile(true);
   }, [fullName, phoneNumber]);
+
+  const hasProfileChanges =
+    tempFirstName.trim() !== origFirstName.trim() ||
+    tempLastName.trim() !== origLastName.trim() ||
+    tempPhone !== origPhone;
 
   const hasEmailOnAccount = !!userEmail.trim();
   const hasCompletePhone = phoneNumber.replace(/\D/g, "").length >= 10;
@@ -626,9 +637,9 @@ export default function ProfileSettingsScreen() {
                 return (
                   <Animated.View
                     key={tab}
-                    entering={FadeInDown.delay(40 + tabIndex * 55).duration(380)}
                     layout={LinearTransition.springify().damping(20).stiffness(220)}
                   >
+                    <Animated.View entering={FadeInDown.delay(40 + tabIndex * 55).duration(380)}>
                     <Pressable
                       onPress={() => {
                         if (Platform.OS !== 'web') Haptics.selectionAsync();
@@ -692,6 +703,7 @@ export default function ProfileSettingsScreen() {
                         </Text>
                       </View>
                     </Pressable>
+                    </Animated.View>
                   </Animated.View>
                 );
               })}
@@ -1551,7 +1563,7 @@ export default function ProfileSettingsScreen() {
                             backgroundColor: colors.pressableBg,
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: tempFirstName ? colors.saffron : colors.cardBorder,
+                            borderColor: tempFirstName.trim() !== origFirstName.trim() ? colors.saffron : colors.cardBorder,
                             paddingHorizontal: 14,
                             height: 48,
                             color: colors.text,
@@ -1572,7 +1584,7 @@ export default function ProfileSettingsScreen() {
                             backgroundColor: colors.pressableBg,
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: tempLastName ? colors.saffron : colors.cardBorder,
+                            borderColor: tempLastName.trim() !== origLastName.trim() ? colors.saffron : colors.cardBorder,
                             paddingHorizontal: 14,
                             height: 48,
                             color: colors.text,
@@ -1620,7 +1632,7 @@ export default function ProfileSettingsScreen() {
                       backgroundColor: colors.pressableBg,
                       borderRadius: 12,
                       borderWidth: 1,
-                      borderColor: tempPhone ? colors.saffron : colors.cardBorder,
+                      borderColor: tempPhone !== origPhone ? colors.saffron : colors.cardBorder,
                       paddingHorizontal: 14,
                       height: 48,
                       marginBottom: 24,
@@ -1665,17 +1677,20 @@ export default function ProfileSettingsScreen() {
                         <Text style={{ fontFamily: "Manrope_600SemiBold", color: colors.textSecondary, fontSize: 15 }}>Cancel</Text>
                       </Pressable>
                       <Pressable
-                        onPress={handleSaveProfile}
+                        onPress={hasProfileChanges ? handleSaveProfile : undefined}
                         style={{
                           flex: 1,
-                          backgroundColor: isDark ? colors.saffron : "#fb923c",
+                          backgroundColor: hasProfileChanges
+                            ? (isDark ? colors.saffron : "#fb923c")
+                            : (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"),
                           borderRadius: 12,
                           height: 48,
                           alignItems: "center",
                           justifyContent: "center",
+                          opacity: hasProfileChanges ? 1 : 0.5,
                         }}
                       >
-                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: isDark ? "#0f0f0f" : "#ffffff", fontSize: 15 }}>Save</Text>
+                        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: hasProfileChanges ? (isDark ? "#0f0f0f" : "#ffffff") : colors.textMuted, fontSize: 15 }}>Save</Text>
                       </Pressable>
                     </View>
                   </View>

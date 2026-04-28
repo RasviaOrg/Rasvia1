@@ -191,7 +191,8 @@ function LedgerRow({
         : null;
 
   return (
-    <Animated.View entering={FadeInDown.delay(index * 60)} layout={Layout.springify()}>
+    <Animated.View layout={Layout.springify()}>
+      <Animated.View entering={FadeInDown.delay(index * 60)}>
       <Pressable onPress={onPress} style={styles.row}>
         <View style={[styles.avatar, { backgroundColor: member.avatar_url ? colors.pressableBg : color }]}>
           <View style={{ width: '100%', height: '100%', borderRadius: 18, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
@@ -248,6 +249,7 @@ function LedgerRow({
           ) : null}
         </View>
       </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 }

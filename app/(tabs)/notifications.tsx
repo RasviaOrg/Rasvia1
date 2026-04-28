@@ -309,7 +309,8 @@ function WaitlistWidget({
   const statusCfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.waiting;
 
   return (
-    <Animated.View entering={FadeInDown.duration(400)} layout={LinearTransition}>
+    <Animated.View layout={LinearTransition}>
+      <Animated.View entering={FadeInDown.duration(400)}>
       <Pressable
         onPress={onPress}
         style={{
@@ -659,6 +660,7 @@ function WaitlistWidget({
           )}
         </View>
       </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -853,28 +855,29 @@ function NotificationRow({
   );
 
   return (
-    <Animated.View
-      entering={FadeInDown.duration(350)}
-      exiting={FadeOut.duration(250)}
-      layout={LinearTransition}
-    >
-      <Swipeable
-        ref={swipeableRef}
-        renderRightActions={renderRightActions}
-        overshootRight={false}
-        friction={2}
+    <Animated.View layout={LinearTransition}>
+      <Animated.View
+        entering={FadeInDown.duration(350)}
+        exiting={FadeOut.duration(250)}
       >
-        {onPress ? (
-          <Pressable
-            onPress={() => onPress()}
-            style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1 })}
-          >
-            {rowInner}
-          </Pressable>
-        ) : (
-          rowInner
-        )}
-      </Swipeable>
+        <Swipeable
+          ref={swipeableRef}
+          renderRightActions={renderRightActions}
+          overshootRight={false}
+          friction={2}
+        >
+          {onPress ? (
+            <Pressable
+              onPress={() => onPress()}
+              style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1 })}
+            >
+              {rowInner}
+            </Pressable>
+          ) : (
+            rowInner
+          )}
+        </Swipeable>
+      </Animated.View>
     </Animated.View>
   );
 }

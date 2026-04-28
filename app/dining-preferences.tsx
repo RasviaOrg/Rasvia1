@@ -243,61 +243,63 @@ export default function DiningPreferencesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        {/* Header */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingHorizontal: 20,
-            paddingVertical: 14,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.cardBorder,
-            backgroundColor: colors.homeHeaderBg,
-          }}
-        >
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.back();
-            }}
-            hitSlop={12}
+      {/* Header — wrapped so the status-bar inset shares the header bg in dark mode */}
+      <View style={{ backgroundColor: colors.homeHeaderBg }}>
+        <SafeAreaView edges={["top"]}>
+          <View
             style={{
-              width: 38,
-              height: 38,
-              borderRadius: 19,
-              backgroundColor: colors.pressableBg,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
-              borderWidth: 1,
-              borderColor: colors.cardBorder,
-              marginRight: 14,
+              paddingHorizontal: 20,
+              paddingVertical: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.cardBorder,
             }}
           >
-            <ArrowLeft size={20} color={colors.text} />
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.back();
+              }}
+              hitSlop={12}
               style={{
-                fontFamily: "BricolageGrotesque_700Bold",
-                color: colors.text,
-                fontSize: 20,
+                width: 38,
+                height: 38,
+                borderRadius: 19,
+                backgroundColor: colors.pressableBg,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+                marginRight: 14,
               }}
             >
-              Dining preferences
-            </Text>
-            <Text
-              style={{
-                fontFamily: "Manrope_500Medium",
-                color: colors.textMuted,
-                fontSize: 12,
-                marginTop: 2,
-              }}
-            >
-              Home area, how you eat, and vegetarian-only days
-            </Text>
+              <ArrowLeft size={20} color={colors.text} />
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontFamily: "BricolageGrotesque_700Bold",
+                  color: colors.text,
+                  fontSize: 20,
+                }}
+              >
+                Dining preferences
+              </Text>
+              <Text
+                style={{
+                  fontFamily: "Manrope_500Medium",
+                  color: colors.textMuted,
+                  fontSize: 12,
+                  marginTop: 2,
+                }}
+              >
+                Home area, how you eat, and vegetarian-only days
+              </Text>
+            </View>
           </View>
-        </View>
+        </SafeAreaView>
+      </View>
 
         <ScrollView
           style={{ flex: 1 }}
@@ -627,7 +629,6 @@ export default function DiningPreferencesScreen() {
             </View>
           )}
         </ScrollView>
-      </SafeAreaView>
     </View>
   );
 }

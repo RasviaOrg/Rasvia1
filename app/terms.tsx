@@ -14,51 +14,53 @@ export default function TermsOfServiceScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingHorizontal: 20,
-            paddingTop: 12,
-            paddingBottom: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.cardBorder,
-            backgroundColor: colors.homeHeaderBg,
-          }}
-        >
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.back();
-            }}
+      <View style={{ backgroundColor: colors.homeHeaderBg }}>
+        <SafeAreaView edges={["top"]}>
+          <View
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              backgroundColor: colors.pressableBg,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
-              marginRight: 16,
-              borderWidth: 1,
-              borderColor: colors.cardBorder,
+              paddingHorizontal: 20,
+              paddingTop: 12,
+              paddingBottom: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.cardBorder,
             }}
           >
-            <ArrowLeft size={22} color={colors.text} />
-          </Pressable>
-          <Text
-            style={{
-              fontFamily: "BricolageGrotesque_800ExtraBold",
-              color: colors.text,
-              fontSize: 24,
-              letterSpacing: -0.5,
-            }}
-          >
-            Terms of Service
-          </Text>
-        </View>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.back();
+              }}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: colors.pressableBg,
+                alignItems: "center",
+                justifyContent: "center",
+                marginRight: 16,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+              }}
+            >
+              <ArrowLeft size={22} color={colors.text} />
+            </Pressable>
+            <Text
+              style={{
+                fontFamily: "BricolageGrotesque_800ExtraBold",
+                color: colors.text,
+                fontSize: 24,
+                letterSpacing: -0.5,
+              }}
+            >
+              Terms of Service
+            </Text>
+          </View>
+        </SafeAreaView>
+      </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: bottomPad }}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: bottomPad }}>
           <Text style={{ fontFamily: "Manrope_700Bold", color: colors.text, fontSize: 18, marginBottom: 12 }}>
             1. Acceptance of Terms
           </Text>
@@ -97,8 +99,7 @@ export default function TermsOfServiceScreen() {
           <Text style={{ fontFamily: "Manrope_700Bold", color: colors.textMuted, fontSize: 12, marginTop: 40, textAlign: "center" }}>
             Last Updated: March 16, 2026
           </Text>
-        </ScrollView>
-      </SafeAreaView>
+      </ScrollView>
     </View>
   );
 }

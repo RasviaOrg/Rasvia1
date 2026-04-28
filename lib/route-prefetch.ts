@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { InteractionManager } from "react-native";
 import { router, useRootNavigationState, type Href } from "expo-router";
 
 /** Other main tabs (cart is prefetched immediately — see hook below). */
@@ -49,7 +48,7 @@ export function useBackgroundRoutePrefetch(enabled: boolean) {
     safePrefetch("/");
     safePrefetch("/cart");
 
-    const interactionHandle = InteractionManager.runAfterInteractions(() => {
+    const idleHandle = requestIdleCallback(() => {
       for (const href of PRIMARY_PRELOAD) {
         safePrefetch(href);
       }
@@ -60,6 +59,6 @@ export function useBackgroundRoutePrefetch(enabled: boolean) {
       }, 500);
     });
 
-    return () => interactionHandle.cancel();
+    return () => cancelIdleCallback(idleHandle);
   }, [enabled, navState?.key]);
 }
