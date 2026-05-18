@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, Dimensions } from "react-native";
+import { View, Text, Pressable, useWindowDimensions } from "react-native";
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -11,8 +11,6 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AlertCircle, CheckCircle, Info, X, BellRing, Utensils } from "lucide-react-native";
 
-let SCREEN_WIDTH = Dimensions.get("window").width;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 
 type NotificationType = "error" | "success" | "info" | "table_ready" | "seated";
 
@@ -34,6 +32,8 @@ export function InAppNotification({
     duration = 4000,
 }: InAppNotificationProps) {
     const insets = useSafeAreaInsets();
+    const { width: windowWidth } = useWindowDimensions();
+    const toastMaxWidth = Math.min(windowWidth - 32, 480);
     const translateY = useSharedValue(-200);
     const opacity = useSharedValue(0);
 
@@ -146,6 +146,8 @@ export function InAppNotification({
                         top: insets.top + 10,
                         left: 16,
                         right: 16,
+                        maxWidth: toastMaxWidth,
+                        alignSelf: "center",
                         zIndex: 9999,
                         backgroundColor: config.bgColor,
                         borderRadius: 16,

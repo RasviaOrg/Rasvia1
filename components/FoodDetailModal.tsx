@@ -1,18 +1,15 @@
 import React from "react";
-import { View, Text, Pressable, Dimensions, Platform } from "react-native";
+import { View, Text, Pressable, Platform, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { X, Plus, Leaf, Moon, Flame, Settings, Camera } from "lucide-react-native";
 import type { UIMenuItem } from "@/lib/restaurant-types";
-import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
+import Animated, { FadeIn, SlideInDown, ZoomIn } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { useAppTheme } from "@/lib/app-theme";
+import { useLayout } from "@/lib/use-layout";
 import { CachedImage } from "@/components/CachedImage";
 import type { MenuTagConfig } from "@/lib/menu-tags";
 import { DEFAULT_MENU_TAGS, normalizeMenuItemTags } from "@/lib/menu-tags";
-
-let SCREEN_WIDTH = Dimensions.get("window").width;
-let SCREEN_HEIGHT = Dimensions.get("window").height;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; SCREEN_HEIGHT = window.height; });
 
 interface FoodDetailModalProps {
   item: UIMenuItem;
@@ -37,6 +34,11 @@ export function FoodDetailModal({
   menuTags,
 }: FoodDetailModalProps) {
   const { colors, isDark } = useAppTheme();
+  const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = useWindowDimensions();
+  const { sizeClass } = useLayout();
+  const isExpanded = sizeClass !== "compact";
+  const CARD_MAX_WIDTH = 560;
+  const imageHeight = isExpanded ? Math.min(280, SCREEN_HEIGHT * 0.35) : SCREEN_HEIGHT * 0.45;
   const primaryCtaTextColor = isDark ? "#0f0f0f" : "#ffffff";
   const hasImage = !!item.image?.trim();
   const addBlocked = !canAddToCart || item.isAvailable === false;
@@ -52,18 +54,31 @@ export function FoodDetailModal({
       style={{
         backgroundColor: isDark ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.4)",
         zIndex: 100,
+        justifyContent: isExpanded ? "center" : "flex-end",
+        alignItems: isExpanded ? "center" : "stretch",
       }}
     >
       <Animated.View
-        entering={SlideInDown.duration(500).springify()}
-        className="flex-1 justify-end"
+        entering={isExpanded ? ZoomIn.duration(280) : SlideInDown.duration(500).springify()}
+        style={isExpanded
+          ? { width: Math.min(SCREEN_WIDTH * 0.9, CARD_MAX_WIDTH), maxHeight: SCREEN_HEIGHT * 0.88 }
+          : { width: "100%" }}
       >
         <View
-          className="rounded-t-3xl overflow-hidden"
-          style={{ maxHeight: SCREEN_HEIGHT * 0.88, backgroundColor: colors.card, borderTopWidth: 1, borderColor: colors.cardBorder }}
+          style={{
+            maxHeight: SCREEN_HEIGHT * 0.88,
+            backgroundColor: colors.card,
+            borderTopWidth: isExpanded ? 0 : 1,
+            borderWidth: isExpanded ? 1 : 0,
+            borderColor: colors.cardBorder,
+            borderRadius: isExpanded ? 20 : 0,
+            borderTopLeftRadius: isExpanded ? 20 : 24,
+            borderTopRightRadius: isExpanded ? 20 : 24,
+            overflow: "hidden",
+          }}
         >
-          {/* Image Section with Video Placeholder */}
-          <View style={{ height: SCREEN_HEIGHT * 0.45, position: "relative" }}>
+          {/* Image Section */}
+          <View style={{ height: imageHeight, position: "relative" }}>
             {hasImage ? (
               <CachedImage
                 source={{ uri: item.image }}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import * as SecureStore from "expo-secure-store";
 import {
   View,
@@ -12,6 +12,7 @@ import {
   ScrollView,
   Image,
   KeyboardAvoidingView,
+  FlatList,
 } from "react-native";
 import {
   Camera,
@@ -321,6 +322,7 @@ function EditableMenuItem({
   showQuickAdd,
   onContributeImage,
   menuTags,
+  cardWidth,
 }: {
   item: UIMenuItem;
   index: number;
@@ -332,6 +334,7 @@ function EditableMenuItem({
   showQuickAdd: boolean;
   onContributeImage?: (item: UIMenuItem) => void;
   menuTags: MenuTagConfig[];
+  cardWidth?: number;
 }) {
   const formStyles = useMenuEditorFormStyles();
   const { colors, isDark } = useAppTheme();
@@ -455,7 +458,7 @@ function EditableMenuItem({
 
   return (
     <View style={{ position: "relative" }}>
-      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} menuTags={menuTags} />
+      <MenuGridItem item={item as any} index={index} onPress={onPress} onQuickAdd={onQuickAdd} showQuickAdd={showQuickAdd} onContributeImage={onContributeImage} ownerBadgeOffset={canEdit} menuTags={menuTags} cardWidth={cardWidth} />
 
       {canEdit && isCustomStripeTaxCode(item.stripeTaxCode) && (
         <View
@@ -700,19 +703,19 @@ interface MenuEditorProps {
   onMenuTagsChange?: (tags: MenuTagConfig[]) => void;
 }
 
+const MIN_MENU_CARD_WIDTH = 140;
+const MENU_COL_GAP = 10;
+
 export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantId, onContributeImage, onMenuTagsChange }: MenuEditorProps) {
   const { isAdmin, isRestaurantOwner, ownedRestaurantId } = useAdminMode();
   const canEdit = isAdmin || (isRestaurantOwner && !!restaurantId && restaurantId === ownedRestaurantId);
-  // The orange "+" quick-add should be available whenever the viewer isn't
-  // the one *editing* this specific menu. Previously we also hid it for
-  // restaurant-owner accounts browsing *other* restaurants (walk-in
-  // pre-order flow), which is why the buttons mysteriously disappeared
-  // after tapping "Browse menu" from a waitlist or zero-wait prompt on any
-  // staff/owner phone. Tie quick-add to `!canEdit` so owners still get to
-  // order from venues they don't manage.
   const canOrder = !canEdit;
   const formStyles = useMenuEditorFormStyles();
   const { colors, isDark } = useAppTheme();
+  const [gridContainerWidth, setGridContainerWidth] = useState(0);
+  const handleGridLayout = useCallback((e: { nativeEvent: { layout: { width: number } } }) => {
+    setGridContainerWidth(e.nativeEvent.layout.width);
+  }, []);
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");
@@ -957,8 +960,16 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
     [menu]
   );
 
-  const leftColumn = filteredMenu.filter((_, i) => i % 2 === 0);
-  const rightColumn = filteredMenu.filter((_, i) => i % 2 !== 0);
+  const numMenuColumns = useMemo(() => {
+    if (gridContainerWidth < MIN_MENU_CARD_WIDTH * 2 + MENU_COL_GAP) return 1;
+    const cols = Math.floor((gridContainerWidth + MENU_COL_GAP) / (MIN_MENU_CARD_WIDTH + MENU_COL_GAP));
+    return Math.max(1, cols);
+  }, [gridContainerWidth]);
+
+  const menuCardWidth = useMemo(() => {
+    if (gridContainerWidth <= 0) return MIN_MENU_CARD_WIDTH;
+    return (gridContainerWidth - MENU_COL_GAP * (numMenuColumns - 1)) / numMenuColumns;
+  }, [gridContainerWidth, numMenuColumns]);
 
   return (
     <View>
@@ -1191,41 +1202,32 @@ export function MenuEditor({ menu, setMenu, onItemPress, onQuickAdd, restaurantI
         onSubmit={persistTags}
       />
 
-      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <View style={{ flex: 1, marginRight: 5 }}>
-          {leftColumn.map((item, index) => (
-            <EditableMenuItem
-              key={item.id}
-              item={item}
-              index={index}
-              onPress={() => onItemPress(item)}
-              onQuickAdd={() => onQuickAdd(item)}
-              onItemUpdated={handleItemUpdated}
-              onDelete={handleDelete}
-              canEdit={canEdit}
-              showQuickAdd={canOrder}
-              onContributeImage={onContributeImage}
-              menuTags={menuTags}
-            />
-          ))}
-        </View>
-        <View style={{ flex: 1, marginLeft: 5 }}>
-          {rightColumn.map((item, index) => (
-            <EditableMenuItem
-              key={item.id}
-              item={item}
-              index={index}
-              onPress={() => onItemPress(item)}
-              onQuickAdd={() => onQuickAdd(item)}
-              onItemUpdated={handleItemUpdated}
-              onDelete={handleDelete}
-              canEdit={canEdit}
-              showQuickAdd={canOrder}
-              onContributeImage={onContributeImage}
-              menuTags={menuTags}
-            />
-          ))}
-        </View>
+      <View onLayout={handleGridLayout}>
+        {gridContainerWidth > 0 && (
+          <FlatList
+            data={filteredMenu}
+            keyExtractor={(item) => item.id}
+            numColumns={numMenuColumns}
+            key={`menu-grid-${numMenuColumns}`}
+            scrollEnabled={false}
+            columnWrapperStyle={numMenuColumns > 1 ? { gap: MENU_COL_GAP } : undefined}
+            renderItem={({ item, index }) => (
+              <EditableMenuItem
+                item={item}
+                index={index}
+                onPress={() => onItemPress(item)}
+                onQuickAdd={() => onQuickAdd(item)}
+                onItemUpdated={handleItemUpdated}
+                onDelete={handleDelete}
+                canEdit={canEdit}
+                showQuickAdd={canOrder}
+                onContributeImage={onContributeImage}
+                menuTags={menuTags}
+                cardWidth={menuCardWidth}
+              />
+            )}
+          />
+        )}
       </View>
 
       <Modal visible={showAddItem} transparent animationType="slide" onRequestClose={() => setShowAddItem(false)}>

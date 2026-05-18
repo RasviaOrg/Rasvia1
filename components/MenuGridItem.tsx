@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Pressable, Dimensions, Platform } from "react-native";
+import { View, Text, Pressable, Platform, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Plus, Leaf, Flame, Camera } from "lucide-react-native";
 import type { UIMenuItem } from "@/lib/restaurant-types";
@@ -12,12 +12,10 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
+import { DEFAULT_MENU_TAGS, normalizeMenuItemTags, type MenuTagConfig } from "@/lib/menu-tags";
 
-let SCREEN_WIDTH = Dimensions.get("window").width;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 const COLUMN_GAP = 10;
-const PADDING = 16;
-const COLUMN_WIDTH = (SCREEN_WIDTH - PADDING * 2 - COLUMN_GAP) / 2;
+const FALLBACK_PADDING = 16;
 
 interface MenuGridItemProps {
   item: UIMenuItem;
@@ -34,9 +32,9 @@ interface MenuGridItemProps {
    * collide with the cog. Only used on the owner's own restaurant.
    */
   ownerBadgeOffset?: boolean;
+  /** Explicit card width from the parent grid. When omitted falls back to half-screen calculation. */
+  cardWidth?: number;
 }
-
-import { DEFAULT_MENU_TAGS, normalizeMenuItemTags, type MenuTagConfig } from "@/lib/menu-tags";
 
 export function MenuGridItem({
   item,
@@ -48,8 +46,11 @@ export function MenuGridItem({
   onContributeImage,
   ownerBadgeOffset = false,
   menuTags,
+  cardWidth: cardWidthProp,
 }: MenuGridItemProps & { menuTags?: MenuTagConfig[] }) {
   const { colors, isDark } = useAppTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = cardWidthProp ?? (windowWidth - FALLBACK_PADDING * 2 - COLUMN_GAP) / 2;
   const pressScale = useSharedValue(1);
   const isEven = index % 2 === 0;
   const imageHeight = isEven ? 180 : 220;
@@ -64,7 +65,7 @@ export function MenuGridItem({
     <Animated.View
       entering={FadeInUp.delay(index * 50).duration(500)}
       style={{
-        width: COLUMN_WIDTH,
+        width: cardWidth,
         marginBottom: COLUMN_GAP,
       }}
     >

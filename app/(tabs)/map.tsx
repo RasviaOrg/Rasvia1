@@ -12,7 +12,7 @@ import {
   Pressable,
   Alert,
   Platform,
-  Dimensions,
+  useWindowDimensions,
   Image,
   ScrollView,
   Animated as RNAnimated,
@@ -119,8 +119,7 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.15,
 };
 
-// Nearby sheet / bottom-nav layout constants (device-dynamic)
-const SCREEN_HEIGHT = Dimensions.get("window").height;
+// SCREEN_HEIGHT is now derived reactively inside MapScreen via useWindowDimensions()
 const NEARBY_VISIBLE_ROWS = 3;
 const NEARBY_ROW_HEIGHT = 72;
 const NEARBY_SHEET_CHROME_HEIGHT = 104; // handle + header region
@@ -229,6 +228,7 @@ function haversineDistance(
 
 export default function MapScreen() {
   const { colors, isDark } = useAppTheme();
+  const { height: SCREEN_HEIGHT } = useWindowDimensions();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);

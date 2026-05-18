@@ -5,7 +5,7 @@ import {
     Pressable,
     Alert,
     Platform,
-    Dimensions,
+    useWindowDimensions,
     Image,
     ScrollView,
     ActivityIndicator,
@@ -34,8 +34,6 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useAppTheme } from "@/lib/app-theme";
 
-let SCREEN_WIDTH = Dimensions.get("window").width;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; });
 
 // ==========================================
 // CONSTANTS (outside component — stable refs)
@@ -85,6 +83,7 @@ const DAYS = [
 export default function OnboardingScreen() {
     const { session, setNeedsOnboarding } = useAuth();
     const { colors, isDark } = useAppTheme();
+    const { width: SCREEN_WIDTH } = useWindowDimensions();
 
     const [step, setStep] = useState(0);
     const [saving, setSaving] = useState(false);

@@ -3,7 +3,7 @@ import {
   View,
   Text,
   Pressable,
-  Dimensions,
+  useWindowDimensions,
   Alert,
   Platform,
   Modal,
@@ -94,12 +94,7 @@ import { useAppTheme } from "@/lib/app-theme";
 import { useRestaurantBottomNav } from "@/lib/restaurant-bottom-nav-context";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 
-let SCREEN_WIDTH = Dimensions.get("window").width;
-let SCREEN_HEIGHT = Dimensions.get("window").height;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_WIDTH = window.width; SCREEN_HEIGHT = window.height; });
-const HERO_HEIGHT = SCREEN_HEIGHT * 0.42;
 const COLLAPSED_HEADER_HEIGHT = 100;
-const SCROLL_THRESHOLD = HERO_HEIGHT;
 const GROUP_ORDER_WEB_BASE_URL = "https://rasvia.com";
 const RESTAURANT_SHARE_WEB_BASE_URL = "https://rasvia.com";
 
@@ -259,6 +254,9 @@ export default function RestaurantDetail() {
   const [showTagFilterMenu, setShowTagFilterMenu] = useState(false);
   const [adminBypassComingSoon, setAdminBypassComingSoon] = useState(false);
   const { colors, isDark } = useAppTheme();
+  const { height: screenHeight } = useWindowDimensions();
+  const HERO_HEIGHT = useMemo(() => Math.min(screenHeight * 0.42, 480), [screenHeight]);
+  const SCROLL_THRESHOLD = HERO_HEIGHT;
   const { setForceShowRestaurantBottomNav } = useRestaurantBottomNav();
 
   useEffect(() => {

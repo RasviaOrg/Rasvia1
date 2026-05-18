@@ -10,7 +10,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
+  useWindowDimensions,
 } from "react-native";
 import Animated, {
   useSharedValue,
@@ -245,7 +245,7 @@ function FullscreenPhotoModal({
   onClose: () => void;
 }) {
   const { colors } = useAppTheme();
-  const { width: sw, height: sh } = Dimensions.get("window");
+  const { width: sw, height: sh } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const scrollRef = useRef<ScrollView>(null);

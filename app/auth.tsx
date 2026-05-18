@@ -6,10 +6,9 @@ import {
     Pressable,
     Alert,
     Platform,
-
     ScrollView,
     ActivityIndicator,
-    Dimensions,
+    useWindowDimensions,
     Image,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,8 +35,6 @@ import { ResetPasswordModal } from "@/components/ResetPasswordModal";
 import { friendlyAuthError } from "@/lib/friendly-auth-error";
 import { useAppTheme } from "@/lib/app-theme";
 
-let SCREEN_HEIGHT = Dimensions.get("window").height;
-Dimensions.addEventListener("change", ({ window }) => { SCREEN_HEIGHT = window.height; });
 WebBrowser.maybeCompleteAuthSession();
 const VERIFY_EMAIL_WEB_URL = "https://rasvia.com/verify-email";
 
@@ -63,6 +60,7 @@ type AuthPhase = "identifier" | "signin_password" | "signup";
 
 export default function AuthScreen() {
     const { colors, isDark } = useAppTheme();
+    const { height: SCREEN_HEIGHT } = useWindowDimensions();
     const authPanelBg = isDark ? "rgba(26, 26, 26, 0.92)" : "rgba(255, 255, 255, 0.94)";
     const authPanelBorder = isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.08)";
     const [authPhase, setAuthPhase] = useState<AuthPhase>("identifier");
