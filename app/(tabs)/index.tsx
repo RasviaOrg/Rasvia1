@@ -46,6 +46,8 @@ import {
   haversineDistance,
   parseFavorites,
   deduplicateChains,
+  RESTAURANT_GUEST_LISTED_FILTER,
+  isRestaurantListedForGuests,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -588,6 +590,7 @@ export default function DiscoveryFeed() {
       const restaurantsQuery = (supabase
         .from('restaurants')
         .select('*')
+        .or(RESTAURANT_GUEST_LISTED_FILTER)
         .order('current_wait_time', { ascending: true })) as any;
       let restaurantsResponse: any;
       try {
@@ -1256,7 +1259,7 @@ export default function DiscoveryFeed() {
   };
 
   const filteredRestaurants = restaurantsWithHoursStatus.filter((r) => {
-    if (!isAdmin && !r.isEnabled) return false;
+    if (!isRestaurantListedForGuests(r)) return false;
     if (r.waitStatus === 'darkgrey') return false; // always exclude closed restaurants from Nearby
     if (r.isComingSoon && activeFilter !== "all") return false;
     if (activeFilter === "all") return true;
@@ -1326,7 +1329,7 @@ export default function DiscoveryFeed() {
 
   const trendingRestaurants = deduplicateChains(
     restaurantsWithHoursStatus
-      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
+      .filter((r) => isRestaurantListedForGuests(r) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
       .sort((a, b) => {
         const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
         if (scoreDelta !== 0) return scoreDelta;
@@ -1336,7 +1339,7 @@ export default function DiscoveryFeed() {
 
   const quickBites = deduplicateChains(
     restaurantsWithHoursStatus
-      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus === "green")
+      .filter((r) => isRestaurantListedForGuests(r) && !r.isComingSoon && r.waitStatus === "green")
       .sort((a, b) => {
         const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
         if (scoreDelta !== 0) return scoreDelta;
@@ -1345,7 +1348,7 @@ export default function DiscoveryFeed() {
   );
 
   const favoritesRestaurants = restaurantsWithHoursStatus
-    .filter((r) => (isAdmin || r.isEnabled) && favoriteRestaurantIds.includes(Number(r.id)))
+    .filter((r) => isRestaurantListedForGuests(r) && favoriteRestaurantIds.includes(Number(r.id)))
     .sort((a, b) => {
       const ar = availabilityRank(a);
       const br = availabilityRank(b);
@@ -1365,7 +1368,7 @@ export default function DiscoveryFeed() {
       if (seen.has(id)) continue;
       seen.add(id);
       const row = byId.get(id);
-      if (row) ordered.push(row);
+      if (row && isRestaurantListedForGuests(row)) ordered.push(row);
     }
     return ordered;
   }, [recentlyViewedIds, restaurantsWithHoursStatus]);
@@ -2928,7 +2931,7 @@ export default function DiscoveryFeed() {
           {!personalization.loading && personalization.orderedRestaurantIds.length > 0 && (() => {
             const orderAgainRestaurants = personalization.orderedRestaurantIds
               .map((rid) => restaurantsWithHoursStatus.find((r) => r.id === rid))
-              .filter(Boolean) as typeof restaurantsWithHoursStatus;
+              .filter((r): r is UIRestaurant => !!r && isRestaurantListedForGuests(r));
             if (orderAgainRestaurants.length === 0) return null;
             return (
               <Animated.View entering={FadeInDown.delay(450).duration(500)}>
@@ -3079,7 +3082,7 @@ export default function DiscoveryFeed() {
           {!personalization.loading && personalization.topCuisineTags.length >= 1 && (() => {
             const visitedIds = new Set(personalization.orderedRestaurantIds);
             const recommendations = restaurantsWithHoursStatus
-              .filter((r) => (isAdmin || r.isEnabled) && !visitedIds.has(r.id))
+              .filter((r) => isRestaurantListedForGuests(r) && !visitedIds.has(r.id))
               .filter((r) =>
                 // Score: how many of the restaurant's tags overlap with user's top tags
                 r.tags.some((tag) => personalization.topCuisineTags.includes(tag))

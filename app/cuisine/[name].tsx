@@ -21,9 +21,15 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { supabase } from "@/lib/supabase";
-import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineDistance } from "@/lib/restaurant-types";
+import {
+  type UIRestaurant,
+  mapSupabaseToUI,
+  type SupabaseRestaurant,
+  haversineDistance,
+  RESTAURANT_GUEST_LISTED_FILTER,
+  isRestaurantListedForGuests,
+} from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
-import { useAdminMode } from "@/hooks/useAdminMode";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 
 const cuisineEmojis: Record<string, string> = {
@@ -39,7 +45,6 @@ export default function CuisinePage() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const router = useRouter();
   const { userCoords } = useLocation();
-  const { isAdmin } = useAdminMode();
   const closedRestaurantIds = useClosedRestaurantIds();
   const [restaurants, setRestaurants] = useState<UIRestaurant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +67,7 @@ export default function CuisinePage() {
         const { data, error } = await supabase
           .from('restaurants')
           .select('*')
+          .or(RESTAURANT_GUEST_LISTED_FILTER)
           .contains('cuisine_tags', [decodedName])
           .order('current_wait_time', { ascending: true });
 
@@ -69,7 +75,7 @@ export default function CuisinePage() {
         if (data) {
           const uiRestaurants = data
             .map((r: SupabaseRestaurant) => mapSupabaseToUI(r, userCoords))
-            .filter((r) => isAdmin || r.isEnabled);
+            .filter((r) => isRestaurantListedForGuests(r));
           setRestaurants(uiRestaurants);
         }
       } catch (error) {

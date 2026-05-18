@@ -19,9 +19,16 @@ import Animated, {
 import * as Haptics from "expo-haptics";
 import { WaitBadge } from "@/components/WaitBadge";
 import { supabase } from "@/lib/supabase";
-import { type UIRestaurant, mapSupabaseToUI, type SupabaseRestaurant, haversineDistance, restaurantGroupKey } from "@/lib/restaurant-types";
+import {
+  type UIRestaurant,
+  mapSupabaseToUI,
+  type SupabaseRestaurant,
+  haversineDistance,
+  restaurantGroupKey,
+  RESTAURANT_GUEST_LISTED_FILTER,
+  isRestaurantListedForGuests,
+} from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
-import { useAdminMode } from "@/hooks/useAdminMode";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
 import { useAppTheme } from "@/lib/app-theme";
 
@@ -104,7 +111,6 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
   const { colors } = useAppTheme();
   const muted = colors.textMuted;
   const { userCoords } = useLocation();
-  const { isAdmin } = useAdminMode();
   const closedRestaurantIds = useClosedRestaurantIds();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -134,6 +140,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
         const restaurantRes = await supabase
           .from('restaurants')
           .select('*')
+          .or(RESTAURANT_GUEST_LISTED_FILTER)
           .order('name', { ascending: true });
 
         if (restaurantRes.error) throw restaurantRes.error;
@@ -143,7 +150,7 @@ export function SearchOverlay({ onClose }: SearchOverlayProps) {
             .map((r: SupabaseRestaurant) => {
               return mapSupabaseToUI(r, userCoords);
             })
-            .filter((r) => isAdmin || r.isEnabled);
+            .filter((r) => isRestaurantListedForGuests(r));
           setRestaurants(uiRestaurants);
           setRestaurantTrie(buildTrie(uiRestaurants));
           setRestaurantMap(new Map(uiRestaurants.map((r) => [r.id, r])));

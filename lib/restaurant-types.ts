@@ -4,6 +4,17 @@
  */
 import { supabase } from "./supabase";
 
+/** PostgREST filter for guest discovery queries (false = hidden from app). */
+export const RESTAURANT_GUEST_LISTED_FILTER = "is_enabled.eq.true,is_enabled.is.null";
+
+/** Whether a restaurant should appear in guest discovery (home, map, search). */
+export function isRestaurantListedForGuests(
+  row: Pick<UIRestaurant, "isEnabled"> | { is_enabled?: boolean | null },
+): boolean {
+  if ("isEnabled" in row) return row.isEnabled;
+  return row.is_enabled !== false;
+}
+
 // ==========================================
 // 1. DATABASE SCHEMA (From Supabase)
 // ==========================================
@@ -15,7 +26,7 @@ export interface SupabaseRestaurant {
     image_url: string | null;
     current_wait_time: number;
     is_waitlist_open: boolean;
-    is_enabled: boolean;
+    is_enabled: boolean | null;
     waitlist_open: boolean;
     rating: number;
     price_range: string;

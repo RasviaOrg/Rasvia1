@@ -346,7 +346,7 @@ export default function AdminPortalScreen() {
       long: parseCoord(lngText),
       owner_id: draft.owner_id || null,
       is_featured: Boolean(draft.is_featured),
-      is_enabled: draft.is_enabled !== false,
+      is_enabled: draft.is_enabled ?? true,
       waitlist_open: draft.waitlist_open !== false,
       is_coming_soon: draft.is_coming_soon === true,
       stripe_account_id: draft.stripe_account_id?.trim() || null,

@@ -43,6 +43,8 @@ import {
   type UIRestaurant,
   type WaitStatus,
   mapSupabaseToUI,
+  RESTAURANT_GUEST_LISTED_FILTER,
+  isRestaurantListedForGuests,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
@@ -336,6 +338,7 @@ export default function MapScreen() {
         const { data, error } = await supabase
           .from("restaurants")
           .select("*")
+          .or(RESTAURANT_GUEST_LISTED_FILTER)
           .order("current_wait_time", { ascending: true });
 
         if (error) throw error;
@@ -477,10 +480,9 @@ export default function MapScreen() {
     });
   }, [restaurants, userLocation]);
 
-  // Non-admin users only see enabled restaurants; admins see all.
   const visibleRestaurants = useMemo(
-    () => isAdmin ? restaurantsWithDistance : restaurantsWithDistance.filter((r) => r.isEnabled),
-    [restaurantsWithDistance, isAdmin]
+    () => restaurantsWithDistance.filter((r) => isRestaurantListedForGuests(r)),
+    [restaurantsWithDistance]
   );
 
   // Restaurants with valid coordinates — this is the ONLY marker list.

@@ -73,6 +73,7 @@ import {
   haversineDistance,
   parseFavorites,
   restaurantGroupKey,
+  isRestaurantListedForGuests,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAuth } from "@/lib/auth-context";
@@ -1284,6 +1285,26 @@ export default function RestaurantDetail() {
         <Text style={{ color: colors.textMuted, fontFamily: "Manrope_500Medium" }}>
           Loading your order…
         </Text>
+      </View>
+    );
+  }
+
+  // ── Delisted gate (owners/admins of this venue can still manage) ─────────
+  if (restaurant && !isRestaurantListedForGuests(restaurant) && !canManage) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }}>
+        <Text style={{ fontFamily: "BricolageGrotesque_700Bold", color: colors.text, fontSize: 24, textAlign: "center", marginBottom: 12 }}>
+          {restaurant.name}
+        </Text>
+        <Text style={{ fontFamily: "Manrope_500Medium", color: colors.textMuted, fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: 28 }}>
+          This restaurant is not currently listed on Rasvia.
+        </Text>
+        <Pressable
+          onPress={() => router.back()}
+          style={{ backgroundColor: colors.saffron, borderRadius: 16, paddingHorizontal: 24, paddingVertical: 14 }}
+        >
+          <Text style={{ fontFamily: "Manrope_700Bold", color: "#0f0f0f", fontSize: 15 }}>Go Back</Text>
+        </Pressable>
       </View>
     );
   }

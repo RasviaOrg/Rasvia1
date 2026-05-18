@@ -27,6 +27,8 @@ import {
   mapSupabaseToUI,
   haversineDistance,
   parseFavorites,
+  RESTAURANT_GUEST_LISTED_FILTER,
+  isRestaurantListedForGuests,
 } from "@/lib/restaurant-types";
 import { useLocation } from "@/lib/location-context";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -264,6 +266,7 @@ export default function DiscoverSectionPage() {
       const restaurantsPromise = supabase
         .from("restaurants")
         .select("*")
+        .or(RESTAURANT_GUEST_LISTED_FILTER)
         .order("current_wait_time", { ascending: true });
 
       const profilePromise = userId
@@ -364,7 +367,7 @@ export default function DiscoverSectionPage() {
 
   const nearbyRestaurants = useMemo(() => {
     const filtered = restaurantsWithHoursStatus.filter((r) => {
-      if (!isAdmin && !r.isEnabled) return false;
+      if (!isRestaurantListedForGuests(r)) return false;
       if (r.waitStatus === "darkgrey") return false;
       if (r.isComingSoon && activeFilter !== "all") return false;
       if (activeFilter === "all") return true;
@@ -389,7 +392,7 @@ export default function DiscoverSectionPage() {
 
   const trendingRestaurants = useMemo(() => {
     return restaurantsWithHoursStatus
-      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
+      .filter((r) => isRestaurantListedForGuests(r) && !r.isComingSoon && r.waitStatus !== "darkgrey" && r.waitStatus !== "grey")
       .sort((a, b) => {
         const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
         if (scoreDelta !== 0) return scoreDelta;
@@ -399,7 +402,7 @@ export default function DiscoverSectionPage() {
 
   const quickBites = useMemo(() => {
     return restaurantsWithHoursStatus
-      .filter((r) => (isAdmin || r.isEnabled) && !r.isComingSoon && r.waitStatus === "green")
+      .filter((r) => isRestaurantListedForGuests(r) && !r.isComingSoon && r.waitStatus === "green")
       .sort((a, b) => {
         const scoreDelta = dietarySortScore(b) - dietarySortScore(a);
         if (scoreDelta !== 0) return scoreDelta;
@@ -409,7 +412,7 @@ export default function DiscoverSectionPage() {
 
   const favoritesRestaurants = useMemo(() => {
     return restaurantsWithHoursStatus
-      .filter((r) => (isAdmin || r.isEnabled) && favoriteRestaurantIds.includes(Number(r.id)))
+      .filter((r) => isRestaurantListedForGuests(r) && favoriteRestaurantIds.includes(Number(r.id)))
       .sort((a, b) => {
         const ar = availabilityRank(a);
         const br = availabilityRank(b);
@@ -430,7 +433,7 @@ export default function DiscoverSectionPage() {
       if (seen.has(id)) continue;
       seen.add(id);
       const row = byId.get(id);
-      if (row) ordered.push(row);
+      if (row && isRestaurantListedForGuests(row)) ordered.push(row);
     }
     return ordered;
   }, [recentlyViewedIds, restaurantsWithHoursStatus]);
