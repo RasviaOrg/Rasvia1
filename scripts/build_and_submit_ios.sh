@@ -9,12 +9,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Fresh logs on every run (background and foreground).
-rm -f "$REPO_ROOT/build_ios_background.log" "$REPO_ROOT/build_ios.log"
-
 # Default: detach so the terminal returns immediately (long EAS local builds).
 # Pass --foreground to stay attached (CI, debugging). Override log path with BUILD_IOS_LOG.
 if [[ "${1:-}" != "--foreground" ]]; then
+  # Clear stale logs only on the dispatcher pass. The --foreground worker must not
+  # unlink the log path: the parent shell already opened it for >> redirect.
+  rm -f "$REPO_ROOT/build_ios_background.log" "$REPO_ROOT/build_ios.log"
   LOG_FILE="${BUILD_IOS_LOG:-$REPO_ROOT/build_ios_background.log}"
   nohup bash "$SCRIPT_DIR/build_and_submit_ios.sh" --foreground >>"$LOG_FILE" 2>&1 &
   echo "iOS build and submit running in background (PID $!)."
