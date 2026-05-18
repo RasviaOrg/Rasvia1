@@ -9,6 +9,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Fresh logs on every run (background and foreground).
+rm -f "$REPO_ROOT/build_ios_background.log" "$REPO_ROOT/build_ios.log"
+
 # Default: detach so the terminal returns immediately (long EAS local builds).
 # Pass --foreground to stay attached (CI, debugging). Override log path with BUILD_IOS_LOG.
 if [[ "${1:-}" != "--foreground" ]]; then
@@ -78,15 +81,8 @@ fi
 
 echo "✅ Successfully built: $IPA_FILE"
 
-# ── Submit ─────────────────────────────────────────────────────────────────
-# eas submit uploads the universal IPA to App Store Connect. App Review and
-# TestFlight delivery cover iPhone and iPad from this single artifact —
-# no separate iPad submission step is needed.
-
 echo "Submitting universal IPA to App Store Connect / TestFlight..."
 eas submit --platform ios --path "$IPA_FILE" --non-interactive
 
 echo "✅ App submitted successfully!"
 echo "   Both iPhone and iPad builds are covered by this single universal IPA."
-echo "   iPad screenshots (12.9\" required) must be uploaded separately in App Store Connect"
-echo "   before the release can be approved for iPad."
