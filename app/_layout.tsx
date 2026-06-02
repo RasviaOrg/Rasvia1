@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, ActivityIndicator, Platform, Alert, LogBox, Image, Text } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { authGateFlags } from "@/lib/auth-gate-flags";
+import { parseTablesideLinkFromInput } from "@/lib/parse-party-session-input";
 import { useBackgroundRoutePrefetch } from "@/lib/route-prefetch";
 
 // Remote push token registration is unavailable in Expo Go SDK 53+.
@@ -240,8 +241,40 @@ function AuthGate() {
 
   // ── Global deep link handler for checkout/cancel & error ──
   useEffect(() => {
+    // Resolve a fixed-table QR link (`/t?r=..&table=..`) into a shared
+    // self-serve session, then route into the existing join screen. Errors are
+    // surfaced as an alert and never allowed to crash the app on a bad link.
+    const handleTablesideLink = async (url: string) => {
+      const parsed = parseTablesideLinkFromInput(url);
+      if (!parsed) {
+        Alert.alert('Invalid table link', 'This table QR code could not be read. Please scan it again or ask a staff member.');
+        return;
+      }
+      try {
+        const { data, error } = await supabase.functions.invoke('tableside-session', {
+          body: { restaurant_id: parsed.restaurantId, table_label: parsed.tableLabel },
+        });
+        if (error) throw error;
+        const sessionId = (data as { sessionId?: string } | null)?.sessionId;
+        if (!sessionId) throw new Error('No session id returned.');
+        router.push(`/join/${sessionId}` as any);
+      } catch {
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert(
+          'Could not open table',
+          "We couldn't start your table order. Please try scanning the QR code again in a moment.",
+        );
+      }
+    };
+
     const handleUrl = (event: { url: string }) => {
       const { path, queryParams } = Linking.parse(event.url);
+
+      // `rasvia://t?...` and `https://rasvia.com/t?...` both parse to path `t`.
+      if (path === 't' || path === '/t') {
+        void handleTablesideLink(event.url);
+        return;
+      }
 
       if (path === 'checkout/cancel') {
         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);

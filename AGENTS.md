@@ -130,6 +130,7 @@ Rasvia1/
 - URL scheme: `rasvia://`
 - Used for Stripe checkout return flow and party session joining
 - Handled in `_layout.tsx` via Expo Linking
+- **Tableside self-order:** `rasvia://t?r=<restaurantId>&table=<label>` and `https://rasvia.com/t?...` resolve via `tableside-session` edge function → `/join/<sessionId>`. URL parsing: `lib/parse-party-session-input.ts` (`parseTablesideLinkFromInput`). Migration: `20260602160000_tableside_self_serve.sql` (mirror RasviaWeb).
 
 ### Image Uploads
 - Menu images → `menu-images` Storage bucket
@@ -308,6 +309,51 @@ the public schema. Things to keep in mind going forward:
 
 ### After finishing
 Once you finish your work after a prompt, modify this file with any relevant information to aid future agents.
+
+## Tableside Self-Order QR (mobile link) — June 2026
+
+The fixed per-table QR (`https://rasvia.com/t?r=<restaurantId>&table=<label>`,
+or `rasvia://t?r=..&table=..`) resolves to ONE shared self-serve group-order
+session per table. Mobile handling:
+
+- **Deep link**: `app/_layout.tsx`'s global `Linking` handler intercepts the
+  `/t` path. It parses the link with `parseTablesideLinkFromInput` (in
+  `lib/parse-party-session-input.ts`), calls the
+  `supabase.functions.invoke('tableside-session', { body: { restaurant_id, table_label } })`
+  edge function (contract: returns `{ sessionId }`), then `router.push('/join/<sessionId>')`.
+  Bad links / errors show an `Alert` and never crash the app.
+- **No native universal-link config**: `app.json` has no `associatedDomains` /
+  `intentFilters`, so `https://rasvia.com/t?...` is handled by the RasviaWeb
+  resolver for app-less guests; the in-app path is for `rasvia://t?...` (and
+  any future universal-link wiring). `Linking.parse` yields `path === 't'` for
+  both schemes.
+- **Types**: `PartySession.host_user_id` is now `string | null` (self-serve
+  sessions are created server-side with no logged-in host); added
+  `table_label: string | null` and `self_serve: boolean`. Self-serve sessions
+  have `staff_managed = false`, so the existing guest add-items branch in
+  `app/join/[id].tsx` works unchanged. Host identity for self-serve is the
+  `party_members` row with `role='host'` (first scanner), NOT `host_user_id`.
+  All mobile reads of `host_user_id` already use `?? ''` fallbacks (null-safe).
+- The `tableside-session` edge function + `tableside_resolve_session` RPC +
+  migration are owned by the backend/RasviaWeb agents; do not implement here.
+- **Solo or group**: Tableside uses the same join screen (`app/join/[id].tsx`) but
+  `self_serve` sessions allow checkout with one person (`canProceedToCheckout` in
+  `lib/party-session.ts`). Solo diners skip the split/review step and tap
+  **Checkout** → lock → pay. Copy uses "Table order" / table label, not "Group
+  order". In-app group orders still require 2+ members before checkout.
+
+## Group Order Review Lock + Split Mode UI — June 2026
+
+On mobile `app/join/[id].tsx`, the host's **Review & checkout** tap now sets
+`party_sessions.host_in_review = true` before showing the review/split screen.
+That flag is the pre-payment cart lock for non-host guests; the review screen's
+final CTA should read **Start collecting** because the cart is already blocked
+for guest edits while the host chooses the payment mode.
+
+The review split-mode selector keeps an optimistic `pendingMode` and queues
+`party_set_payment_mode` writes so quick taps do not let stale realtime
+snapshots repaint the previous split type. Preserve this latest-tap-wins queue
+if the payment-mode UI is refactored.
 
 ## Connected Account Tax (Seller-of-Record) — April 2026
 

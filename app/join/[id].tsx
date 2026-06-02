@@ -44,6 +44,7 @@ import {
   lockSession, unlockSession, startCheckout, cancelSession, leaveSession,
   setHostInReview, fetchSnapshot, CheckoutError,
   formatCents, memberById, paymentForMember, isFullyPaid, totalCartCents,
+  isSelfServeTableside, isSoloTableside, canProceedToCheckout, orderFlowTitle,
   type PartyCreds, type PartySnapshot, type PaymentMode, type PartyMember, type PartyItem,
 } from '../../lib/party-session';
 import {
@@ -328,6 +329,9 @@ export default function JoinPartyScreen() {
   const me = creds ? members.find((m) => m.id === creds.memberId) ?? null : null;
   const isHost = me?.role === 'host';
   const myPayment = creds ? paymentForMember(payments, creds.memberId) : null;
+  const selfServe = isSelfServeTableside(session);
+  const soloTableside = isSoloTableside(session, members.length);
+  const flowTitle = orderFlowTitle(session, restaurant?.name);
   const hostInReview = session?.host_in_review === true;
   const nonHostCartLocked = !isHost && hostInReview;
 
@@ -674,15 +678,26 @@ export default function JoinPartyScreen() {
     }
   };
 
-  const handleSetMode = async (mode: PaymentMode) => {
-    if (!creds) return;
-    hapticTap();
+  const handleSetMode = useCallback(async (mode: PaymentMode) => {
+    if (!creds) throw new Error('Join credentials are not loaded.');
+    await setPaymentMode(supabase, creds, mode);
+  }, [creds]);
+
+  const handleBeginReview = useCallback(async () => {
+    if (!creds || !sessionId || busy) return;
+    setBusy(true);
     try {
-      await setPaymentMode(supabase, creds, mode);
+      await setHostInReview(supabase, sessionId, true);
+      setSnapshot((prev) => prev
+        ? { ...prev, session: { ...prev.session, host_in_review: true } }
+        : prev);
+      setView('review');
     } catch (err) {
-      Alert.alert('Could not change mode', err instanceof Error ? err.message : 'Try again.');
+      Alert.alert('Could not lock cart', err instanceof Error ? err.message : 'Try again.');
+    } finally {
+      setBusy(false);
     }
-  };
+  }, [busy, creds, sessionId]);
 
   const handleLock = async () => {
     if (!creds) return;
@@ -885,9 +900,15 @@ export default function JoinPartyScreen() {
         <View style={joinS.centered}>
           <Animated.View entering={FadeIn} style={{ alignItems: 'center', gap: 10, maxWidth: 340 }}>
             <View style={joinS.cancelledBadge}><X size={32} color="#EF4444" strokeWidth={3} /></View>
-            <Text style={joinS.successTitle}>Group order ended</Text>
+            <Text style={joinS.successTitle}>{selfServe ? 'Order cancelled' : 'Group order ended'}</Text>
             <Text style={joinS.successSubtitle}>
-              {restaurant?.name ? `The host cancelled the group order at ${restaurant.name}.` : 'The host cancelled this group order.'}
+              {selfServe
+                ? (restaurant?.name
+                  ? `This table order at ${restaurant.name} was cancelled.`
+                  : 'This table order was cancelled.')
+                : (restaurant?.name
+                  ? `The host cancelled the group order at ${restaurant.name}.`
+                  : 'The host cancelled this group order.')}
               {' '}Any paid shares have been refunded.
             </Text>
             <Pressable
@@ -917,10 +938,18 @@ export default function JoinPartyScreen() {
           <Animated.View entering={FadeIn} style={joinS.joinCard}>
             <View style={joinS.joinBadge}>
               <Users size={14} color="#FF9933" />
-              <Text style={joinS.joinBadgeText}>Group order</Text>
+              <Text style={joinS.joinBadgeText}>{selfServe ? 'Table order' : 'Group order'}</Text>
             </View>
-            <Text style={joinS.joinTitle}>Join at {restaurant?.name ?? 'this restaurant'}</Text>
-            <Text style={joinS.joinSubtitle}>Your name shows up on the order so everyone knows who added what.</Text>
+            <Text style={joinS.joinTitle}>
+              {selfServe && session.table_label?.trim()
+                ? `Order at ${session.table_label.trim()}`
+                : `Join at ${restaurant?.name ?? 'this restaurant'}`}
+            </Text>
+            <Text style={joinS.joinSubtitle}>
+              {selfServe
+                ? 'Enter your name so the kitchen knows who ordered. Friends at your table can scan the same QR to join later.'
+                : 'Your name shows up on the order so everyone knows who added what.'}
+            </Text>
             <TextInput
               placeholder="Your name"
               placeholderTextColor={colors.textMuted}
@@ -974,8 +1003,8 @@ export default function JoinPartyScreen() {
         <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
         <View style={joinS.container}>
           <TopBar
-            title={restaurant?.name ?? 'Group order'}
-            subtitle={session.status === 'paying' ? 'Collecting payments' : 'Ready to pay'}
+            title={flowTitle}
+            subtitle={soloTableside ? 'Ready to pay' : (session.status === 'paying' ? 'Collecting payments' : 'Ready to pay')}
             onBack={() => router.back()}
           />
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
@@ -1052,13 +1081,13 @@ export default function JoinPartyScreen() {
                 ) : null}
                 <Pressable onPress={() => { hapticTap(); setShowCancelConfirm(true); }} disabled={busy} style={joinS.dangerBtn}>
                   <X size={16} color="#EF4444" />
-                  <Text style={joinS.dangerBtnText}>Cancel group order</Text>
+                  <Text style={joinS.dangerBtnText}>{selfServe ? 'Cancel order' : 'Cancel group order'}</Text>
                 </Pressable>
               </View>
             ) : null}
           </ScrollView>
 
-          <CancelSheet visible={showCancelConfirm} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
+          <CancelSheet visible={showCancelConfirm} isTableside={selfServe} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
 
           <MemberItemsSheet
             visible={viewingMemberId !== null}
@@ -1120,10 +1149,10 @@ export default function JoinPartyScreen() {
             <Animated.View entering={FadeInDown} style={[joinS.headerCard, { backgroundColor: 'rgba(255,153,51,0.08)', borderColor: 'rgba(255,153,51,0.3)' }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <PartyPopper size={14} color="#FF9933" />
-                <Text style={{ color: '#FF9933', fontWeight: '800', fontSize: 13 }}>You're on the table</Text>
+                <Text style={{ color: '#FF9933', fontWeight: '800', fontSize: 13 }}>{"You're on the table"}</Text>
               </View>
               <Text style={{ color: colors.textMuted, marginTop: 6, fontSize: 13, lineHeight: 19 }}>
-                Just tell your server what you'd like — they'll add it to your check from their tablet. When the waiter locks the cart, your "Pay my share" button will appear here.
+                {"Just tell your server what you'd like — they'll add it to your check from their tablet. When the waiter locks the cart, your \"Pay my share\" button will appear here."}
               </Text>
             </Animated.View>
 
@@ -1154,7 +1183,7 @@ export default function JoinPartyScreen() {
               {myItems.length === 0 ? (
                 <View style={{ marginTop: 10, paddingVertical: 18, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.cardBorder, alignItems: 'center' }}>
                   <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: 'center' }}>
-                    Nothing on your check yet — flag down your server and they'll add it here.
+                    {"Nothing on your check yet — flag down your server and they'll add it here."}
                   </Text>
                 </View>
               ) : (
@@ -1166,7 +1195,7 @@ export default function JoinPartyScreen() {
                           {it.menu_item?.name ?? 'Item'}{it.quantity > 1 ? ` ×${it.quantity}` : ''}
                         </Text>
                         {it.special_requests ? (
-                          <Text style={{ color: colors.textMuted, fontSize: 11, fontStyle: 'italic', marginTop: 2 }} numberOfLines={1}>"{it.special_requests}"</Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 11, fontStyle: 'italic', marginTop: 2 }} numberOfLines={1}>{`"${it.special_requests}"`}</Text>
                         ) : null}
                       </View>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
@@ -1198,12 +1227,16 @@ export default function JoinPartyScreen() {
       <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
       <View style={joinS.container}>
         <TopBar
-          title={restaurant?.name ?? 'Group order'}
-          subtitle={`${members.length} member${members.length === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`}
-          rightIcon="share"
+          title={flowTitle}
+          subtitle={selfServe
+            ? (soloTableside
+              ? 'Order from your table'
+              : `${members.length} at the table · ${items.length} item${items.length === 1 ? '' : 's'}`)
+            : `${members.length} member${members.length === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`}
+          rightIcon={soloTableside ? undefined : 'share'}
           leftStyle={isHost ? 'cancel-x' : 'arrow'}
           onBack={isHost ? () => { hapticTap(); setShowCancelConfirm(true); } : () => router.back()}
-          onRight={handleShare}
+          onRight={soloTableside ? undefined : handleShare}
         />
 
         {/* Members strip — tap a member to see what they've ordered */}
@@ -1268,7 +1301,10 @@ export default function JoinPartyScreen() {
           items={items}
           members={members}
           selfMemberId={creds.memberId}
-          onReview={isHost ? () => setView('review') : undefined}
+          onReview={isHost ? () => {
+            if (soloTableside) void handleLock();
+            else void handleBeginReview();
+          } : undefined}
           onRemove={handleRemoveItem}
           onChangeQty={handleChangeQty}
           canEdit={true}
@@ -1276,8 +1312,11 @@ export default function JoinPartyScreen() {
           hostDeciding={hostInReview}
           guestCartLocked={nonHostCartLocked}
           restaurantId={restaurant?.id}
+          canCheckout={canProceedToCheckout(session, members.length)}
+          soloTableside={soloTableside}
+          reviewBusy={busy}
           onLeave={handleLeave}
-          onGoBack={isHost ? () => {
+          onGoBack={isHost && !selfServe ? () => {
             hapticTap();
             router.push({ pathname: '/host_party', params: { sessionId } } as any);
           } : undefined}
@@ -1300,7 +1339,7 @@ export default function JoinPartyScreen() {
           onCartLocked={showCartLockAlert}
         />
         {/* Cancel sheet for host X button */}
-        <CancelSheet visible={showCancelConfirm} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
+        <CancelSheet visible={showCancelConfirm} isTableside={selfServe} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
       </View>
     </>
   );
@@ -1586,8 +1625,11 @@ function CartSummary(props: {
   onRemove: (item: PartyItem) => void;
   onChangeQty: (item: PartyItem, delta: number) => void;
   onLeave: () => void;
-  /** Host-only: navigates back to the QR/share page without leaving. */
+  /** Host-only: navigates back to the QR/share page without leaving (in-app group orders only). */
   onGoBack?: () => void;
+  canCheckout?: boolean;
+  soloTableside?: boolean;
+  reviewBusy?: boolean;
 }) {
   const s = useJoinS();
   const { colors } = useAppTheme();
@@ -1672,13 +1714,17 @@ function CartSummary(props: {
           if (props.isHost && props.onGoBack) props.onGoBack();
           else props.onLeave();
         }} style={[s.secondaryBtn, { flex: 1 }]}>
-          <Text style={s.secondaryBtnText}>{props.isHost ? 'Go Back' : 'Leave'}</Text>
+          <Text style={s.secondaryBtnText}>{props.isHost && props.onGoBack ? 'Go Back' : 'Leave'}</Text>
         </Pressable>
         {props.isHost ? (() => {
-          const needsGuests = props.members.length < 2;
+          const canCheckout = props.canCheckout ?? false;
           const noItems = props.items.length === 0;
-          const disabled = needsGuests || noItems;
-          const label = needsGuests ? 'Waiting for guests to join…' : 'Review & checkout';
+          const disabled = !canCheckout || noItems || props.reviewBusy === true;
+          const label = !canCheckout
+            ? 'Waiting for guests to join…'
+            : props.soloTableside
+              ? 'Checkout'
+              : 'Review & checkout';
           return (
             <Pressable
               onPress={() => {
@@ -1691,7 +1737,7 @@ function CartSummary(props: {
               <Text style={s.primaryBtnText}>{label}</Text>
             </Pressable>
           );
-        })(        ) : (
+        })() : (
           <View style={[s.primaryBtn, { flex: 2, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }]}>
             <Text style={[s.primaryBtnText, { color: colors.textMuted, fontSize: 14 }]}>
               {props.hostDeciding ? 'Host is deciding how to pay...' : 'Waiting on host…'}
@@ -1787,10 +1833,49 @@ function ReviewStage({
   const modeFromSnapshot = (snapshot.session.payment_mode === 'split' ? 'per_person'
     : snapshot.session.payment_mode === 'assign' ? 'assigned'
     : snapshot.session.payment_mode) as PaymentMode;
-  const [mode, setMode] = useState<PaymentMode>(modeFromSnapshot);
+  const [pendingMode, setPendingMode] = useState<PaymentMode | null>(null);
+  const requestedModeRef = useRef<PaymentMode>(modeFromSnapshot);
+  const modeWriteInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
   useEffect(() => {
-    setMode(modeFromSnapshot);
-  }, [modeFromSnapshot]);
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (pendingMode === modeFromSnapshot) {
+      setPendingMode(null);
+      return;
+    }
+    if (pendingMode === null) {
+      requestedModeRef.current = modeFromSnapshot;
+    }
+  }, [modeFromSnapshot, pendingMode]);
+  const flushModeWrites = useCallback(async () => {
+    if (modeWriteInFlightRef.current) return;
+    modeWriteInFlightRef.current = true;
+    let lastSentMode: PaymentMode | null = null;
+    try {
+      while (mountedRef.current) {
+        const nextMode = requestedModeRef.current;
+        lastSentMode = nextMode;
+        await onSetMode(nextMode);
+        if (requestedModeRef.current === nextMode) break;
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        setPendingMode(null);
+        requestedModeRef.current = modeFromSnapshot;
+        Alert.alert('Could not change mode', err instanceof Error ? err.message : 'Try again.');
+      }
+    } finally {
+      modeWriteInFlightRef.current = false;
+      if (mountedRef.current && lastSentMode !== null && requestedModeRef.current !== lastSentMode) {
+        void flushModeWrites();
+      }
+    }
+  }, [modeFromSnapshot, onSetMode]);
+  const mode = pendingMode ?? modeFromSnapshot;
 
   const total = totalCartCents(snapshot.items);
   const taxItems = useMemo(() => snapshot.items.map(it => ({
@@ -1829,8 +1914,9 @@ function ReviewStage({
                 onPress={() => {
                   if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   if (mode === m.key) return;
-                  setMode(m.key); // optimistic for instant UI response
-                  onSetMode(m.key);
+                  requestedModeRef.current = m.key;
+                  setPendingMode(m.key);
+                  void flushModeWrites();
                 }}
                 style={[s.modeCard, mode === m.key && s.modeCardActive]}
               >
@@ -1870,7 +1956,7 @@ function ReviewStage({
             {busy ? <ActivityIndicator color="#ffffff" /> : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Lock size={16} color="#ffffff" />
-                <Text style={s.primaryBtnText}>Lock cart &amp; start collecting</Text>
+                <Text style={s.primaryBtnText}>Start collecting</Text>
               </View>
             )}
           </Pressable>
@@ -1964,7 +2050,7 @@ function SplitItemRow({ item, members, onSetSplit }: { item: PartyItem; members:
   );
 }
 
-function CancelSheet({ visible, onCancel, onConfirm, busy }: { visible: boolean; onCancel: () => void; onConfirm: () => void; busy: boolean }) {
+function CancelSheet({ visible, isTableside, onCancel, onConfirm, busy }: { visible: boolean; isTableside?: boolean; onCancel: () => void; onConfirm: () => void; busy: boolean }) {
   const s = useJoinS();
   if (!visible) return null;
   const tap = () => {
@@ -1973,7 +2059,7 @@ function CancelSheet({ visible, onCancel, onConfirm, busy }: { visible: boolean;
   return (
     <Animated.View entering={FadeIn} exiting={FadeOut} style={s.sheetBackdrop}>
       <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutDown.duration(160)} style={s.cancelSheet}>
-        <Text style={s.sheetTitle}>Cancel group order?</Text>
+        <Text style={s.sheetTitle}>{isTableside ? 'Cancel order?' : 'Cancel group order?'}</Text>
         <Text style={s.sheetBody}>Any paid shares will be refunded via Stripe. This can&apos;t be undone.</Text>
         <Pressable onPress={() => { tap(); onCancel(); }} style={s.neverMindBtnLarge}>
           <Text style={s.neverMindBtnLargeText}>Never mind</Text>
@@ -2104,7 +2190,9 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
             </View>
             <Text style={s.successTitle}>All paid up!</Text>
             <Text style={s.successSubtitle}>
-              Your group order at {restaurant?.name ?? 'the restaurant'} is in. The kitchen is on it.
+              {isSelfServeTableside(snapshot.session)
+                ? `Your order at ${restaurant?.name ?? 'the restaurant'} is in. The kitchen is on it.`
+                : `Your group order at ${restaurant?.name ?? 'the restaurant'} is in. The kitchen is on it.`}
             </Text>
           </Animated.View>
 

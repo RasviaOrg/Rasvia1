@@ -69,7 +69,12 @@ export type PartyPayment = {
 export type PartySession = {
   id: string;
   restaurant_id: number;
-  host_user_id: string;
+  /**
+   * Logged-in host's auth id. `null` for self-serve tableside QR sessions,
+   * which are created server-side with no logged-in host — host identity then
+   * lives in the `party_members` row with `role='host'` (the first scanner).
+   */
+  host_user_id: string | null;
   status: SessionStatus;
   payment_mode: PaymentMode | 'split' | 'assign'; // legacy aliases
   assigned_payer_name: string | null;
@@ -94,6 +99,21 @@ export type PartySession = {
    * add to or edit the shared cart.
    */
   host_in_review?: boolean;
+  /**
+   * For self-serve tableside QR sessions: the normalized free-text table label
+   * baked into the QR (e.g. "Table 7"). `null` for regular group orders. When
+   * set, `party_settle_payment` writes it into `orders.table_number` so the
+   * kitchen ticket shows the table.
+   */
+  table_label: string | null;
+  /**
+   * True for tableside QR self-order sessions (fixed per-table QR resolves to
+   * one shared open session via the `tableside-session` edge function +
+   * `tableside_resolve_session` RPC). These have `staff_managed = false` so the
+   * existing guest self-serve add-items branch applies, and `host_user_id` is
+   * `null` (host identity is the `party_members` row with `role='host'`).
+   */
+  self_serve: boolean;
 };
 
 export type PartySnapshot = {
@@ -730,4 +750,31 @@ export function isFullyPaid(payments: PartyPayment[]): boolean {
 
 export function paidCount(payments: PartyPayment[]): number {
   return payments.filter((p) => p.status === 'paid' || p.status === 'covered').length;
+}
+
+/** Fixed-QR tableside self-order (one person or a group at the same table). */
+export function isSelfServeTableside(session: PartySession | null | undefined): boolean {
+  return Boolean(session?.self_serve);
+}
+
+/** Solo diner at a tableside QR session (only guest so far). */
+export function isSoloTableside(session: PartySession | null | undefined, memberCount: number): boolean {
+  return isSelfServeTableside(session) && memberCount <= 1;
+}
+
+/** Group orders still require 2+ people; tableside allows checkout alone. */
+export function canProceedToCheckout(session: PartySession | null | undefined, memberCount: number): boolean {
+  if (memberCount < 1) return false;
+  if (isSelfServeTableside(session)) return true;
+  return memberCount >= 2;
+}
+
+/** Header title for join/browse/pay screens. */
+export function orderFlowTitle(session: PartySession | null | undefined, restaurantName?: string | null): string {
+  const name = restaurantName?.trim();
+  const table = session?.table_label?.trim();
+  if (table && name) return `${name} · ${table}`;
+  if (table) return table;
+  if (isSelfServeTableside(session)) return name ?? 'Your table';
+  return name ?? 'Group order';
 }

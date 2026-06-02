@@ -51,3 +51,9 @@ enabled = true
 verify_jwt = false
 # Scheduled sweeper; verifies x-reap-secret header or service-role bearer.
 entrypoint = "./functions/party-reap/index.ts"
+
+[functions.tableside-session]
+enabled = true
+verify_jwt = false
+# Public table QR resolver; validates restaurant + rate limits; calls tableside_resolve_session.
+entrypoint = "./functions/tableside-session/index.ts"
