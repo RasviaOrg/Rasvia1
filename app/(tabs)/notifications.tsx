@@ -119,15 +119,21 @@ function buildEventSubtitle(event: NotificationEvent): string {
       return `The group order at ${r} was submitted. Check the restaurant page for confirmation or pickup details.`;
     case "group_ended":
       return `The group order at ${r} has ended. Start a new session when you're ready to order together again.`;
+    case "group_removed":
+      return `You were removed from the group order at ${r}. Contact staff if this was unexpected.`;
     case "group_cancelled": {
+      const reason = String(event.metadata?.cancellationReason ?? event.message ?? "").trim();
       const refunded = Number(event.metadata?.refunded ?? 0);
       const failed = Number(event.metadata?.failed ?? 0);
-      const parts = [`The group order at ${r} was cancelled.`];
+      const parts = [event.message?.trim() || `The group order at ${r} was cancelled.`];
       if (refunded > 0) {
         parts.push(` ${refunded} payment refund${refunded === 1 ? "" : "s"} processed.`);
       }
       if (failed > 0) {
         parts.push(` ${failed} refund${failed === 1 ? "" : "s"} could not be completed automatically.`);
+      }
+      if (!event.message?.includes("Reason:") && reason && !parts[0].includes(reason)) {
+        parts.push(` Reason: ${reason}`);
       }
       return parts.join("");
     }
@@ -244,6 +250,11 @@ const EVENT_CONFIG: Record<
     label: (r) => `Group order cancelled at ${r}`,
     color: "#EF4444",
     icon: XCircle,
+  },
+  group_removed: {
+    label: (r) => `Removed from group order at ${r}`,
+    color: "#EF4444",
+    icon: AlertCircle,
   },
   review_report_submitted: {
     label: () => "Review report submitted",
@@ -959,6 +970,7 @@ export default function NotificationsScreen() {
       case "group_submitted":
       case "group_ended":
       case "group_cancelled":
+      case "group_removed":
         return restaurantId ? `/restaurant/${restaurantId}` : null;
       case "menu_image_submitted":
       case "menu_image_request_new":

@@ -79,7 +79,7 @@ async function bootstrapHostPartyJoinCredentials(
 ) {
   const name = partyJoinDisplayName(user);
   const existing = await loadPartyCreds(sessionId);
-  const jr = await joinSession(supabase, sessionId, name);
+  const jr = await joinSession(supabase, sessionId, name, 'app');
   const creds = await completeJoinCredentials(supabase, sessionId, jr, existing);
   await savePartyCreds(creds);
 }

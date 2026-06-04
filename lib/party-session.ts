@@ -12,6 +12,8 @@ export type PaymentMode = 'host_pays' | 'equal_split' | 'per_person' | 'assigned
 export type SessionStatus = 'open' | 'locked' | 'paying' | 'submitted' | 'completed' | 'cancelled';
 export type PaymentStatus = 'pending' | 'paid' | 'refunded' | 'covered' | 'failed' | 'cancelled';
 
+export type PartyClientPlatform = 'app' | 'web';
+
 export type PartyMember = {
   id: string;
   session_id: string;
@@ -23,7 +25,35 @@ export type PartyMember = {
   left_at: string | null;
   /** Profile avatar snapshot captured at join time (see `party_join_session`). */
   avatar_url?: string | null;
+  /** Set on join; null on legacy rows is treated as web. */
+  client_platform?: PartyClientPlatform | null;
+  /** Restaurant staff on tableside; not shown as a paying guest. */
+  is_tableside_staff?: boolean;
 };
+
+export const TABLESIDE_STAFF_DISPLAY_NAME = 'Staff';
+
+export function isTablesideStaffMember(
+  member: Pick<PartyMember, 'is_tableside_staff' | 'display_name' | 'client_platform'>,
+): boolean {
+  if (member.is_tableside_staff === true) return true;
+  return (
+    member.display_name === TABLESIDE_STAFF_DISPLAY_NAME && member.client_platform === 'web'
+  );
+}
+
+/** Active dining guests only (excludes restaurant staff). */
+export function partyGuestMembers(members: PartyMember[]): PartyMember[] {
+  return members.filter((m) => !m.left_at && !isTablesideStaffMember(m));
+}
+
+/** Only app guests can be assigned host (not browser join). */
+export function canBecomePartyHost(member: PartyMember): boolean {
+  return member.client_platform === 'app';
+}
+
+export const HOST_REQUIRES_APP_MESSAGE =
+  'This guest joined on the website. They need to open the Rasvia app to become host.';
 
 export type PartyItem = {
   id: string;
@@ -86,6 +116,8 @@ export type PartySession = {
   submitted_order_id: number | null;
   submitted_at: string | null;
   cancelled_at: string | null;
+  /** Optional note from host/staff when the session was cancelled. */
+  cancellation_reason?: string | null;
   created_at: string;
   /**
    * True when the session is a tableside QR session owned by restaurant
@@ -270,10 +302,12 @@ export async function joinSession(
   supabase: SupabaseClient,
   sessionId: string,
   displayName: string,
+  clientPlatform: PartyClientPlatform = 'web',
 ): Promise<JoinResult> {
   const { data, error } = await supabase.rpc('party_join_session', {
     p_session_id: sessionId,
     p_display_name: displayName,
+    p_client_platform: clientPlatform,
   });
   if (error) throw new Error(mapRpcError(error));
   return data as JoinResult;
@@ -290,6 +324,45 @@ export async function leaveSession(supabase: SupabaseClient, creds: PartyCreds):
     p_session_id: creds.sessionId,
     p_member_id: creds.memberId,
     p_token: creds.memberToken,
+  });
+  if (error) throw new Error(mapRpcError(error));
+}
+
+/** Display order: host first, then join time. */
+export function sortPartyMembersForDisplay(members: PartyMember[]): PartyMember[] {
+  return [...members].sort((a, b) => {
+    if (a.role === 'host' && b.role !== 'host') return -1;
+    if (b.role === 'host' && a.role !== 'host') return 1;
+    return new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime();
+  });
+}
+
+/** Host removes another guest from the session (sets left_at). */
+export async function hostRemoveMember(
+  supabase: SupabaseClient,
+  creds: PartyCreds,
+  targetMemberId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc('party_host_remove_member', {
+    p_session_id: creds.sessionId,
+    p_member_id: creds.memberId,
+    p_token: creds.memberToken,
+    p_target_member_id: targetMemberId,
+  });
+  if (error) throw new Error(mapRpcError(error));
+}
+
+/** Host transfers the host role to another active member. */
+export async function hostTransferHost(
+  supabase: SupabaseClient,
+  creds: PartyCreds,
+  newHostMemberId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc('party_host_transfer_host', {
+    p_session_id: creds.sessionId,
+    p_member_id: creds.memberId,
+    p_token: creds.memberToken,
+    p_new_host_member_id: newHostMemberId,
   });
   if (error) throw new Error(mapRpcError(error));
 }
@@ -505,12 +578,15 @@ export async function unlockSession(
 export async function cancelSession(
   supabase: SupabaseClient,
   creds: PartyCreds,
+  options?: { reason?: string | null },
 ): Promise<{ ok: boolean; refunded: number; failed: number }> {
+  const reason = options?.reason?.trim();
   const { data, error } = await supabase.functions.invoke('cancel-party-session', {
     body: {
       party_session_id: creds.sessionId,
       party_member_id: creds.memberId,
       party_member_token: creds.memberToken,
+      ...(reason ? { cancellation_reason: reason } : {}),
     },
   });
   if (error) throw new Error(error.message || 'Failed to cancel session.');
@@ -648,12 +724,14 @@ export async function fetchSnapshot(
   } catch {
     // non-fatal — we'll just render initials
   }
-  const members: PartyMember[] = rawMembers.map((m) => ({
-    ...m,
-    avatar_url:
-      m.avatar_url ??
-      (m.user_id && selfId && m.user_id === selfId ? selfAvatar : null),
-  }));
+  const members: PartyMember[] = sortPartyMembersForDisplay(
+    rawMembers.map((m) => ({
+      ...m,
+      avatar_url:
+        m.avatar_url ??
+        (m.user_id && selfId && m.user_id === selfId ? selfAvatar : null),
+    })),
+  );
 
   return {
     session: sessRes.data as PartySession,
@@ -680,9 +758,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   cannot_unlock: 'The session cannot be unlocked right now.',
   payments_in_progress: 'Cannot unlock — payments are already in progress.',
   cannot_leave_after_paying: 'You have already paid and cannot leave the group.',
+  cannot_remove_self: 'Use Leave if you want to exit this group.',
   invalid_payment_mode: 'That payment mode is not supported.',
   invalid_split_members: 'One or more selected members are no longer in the group.',
   invalid_payer: 'That payer is not in this group.',
+  host_requires_app: HOST_REQUIRES_APP_MESSAGE,
   menu_item_not_found: 'That menu item is no longer available.',
   menu_item_wrong_restaurant: 'That menu item belongs to a different restaurant.',
   menu_item_unavailable: 'That menu item is out of stock.',

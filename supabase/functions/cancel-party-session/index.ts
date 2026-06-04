@@ -61,6 +61,7 @@ serve(async (req: Request) => {
   const sessionId = asString(body.party_session_id)
   const memberId = asString(body.party_member_id)
   const token = asString(body.party_member_token)
+  const cancellationReason = asString(body.cancellation_reason)
   if (!sessionId || !memberId || !token) return json({ error: 'Missing credentials.' }, 400)
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -75,13 +76,13 @@ serve(async (req: Request) => {
     .maybeSingle()
   if (memberErr || !member) return json({ error: 'Unauthorized.' }, 401)
   if (!constantTimeEqual(await sha256Hex(token), member.member_token_hash)) return json({ error: 'Unauthorized.' }, 401)
-  if (member.role !== 'host') return json({ error: 'Only the host can cancel.' }, 403)
 
-  // Call the RPC to cancel the session atomically.
+  // Call the RPC to cancel the session atomically (RPC enforces host / tableside manager).
   const { data: cancelResult, error: cancelErr } = await supabase.rpc('party_cancel_session', {
     p_session_id: sessionId,
     p_member_id: memberId,
     p_token: token,
+    p_reason: cancellationReason || null,
   })
   if (cancelErr) {
     console.error('party_cancel_session failed:', cancelErr.message)

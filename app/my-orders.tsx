@@ -5,29 +5,13 @@ import {
   Pressable,
   ScrollView,
   Platform,
-  ActivityIndicator,
   RefreshControl,
   Animated as RNAnimated,
-  Alert,
-  Linking,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import {
-  ArrowLeft,
-  Clock,
-  ShoppingBag,
-  Truck,
-  UtensilsCrossed,
-  CheckCircle2,
-  ClipboardList,
-  ChefHat,
-  Sparkles,
-  XCircle,
-  Flame,
-  Trash2,
-} from "lucide-react-native";
+import { ArrowLeft, Clock, Flame, Trash2 } from "lucide-react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -37,9 +21,6 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
-  withSpring,
-  Easing,
-  cancelAnimation,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from 'expo-secure-store';
@@ -48,13 +29,18 @@ import { useAuth } from "@/lib/auth-context";
 import {
   type SupabaseOrder,
   type OrderStatus,
-  type OrderType,
   mapOrderToUI,
   type UIOrder,
 } from "@/lib/restaurant-types";
 import { APP_BOTTOM_NAV_HEIGHT, APP_BOTTOM_NAV_OFFSET } from "@/components/AppBottomNav";
 import { useAppTheme } from "@/lib/app-theme";
-import { cancelOrder, cancelErrorMessage } from "@/lib/order-cancel";
+import {
+  getStatusColor,
+  getStatusPresentation,
+  ORDER_TYPE_LABELS,
+  orderTypeIcon,
+} from "@/lib/my-orders-ui";
+import { OrderDetailModal } from "@/components/OrderDetailModal";
 
 const DISMISSED_ORDERS_KEY = "rasvia_my-orders-dismissed_v1";
 
@@ -142,656 +128,155 @@ function OrderRowWithExit({ children }: { children: React.ReactNode }) {
   return <Animated.View exiting={FadeOut.duration(320)}>{children}</Animated.View>;
 }
 
-// ────────────────────────────────── Constants ──────────────────────────────────
-
-const STATUS_COLORS: Record<OrderStatus, string> = {
-  pending: "#FF9933",
-  pending_payment: "#A855F7",
-  preparing: "#F59E0B",
-  ready: "#22C55E",
-  served: "#818CF8",
-  completed: "#10B981",
-  cancelled: "#EF4444",
-};
-
-const FALLBACK_STATUS_COLOR = "#6B7280";
-function getStatusColor(status: string): string {
-  return STATUS_COLORS[status as OrderStatus] ?? FALLBACK_STATUS_COLOR;
-}
-
-const ORDER_TYPE_LABELS: Record<OrderType, string> = {
-  dine_in: "Dine In",
-  pre_order: "Pre-Order",
-  takeout: "Takeout",
-};
-
-// The visual steps a consumer cares about
-type TrackingStep = "received" | "preparing" | "ready" | "completed";
-
-const TRACKING_STEPS: {
-  key: TrackingStep;
-  label: string;
-  Icon: React.ComponentType<{ size: number; color: string }>;
-  color: string;
-}[] = [
-    { key: "received", label: "Received", Icon: ClipboardList, color: "#FF9933" },
-    { key: "preparing", label: "Preparing", Icon: ChefHat, color: "#F59E0B" },
-    { key: "ready", label: "Ready", Icon: ShoppingBag, color: "#22C55E" },
-    { key: "completed", label: "Done", Icon: Sparkles, color: "#10B981" },
-  ];
-
-/** Map the database status to our simplified tracking step index */
-function statusToStepIndex(status: OrderStatus): number {
-  switch (status) {
-    case "pending":
-    case "pending_payment":
-      return 0; // received
-    case "preparing":
-      return 1;
-    case "ready":
-      return 2;
-    case "served":
-      return 3; // served = food at your table = done from diner's POV
-    case "completed":
-      return 3;
-    case "cancelled":
-      return -1;
-    default:
-      return 0;
-  }
-}
-
-// ─────────────────────────── Pulsing Dot Component ───────────────────────────
-
-function PulsingDot({ color }: { color: string }) {
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(0.6);
-
-  useEffect(() => {
-    scale.value = withRepeat(
-      withSequence(
-        withTiming(1.5, { duration: 800, easing: Easing.out(Easing.ease) }),
-        withTiming(1, { duration: 800, easing: Easing.in(Easing.ease) })
-      ),
-      -1,
-      false
-    );
-    opacity.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 800 }),
-        withTiming(0.4, { duration: 800 })
-      ),
-      -1,
-      false
-    );
-    return () => {
-      cancelAnimation(scale);
-      cancelAnimation(opacity);
-    };
-  }, []);
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
-
-  return (
-    <View style={{ width: 12, height: 12, alignItems: "center", justifyContent: "center" }}>
-      <Animated.View
-        style={[
-          {
-            width: 12,
-            height: 12,
-            borderRadius: 6,
-            backgroundColor: color,
-            position: "absolute",
-          },
-          animStyle,
-        ]}
-      />
-      <View
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: 3,
-          backgroundColor: color,
-        }}
-      />
-    </View>
-  );
-}
-
-// ─────────────────────────── Progress Stepper ────────────────────────────────
-
-function OrderProgressStepper({ status }: { status: OrderStatus }) {
-  const { colors } = useAppTheme();
-  const currentIdx = statusToStepIndex(status);
-  const isCancelled = status === "cancelled";
-
-  if (isCancelled) {
-    return (
-      <View
-        style={{
-          backgroundColor: "rgba(239,68,68,0.08)",
-          borderRadius: 14,
-          borderWidth: 1,
-          borderColor: "rgba(239,68,68,0.25)",
-          padding: 16,
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        <XCircle size={28} color="#EF4444" />
-        <Text
-          style={{
-            fontFamily: "BricolageGrotesque_700Bold",
-            color: "#EF4444",
-            fontSize: 16,
-          }}
-        >
-          Order Cancelled
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={{ paddingVertical: 8 }}>
-      {/* Step circles and connecting lines */}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingHorizontal: 8,
-        }}
-      >
-        {TRACKING_STEPS.map((step, idx) => {
-          const isCompleted = idx < currentIdx;
-          const isActive = idx === currentIdx;
-          const isFuture = idx > currentIdx;
-
-          const circleSize = isActive ? 40 : 32;
-          const bgColor = isCompleted
-            ? step.color
-            : isActive
-              ? `${step.color}25`
-              : colors.pressableBg;
-          const borderColor = isCompleted
-            ? step.color
-            : isActive
-              ? step.color
-              : colors.cardBorder;
-
-          return (
-            <React.Fragment key={step.key}>
-              {/* Connecting line before this step (skip for first) */}
-              {idx > 0 && (
-                <View
-                  style={{
-                    flex: 1,
-                    height: 3,
-                    backgroundColor: isCompleted || isActive ? TRACKING_STEPS[idx - 1].color : colors.skeletonLine,
-                    borderRadius: 2,
-                    marginHorizontal: -2,
-                  }}
-                />
-              )}
-
-              {/* Step circle */}
-              <Animated.View
-                entering={FadeIn.delay(idx * 100).duration(400)}
-                style={{
-                  width: circleSize,
-                  height: circleSize,
-                  borderRadius: circleSize / 2,
-                  backgroundColor: bgColor,
-                  borderWidth: isActive ? 2 : 1,
-                  borderColor: borderColor,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  zIndex: 2,
-                }}
-              >
-                {isCompleted ? (
-                  <CheckCircle2 size={isActive ? 20 : 16} color="#fff" />
-                ) : isActive ? (
-                  <PulsingDot color={step.color} />
-                ) : (
-                  <View style={{ opacity: 0.35 }}>
-                    <step.Icon
-                      size={isActive ? 18 : 14}
-                      color={step.color}
-                    />
-                  </View>
-                )}
-              </Animated.View>
-            </React.Fragment>
-          );
-        })}
-      </View>
-
-      {/* Labels row */}
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          paddingHorizontal: 0,
-          marginTop: 10,
-        }}
-      >
-        {TRACKING_STEPS.map((step, idx) => {
-          const isCompleted = idx < currentIdx;
-          const isActive = idx === currentIdx;
-          return (
-            <View
-              key={`label-${step.key}`}
-              style={{
-                width: 60,
-                alignItems: "center",
-              }}
-            >
-              <Text
-                style={{
-                  fontFamily: isActive
-                    ? "BricolageGrotesque_700Bold"
-                    : "Manrope_500Medium",
-                  fontSize: 11,
-                  color: isActive
-                    ? step.color
-                    : isCompleted
-                      ? colors.textSecondary
-                      : colors.textMuted,
-                  textAlign: "center",
-                }}
-              >
-                {step.label}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-// ─────────────────────────── Status presentation (title + icon, no emoji) ───
-
-type StatusIconComponent = React.ComponentType<{ size: number; color: string }>;
-
-function getStatusPresentation(
-  status: OrderStatus,
-  orderType: OrderType
-): { title: string; subtitle: string; StatusIcon: StatusIconComponent } {
-  switch (status) {
-    case "pending_payment":
-      return {
-        title: "Processing payment",
-        subtitle: "Your payment is being confirmed. This usually takes just a moment.",
-        StatusIcon: Clock,
-      };
-    case "pending":
-      return {
-        title: "Order received",
-        subtitle: "The restaurant has received your order and will start preparing it shortly.",
-        StatusIcon: ClipboardList,
-      };
-    case "preparing":
-      return {
-        title: "Being prepared",
-        subtitle: "The kitchen is working on your order right now.",
-        StatusIcon: ChefHat,
-      };
-    case "ready":
-      return {
-        title: orderType === "takeout" ? "Ready for pickup" : "Food is ready",
-        subtitle:
-          orderType === "takeout"
-            ? "Head to the counter to pick up your order."
-            : "Your food is on its way to your table.",
-        StatusIcon: ShoppingBag,
-      };
-    case "served":
-      return {
-        title: "Served",
-        subtitle: "Your food has been served. Enjoy!",
-        StatusIcon: UtensilsCrossed,
-      };
-    case "completed":
-      return {
-        title: "All done",
-        subtitle: "Thank you for dining with us. We hope you enjoyed your meal!",
-        StatusIcon: CheckCircle2,
-      };
-    case "cancelled":
-      return {
-        title: "Order cancelled",
-        subtitle: "This order has been cancelled. Contact the restaurant for details.",
-        StatusIcon: XCircle,
-      };
-    default:
-      return { title: "Processing", subtitle: "", StatusIcon: ClipboardList };
-  }
-}
-
-// ─────────────────────── Active Order Card ───────────────────────────────────
+// ─────────────────────── Active Order Card (preview → detail modal) ───────────
 
 function ActiveOrderCard({
   order,
   index,
-  onCancelled,
+  onPress,
 }: {
   order: UIOrder;
   index: number;
-  /** Called after a successful self-cancel so the parent can refresh the
-   *  order list — optional so existing call sites don't have to change. */
-  onCancelled?: () => void;
+  onPress: () => void;
 }) {
-  const { colors } = useAppTheme();
-  const router = useRouter();
-  const [cancelling, setCancelling] = useState(false);
-  const statusPresentation = getStatusPresentation(order.status, order.orderType);
-  const { title: statusTitle, subtitle: statusSubtitle, StatusIcon: StatusIcon } = statusPresentation;
+  const { colors, isDark } = useAppTheme();
+  const { title: statusTitle, StatusIcon } = getStatusPresentation(order.status, order.orderType);
   const isLive = order.status !== "completed" && order.status !== "cancelled";
   const statusColor = getStatusColor(order.status);
-
-  // Only allow self-cancel from this screen while the order hasn't been
-  // picked up by the kitchen yet. Paid-card orders are handled by the helper
-  // and surface a "Contact the restaurant" prompt.
-  const canSelfCancel = order.status === "pending" || order.status === "pending_payment";
-
-  const handleCancelPress = useCallback(async () => {
-    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const confirmed = await new Promise<boolean>((resolve) => {
-      Alert.alert(
-        "Cancel order?",
-        `This will cancel your order at ${order.restaurantName}. You can't undo this.`,
-        [
-          { text: "Keep order", style: "cancel", onPress: () => resolve(false) },
-          { text: "Cancel order", style: "destructive", onPress: () => resolve(true) },
-        ],
-        { cancelable: true, onDismiss: () => resolve(false) },
-      );
-    });
-    if (!confirmed) return;
-    setCancelling(true);
-    try {
-      const result = await cancelOrder(order.id);
-      if (result.ok) {
-        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onCancelled?.();
-        return;
-      }
-      if (result.reason === "paid_card") {
-        // Look up phone for this restaurant so we can offer a tap-to-call.
-        let phone: string | null = null;
-        try {
-          const { data } = await supabase
-            .from("restaurants")
-            .select("phone")
-            .eq("id", Number(order.restaurantId))
-            .maybeSingle();
-          const p = (data as any)?.phone;
-          phone = typeof p === "string" && p.length > 0 ? p : null;
-        } catch {
-          phone = null;
-        }
-        const { title, message } = cancelErrorMessage(result.reason, order.restaurantName);
-        Alert.alert(
-          title,
-          message,
-          phone
-            ? [
-                { text: "Not now", style: "cancel" },
-                {
-                  text: `Call ${order.restaurantName}`,
-                  onPress: () => Linking.openURL(`tel:${phone!.replace(/[^0-9+]/g, "")}`),
-                },
-              ]
-            : [{ text: "OK", style: "cancel" }],
-        );
-        return;
-      }
-      const { title, message } = cancelErrorMessage(result.reason, order.restaurantName);
-      Alert.alert(title, message);
-    } finally {
-      setCancelling(false);
-    }
-  }, [order.id, order.restaurantId, order.restaurantName, onCancelled]);
-
-  const TypeIcon =
-    order.orderType === "takeout"
-      ? Truck
-      : order.orderType === "pre_order"
-        ? Clock
-        : UtensilsCrossed;
+  const TypeIcon = orderTypeIcon(order.orderType);
 
   return (
-    <Animated.View
-      entering={FadeInDown.delay(80 + index * 60).duration(500).springify()}
-      style={{
-        backgroundColor: colors.card,
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: isLive ? `${statusColor}40` : colors.cardBorder,
-        marginBottom: 16,
-        overflow: "hidden",
-      }}
-    >
-      {/* Glowing top border for active orders */}
-      {isLive && (
-        <View
-          style={{
-            height: 3,
-            backgroundColor: statusColor,
-            borderTopLeftRadius: 22,
-            borderTopRightRadius: 22,
-          }}
-        />
-      )}
+    <Animated.View entering={FadeInDown.delay(80 + index * 60).duration(500).springify()}>
+      <Pressable
+        onPress={() => {
+          if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onPress();
+        }}
+        style={{
+          backgroundColor: colors.card,
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: isLive ? `${statusColor}40` : colors.cardBorder,
+          marginBottom: 16,
+          overflow: "hidden",
+        }}
+      >
+        {isLive && (
+          <View
+            style={{
+              height: 3,
+              backgroundColor: statusColor,
+              borderTopLeftRadius: 22,
+              borderTopRightRadius: 22,
+            }}
+          />
+        )}
 
-      <View style={{ padding: 18 }}>
-        {/* Header: Restaurant + Price */}
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            marginBottom: 4,
-          }}
-        >
-          <View style={{ flex: 1, marginRight: 12 }}>
-            <Text
-              style={{
-                fontFamily: "BricolageGrotesque_700Bold",
-                color: colors.text,
-                fontSize: 20,
-                letterSpacing: -0.3,
-              }}
-              numberOfLines={1}
-            >
-              {order.restaurantName}
+        <View style={{ height: 96, position: "relative", overflow: "hidden" }}>
+          <View
+            style={{
+              width: "100%",
+              height: "100%",
+              backgroundColor: `${statusColor}28`,
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <StatusIcon size={32} color={statusColor} />
+          </View>
+          <View
+            style={{
+              position: "absolute",
+              top: 12,
+              left: 14,
+              backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.94)",
+              borderRadius: 8,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderWidth: 1,
+              borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+            }}
+          >
+            <Text style={{ fontFamily: "JetBrainsMono_600SemiBold", color: "#FF9933", fontSize: 14 }}>
+              ${order.subtotal.toFixed(2)}
             </Text>
+          </View>
+          <View
+            style={{
+              position: "absolute",
+              bottom: 10,
+              left: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 6,
-                marginTop: 4,
+                gap: 4,
+                backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.9)",
+                borderRadius: 999,
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderWidth: 1,
+                borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
               }}
             >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  backgroundColor: colors.backgroundElevated,
-                  paddingHorizontal: 8,
-                  paddingVertical: 3,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: colors.cardBorder,
-                }}
-              >
-                <TypeIcon size={11} color={colors.textMuted} />
-                <Text
-                  style={{
-                    fontFamily: "Manrope_600SemiBold",
-                    color: colors.textMuted,
-                    fontSize: 11,
-                  }}
-                >
-                  {ORDER_TYPE_LABELS[order.orderType]}
-                </Text>
-              </View>
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: colors.textMuted,
-                  fontSize: 11,
-                }}
-              >
-                {new Date(order.createdAt).toLocaleTimeString("en-US", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-              </Text>
-            </View>
-          </View>
-          <View style={{ alignItems: "flex-end", marginTop: isLive && canSelfCancel ? 36 : 0 }}>
-            <Text
-              style={{
-                fontFamily: "BricolageGrotesque_700Bold",
-                color: colors.text,
-                fontSize: 20,
-              }}
-            >
-              ${order.subtotal.toFixed(2)}
-            </Text>
-            {order.items.length > 0 && (
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: colors.textMuted,
-                  fontSize: 11,
-                  marginTop: 2,
-                }}
-              >
-                {order.items.length} item{order.items.length !== 1 ? "s" : ""}
-              </Text>
-            )}
-          </View>
-        </View>
-
-        {/* Progress Stepper */}
-        <View style={{ marginTop: 12, marginBottom: 8 }}>
-          <OrderProgressStepper status={order.status} />
-        </View>
-
-        {/* Status message */}
-        <View
-          style={{
-            backgroundColor: `${statusColor}10`,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: `${statusColor}20`,
-            padding: 14,
-            marginTop: 4,
-          }}
-        >
-          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-            <View style={{ marginTop: 2 }}>
-              <StatusIcon size={22} color={statusColor} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  fontFamily: "BricolageGrotesque_700Bold",
-                  color: statusColor,
-                  fontSize: 15,
-                  marginBottom: 3,
-                }}
-              >
-                {statusTitle}
-              </Text>
-              <Text
-                style={{
-                  fontFamily: "Manrope_500Medium",
-                  color: colors.textMuted,
-                  fontSize: 13,
-                  lineHeight: 19,
-                }}
-              >
-                {statusSubtitle}
+              <TypeIcon size={12} color={statusColor} />
+              <Text style={{ fontFamily: "Manrope_700Bold", color: statusColor, fontSize: 11 }}>
+                {ORDER_TYPE_LABELS[order.orderType]}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Items summary */}
-        <Text
-          style={{
-            fontFamily: "Manrope_500Medium",
-            color: colors.textMuted,
-            fontSize: 12,
-            marginTop: 12,
-          }}
-          numberOfLines={2}
-        >
-          {order.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}
-        </Text>
-
-        {/* For paid-card live orders that can't be self-cancelled, surface a
-            passive hint so the user knows why the top-right X isn't present. */}
-        {isLive && !canSelfCancel && order.status !== "served" && (
+        <View style={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 16 }}>
+          <Text
+            style={{
+              fontFamily: "BricolageGrotesque_800ExtraBold",
+              color: colors.text,
+              fontSize: 22,
+              letterSpacing: -0.3,
+              marginBottom: 6,
+            }}
+            numberOfLines={1}
+          >
+            {order.restaurantName}
+          </Text>
+          <Text
+            style={{
+              fontFamily: "BricolageGrotesque_700Bold",
+              color: statusColor,
+              fontSize: 15,
+              marginBottom: 6,
+            }}
+          >
+            {statusTitle}
+          </Text>
           <Text
             style={{
               fontFamily: "Manrope_500Medium",
               color: colors.textMuted,
-              fontSize: 11,
-              marginTop: 10,
-              fontStyle: "italic",
+              fontSize: 13,
+              lineHeight: 19,
             }}
+            numberOfLines={2}
           >
-            Need to cancel? Contact the restaurant directly.
+            {order.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}
           </Text>
-        )}
-      </View>
-
-      {/* Cancel order — anchored to the top-right of the card. Only for
-          still-pending orders. Paid-card orders fall through the helper's
-          `paid_card` path, which prompts the user to call the restaurant.
-          Rendered as a compact round icon button to avoid colliding with
-          the price column directly beneath it. */}
-      {isLive && canSelfCancel && (
-        <Pressable
-          onPress={handleCancelPress}
-          disabled={cancelling}
-          hitSlop={10}
-          accessibilityLabel="Cancel order"
-          style={{
-            position: "absolute",
-            top: isLive ? 12 : 9,
-            right: 10,
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            alignItems: "center",
-            justifyContent: "center",
-            borderWidth: 1,
-            borderColor: "rgba(239,68,68,0.35)",
-            backgroundColor: "rgba(239,68,68,0.14)",
-            opacity: cancelling ? 0.6 : 1,
-            zIndex: 2,
-          }}
-        >
-          {cancelling ? (
-            <ActivityIndicator size="small" color="#FCA5A5" />
-          ) : (
-            <XCircle size={16} color="#FCA5A5" />
-          )}
-        </Pressable>
-      )}
+        </View>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -801,18 +286,15 @@ function ActiveOrderCard({
 function PastOrderCard({
   order,
   index,
+  onPress,
 }: {
   order: UIOrder;
   index: number;
+  onPress: () => void;
 }) {
   const { colors } = useAppTheme();
   const statusColor = getStatusColor(order.status);
-  const TypeIcon =
-    order.orderType === "takeout"
-      ? Truck
-      : order.orderType === "pre_order"
-        ? Clock
-        : UtensilsCrossed;
+  const TypeIcon = orderTypeIcon(order.orderType);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -824,10 +306,12 @@ function PastOrderCard({
   };
 
   return (
-    <Animated.View
-      entering={FadeInDown.delay(60 + index * 40).duration(400)}
-    >
-      <View
+    <Animated.View entering={FadeInDown.delay(60 + index * 40).duration(400)}>
+      <Pressable
+        onPress={() => {
+          if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onPress();
+        }}
         style={{
           backgroundColor: colors.card,
           borderRadius: 16,
@@ -950,7 +434,7 @@ function PastOrderCard({
             </Text>
           </View>
         </View>
-      </View>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -1043,6 +527,7 @@ export default function MyOrdersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<UIOrder[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
+  const [detailOrder, setDetailOrder] = useState<UIOrder | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -1064,6 +549,12 @@ export default function MyOrdersScreen() {
   }, []);
 
   const visibleOrders = orders.filter((o) => !dismissedIds.has(o.id));
+
+  useEffect(() => {
+    if (!detailOrder) return;
+    const fresh = orders.find((o) => o.id === detailOrder.id);
+    if (fresh) setDetailOrder(fresh);
+  }, [orders, detailOrder?.id]);
 
   const fetchOrders = useCallback(async () => {
     if (!session?.user?.id) {
@@ -1378,7 +869,7 @@ export default function MyOrdersScreen() {
                           <ActiveOrderCard
                             order={order}
                             index={idx}
-                            onCancelled={fetchOrders}
+                            onPress={() => setDetailOrder(order)}
                           />
                         </SwipeableOrderRow>
                       </OrderRowWithExit>
@@ -1425,7 +916,11 @@ export default function MyOrdersScreen() {
                           order={order}
                           onDismiss={() => dismissOrder(order.id)}
                         >
-                          <PastOrderCard order={order} index={idx} />
+                          <PastOrderCard
+                            order={order}
+                            index={idx}
+                            onPress={() => setDetailOrder(order)}
+                          />
                         </SwipeableOrderRow>
                       </OrderRowWithExit>
                     ))}
@@ -1436,6 +931,14 @@ export default function MyOrdersScreen() {
           </ScrollView>
         )}
       </SafeAreaView>
+
+      {detailOrder && (
+        <OrderDetailModal
+          order={detailOrder}
+          onClose={() => setDetailOrder(null)}
+          onCancelled={fetchOrders}
+        />
+      )}
     </View>
   );
 }

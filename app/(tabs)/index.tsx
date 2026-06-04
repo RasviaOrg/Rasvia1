@@ -36,7 +36,7 @@ import { FilterBar } from "@/components/FilterBar";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { type FilterType } from "@/data/mockData";
 import { supabase } from "@/lib/supabase";
-import { cancelOrder, cancelErrorMessage } from "@/lib/order-cancel";
+import { cancelOrder, cancelErrorMessage, canSelfCancelOrderStatus } from "@/lib/order-cancel";
 import { fetchBatchReviewStats } from "@/lib/review-stats";
 import {
   type SupabaseRestaurant,
@@ -64,9 +64,16 @@ import { withTimeout } from "@/lib/with-timeout";
 import { fetchRestaurantMediaSlides, fetchRecentlyViewedRestaurantIds, recordRecentlyViewedRestaurant, type RestaurantMediaSlide } from "@/lib/restaurant-media";
 import { ImageFetchProvider } from "@/lib/image-fetch-context";
 import { prefetchImages } from "@/lib/image-cache";
-import { loadActiveParties, removeActiveParty, subscribeActiveParties } from "@/lib/party-active";
-import { loadPartyCreds } from "@/lib/party-credentials";
+import {
+  clearHomeActiveGroupOrderCache,
+  HOME_GROUP_NOTICE_KEY,
+  loadActiveParties,
+  removeActiveParty,
+  subscribeActiveParties,
+} from "@/lib/party-active";
+import { clearPartyCreds, loadPartyCreds } from "@/lib/party-credentials";
 import { fetchSnapshot } from "@/lib/party-session";
+import { subscribeToParty } from "@/lib/party-realtime";
 import { heroCarouselSnapInterval, HERO_FLATLIST_PADDING_H } from "@/lib/hero-carousel-layout";
 
 interface ActiveGroupOrder {
@@ -100,8 +107,6 @@ function liveStepIndex(status: OrderStatus): number {
 
 const HOME_LIVE_ORDER_DISMISSED_KEY = "rasvia_home-live-order-dismissed-ids_v1";
 const HOME_WAITLIST_SEATED_DISMISSED_KEY = "rasvia_home-waitlist-seated-dismissed-entry-ids_v1";
-const HOME_GROUP_NOTICE_KEY = "rasvia_home_group_notice_v1";
-
 /** Live order banner: Received → Preparing → Ready → Served (orange → blue → teal → green) */
 const LIVE_ORDER_CARD_BG = [
   "rgba(249,115,22,0.09)",
@@ -675,7 +680,30 @@ export default function DiscoveryFeed() {
       const parsed = JSON.parse(raw) as {
         type?: string;
         restaurantName?: string;
+        restaurantId?: string;
+        sessionId?: string;
       };
+      if (parsed?.type === "removed_from_group") {
+        const sessionId = String(parsed.sessionId ?? "").trim();
+        const restaurantName = (parsed.restaurantName ?? "the group order").trim();
+        await addEvent({
+          type: "group_removed",
+          title: "Removed from group",
+          message: `You were removed from the order at ${restaurantName}.`,
+          restaurantName: restaurantName || "Restaurant",
+          restaurantId: String(parsed.restaurantId ?? ""),
+          entryId: sessionId,
+          partySize: 0,
+          timestamp: new Date().toISOString(),
+        });
+        if (sessionId) {
+          await removeActiveParty(sessionId);
+          await clearPartyCreds(sessionId);
+          await clearHomeActiveGroupOrderCache(currentUserId, sessionId);
+          setActiveGroupOrder(null);
+        }
+        return;
+      }
       if (parsed?.type === "left_group") {
         const name = (parsed.restaurantName ?? "").trim();
         Alert.alert(
@@ -686,7 +714,7 @@ export default function DiscoveryFeed() {
     } catch {
       // non-blocking
     }
-  }, []);
+  }, [addEvent, currentUserId]);
 
   const discardGroupOrder = useCallback(async (sessId: string) => {
     Alert.alert(
@@ -1166,14 +1194,22 @@ export default function DiscoveryFeed() {
             if (ids.includes(sid)) await removeActiveParty(sid);
             return null;
           }
-          const snap = await fetchSnapshot(supabase, creds);
-          if (!snap) {
-            await removeActiveParty(sid);
-            return null;
-          }
+          const snap = await fetchSnapshot(supabase, creds.sessionId);
           const status = String(snap.session.status ?? "");
           if (status === "completed" || status === "cancelled") {
             await removeActiveParty(sid);
+            await clearPartyCreds(sid);
+            return null;
+          }
+          const stillInGroup =
+            snap.members.some((m) => m.id === creds.memberId) ||
+            (currentUserId
+              ? snap.members.some((m) => m.user_id === currentUserId)
+              : false);
+          if (!stillInGroup) {
+            await removeActiveParty(sid);
+            await clearPartyCreds(sid);
+            await clearHomeActiveGroupOrderCache(currentUserId, sid);
             return null;
           }
           // Best-effort restaurant name lookup — the snapshot has a
@@ -1211,6 +1247,31 @@ export default function DiscoveryFeed() {
       unsub();
     };
   }, [refreshActiveGroupOrders]);
+
+  // Hide "Group order in progress" as soon as the user is removed (e.g. by staff).
+  useEffect(() => {
+    if (!currentUserId || activeGroupOrders.length === 0) return;
+
+    const handles = activeGroupOrders.map((party) =>
+      subscribeToParty(supabase, party.sessionId, (snap) => {
+        const stillIn = snap.members.some((m) => m.user_id === currentUserId);
+        if (stillIn) return;
+        void (async () => {
+          await removeActiveParty(party.sessionId);
+          await clearPartyCreds(party.sessionId);
+          await clearHomeActiveGroupOrderCache(currentUserId, party.sessionId);
+          setActiveGroupOrder((prev) =>
+            prev?.sessionId === party.sessionId ? null : prev,
+          );
+          void refreshActiveGroupOrders();
+        })();
+      }),
+    );
+
+    return () => {
+      handles.forEach((h) => h.unsubscribe());
+    };
+  }, [activeGroupOrders, currentUserId, refreshActiveGroupOrders]);
 
   // Light refresh when the Home tab gains focus (party / live order / waitlist /
   // favorites may have changed in another tab). Single callback so work runs once per focus.
@@ -1702,7 +1763,8 @@ export default function DiscoveryFeed() {
                   </View>
                   <ChevronRight size={20} color="#FF9933" />
                 </Pressable>
-                {activeGroupOrder.isHost && (
+                {activeGroupOrder.isHost &&
+                  (!liveOrderTrack || canSelfCancelOrderStatus(liveOrderTrack.status)) && (
                   <Pressable
                     onPress={() => discardGroupOrder(activeGroupOrder.sessionId)}
                     hitSlop={8}
@@ -2023,8 +2085,7 @@ export default function DiscoveryFeed() {
                   (() => {
                     const showHostCancel =
                       liveOrderTrack.isGroupOrderHost &&
-                      (liveOrderTrack.status === "pending" ||
-                        liveOrderTrack.status === "pending_payment");
+                      canSelfCancelOrderStatus(liveOrderTrack.status);
                     return (
                   <View
                     style={{
@@ -2308,8 +2369,7 @@ export default function DiscoveryFeed() {
                       })}
                     </View>
                   </View>
-                  {(liveOrderTrack.status === "pending" ||
-                    liveOrderTrack.status === "pending_payment") && (
+                  {canSelfCancelOrderStatus(liveOrderTrack.status) && (
                     <Pressable
                       onPress={(e) => {
                         e.stopPropagation();

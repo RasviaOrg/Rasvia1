@@ -21,10 +21,11 @@ import {
   upsertUserCartItem,
 } from "@/lib/user-cart";
 import { useClosedRestaurantIds } from "@/hooks/useClosedRestaurantIds";
-import { parsePartySessionIdFromInput } from "@/lib/parse-party-session-input";
+import { resolveJoinSessionIdFromInput } from "@/lib/join-group-from-input";
 import { supabase } from "@/lib/supabase";
 import { loadActiveParties, removeActiveParty, subscribeActiveParties } from "@/lib/party-active";
 import { loadPartyCreds, clearPartyCreds } from "@/lib/party-credentials";
+import { canCancelPartySession } from "@/lib/order-cancel";
 import { cancelSession, leaveSession } from "@/lib/party-session";
 import * as SecureStore from "expo-secure-store";
 
@@ -36,6 +37,7 @@ type ActiveGroupInfo = {
   itemCount: number;
   subtotalCents: number;
   isHost: boolean;
+  canHostCancel: boolean;
 };
 
 type RestaurantCartGroup = {
@@ -65,6 +67,7 @@ export default function CartScreen() {
   const reqCounter = useRef(0);
   const hasCompletedCartLoadRef = useRef(false);
   const [joinGroupInput, setJoinGroupInput] = useState("");
+  const [joiningGroup, setJoiningGroup] = useState(false);
   const [activeGroup, setActiveGroup] = useState<ActiveGroupInfo | null>(null);
   const [activeGroupLoading, setActiveGroupLoading] = useState(false);
   const [leavingGroup, setLeavingGroup] = useState(false);
@@ -107,16 +110,32 @@ export default function CartScreen() {
       if (!creds) { await removeActiveParty(sessionId); setActiveGroup(null); return; }
 
       const [sessRes, memRes, itemRes] = await Promise.all([
-        supabase.from('party_sessions').select('restaurant_id, status').eq('id', sessionId).maybeSingle(),
+        supabase.from('party_sessions').select('restaurant_id, status, submitted_order_id').eq('id', sessionId).maybeSingle(),
         supabase.from('party_members').select('id, role').eq('session_id', sessionId).is('left_at', null),
         supabase.from('party_items').select('quantity, menu_item:menu_items(price)').eq('session_id', sessionId),
       ]);
       if (!sessRes.data) { setActiveGroup(null); return; }
       const status = String(sessRes.data.status ?? '');
-      if (status === 'completed' || status === 'cancelled') {
+      if (status === 'completed' || status === 'cancelled' || status === 'submitted') {
         await removeActiveParty(sessionId);
         setActiveGroup(null);
         return;
+      }
+      let kitchenOrderStatus: string | null = null;
+      const submittedOrderId = (sessRes.data as { submitted_order_id?: number | null }).submitted_order_id;
+      if (submittedOrderId != null) {
+        const { data: ord } = await supabase.from('orders').select('status').eq('id', submittedOrderId).maybeSingle();
+        kitchenOrderStatus = (ord as { status?: string } | null)?.status ?? null;
+      } else {
+        const { data: ord } = await supabase
+          .from('orders')
+          .select('status')
+          .eq('party_session_id', sessionId)
+          .not('status', 'in', '(cancelled,completed)')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        kitchenOrderStatus = (ord as { status?: string } | null)?.status ?? null;
       }
       const restaurantId = sessRes.data.restaurant_id as number;
       let restaurantName = 'Restaurant';
@@ -126,13 +145,23 @@ export default function CartScreen() {
       } catch { /* ignore */ }
       const members = (memRes.data ?? []) as { id: string; role: string }[];
       const isHost = members.some(m => m.id === creds.memberId && m.role === 'host');
+      const canHostCancel = isHost && canCancelPartySession(status, kitchenOrderStatus);
       const rawItems = (itemRes.data ?? []) as unknown as { quantity: number | null; menu_item: { price: number } | null }[];
       const itemCount = rawItems.reduce((s, it) => s + (it.quantity ?? 1), 0);
       const subtotalCents = rawItems.reduce((s, it) => {
         const price = Number((it.menu_item as any)?.price ?? 0);
         return s + Math.round(price * 100) * (it.quantity ?? 1);
       }, 0);
-      setActiveGroup({ sessionId, restaurantName, restaurantId, memberCount: members.length, itemCount, subtotalCents, isHost });
+      setActiveGroup({
+        sessionId,
+        restaurantName,
+        restaurantId,
+        memberCount: members.length,
+        itemCount,
+        subtotalCents,
+        isHost,
+        canHostCancel,
+      });
     } catch {
       setActiveGroup(null);
     } finally {
@@ -213,6 +242,38 @@ export default function CartScreen() {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     router.navigate("/" as any);
   };
+
+  const handleJoinGroupFromInput = useCallback(async () => {
+    const raw = joinGroupInput.trim();
+    if (!raw) {
+      Alert.alert(
+        "Could not open group order",
+        "Paste a table link, table code (e.g. from the QR), or a group join link.",
+      );
+      return;
+    }
+    setJoiningGroup(true);
+    try {
+      const sessionId = await resolveJoinSessionIdFromInput(supabase, raw);
+      if (!sessionId) {
+        Alert.alert(
+          "Could not open group order",
+          "Paste a full table link (rasvia.com/t/…), the table code, a join link, or a session id.",
+        );
+        return;
+      }
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setJoinGroupInput("");
+      router.push(`/join/${sessionId}` as any);
+    } catch (err) {
+      Alert.alert(
+        "Could not open table",
+        err instanceof Error ? err.message : "Please try again or scan the QR on your table.",
+      );
+    } finally {
+      setJoiningGroup(false);
+    }
+  }, [joinGroupInput, router]);
 
   const grouped = useMemo<RestaurantCartGroup[]>(() => {
     const map = new Map<string, RestaurantCartGroup>();
@@ -500,7 +561,7 @@ export default function CartScreen() {
             }}>
               {leavingGroup ? (
                 <ActivityIndicator size="small" color={colors.textMuted} style={{ flex: 1 }} />
-              ) : activeGroup.isHost ? (
+              ) : activeGroup.isHost && activeGroup.canHostCancel ? (
                 <Pressable onPress={handleCancelActiveGroup} style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -577,7 +638,7 @@ export default function CartScreen() {
                     lineHeight: 15,
                   }}
                 >
-                  Same as scanning the table QR — paste a link or id.
+                  Same as scanning the table QR — paste the link, table code, or join id.
                 </Text>
               </View>
             </View>
@@ -585,24 +646,13 @@ export default function CartScreen() {
               <TextInput
                 value={joinGroupInput}
                 onChangeText={setJoinGroupInput}
-                placeholder="Paste link or session id"
+                placeholder="Table link, code, or join id"
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
+                editable={!joiningGroup}
                 returnKeyType="go"
-                onSubmitEditing={() => {
-                  const id = parsePartySessionIdFromInput(joinGroupInput);
-                  if (!id) {
-                    Alert.alert(
-                      "Could not open group order",
-                      "Paste a full join link or a session id (UUID).",
-                    );
-                    return;
-                  }
-                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setJoinGroupInput("");
-                  router.push(`/join/${id}` as any);
-                }}
+                onSubmitEditing={() => void handleJoinGroupFromInput()}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -618,19 +668,8 @@ export default function CartScreen() {
                 }}
               />
               <Pressable
-                onPress={() => {
-                  const id = parsePartySessionIdFromInput(joinGroupInput);
-                  if (!id) {
-                    Alert.alert(
-                      "Could not open group order",
-                      "Paste a full join link or a session id (UUID).",
-                    );
-                    return;
-                  }
-                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setJoinGroupInput("");
-                  router.push(`/join/${id}` as any);
-                }}
+                onPress={() => void handleJoinGroupFromInput()}
+                disabled={joiningGroup}
                 style={{
                   backgroundColor: colors.saffron,
                   paddingHorizontal: 16,
@@ -638,8 +677,12 @@ export default function CartScreen() {
                   borderRadius: 10,
                   alignItems: "center",
                   justifyContent: "center",
+                  opacity: joiningGroup ? 0.65 : 1,
                 }}
               >
+                {joiningGroup ? (
+                  <ActivityIndicator size="small" color={isDark ? "#0f0f0f" : "#ffffff"} />
+                ) : (
                 <Text
                   style={{
                     fontFamily: "Manrope_700Bold",
@@ -649,6 +692,7 @@ export default function CartScreen() {
                 >
                   Open
                 </Text>
+                )}
               </Pressable>
             </View>
           </View>

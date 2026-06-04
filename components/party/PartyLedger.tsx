@@ -9,6 +9,7 @@ import {
   type PartyMember,
   type PartyPayment,
   formatCents,
+  partyGuestMembers,
 } from '../../lib/party-session';
 import {
   isAssignedPaymentMode,
@@ -287,25 +288,27 @@ export function PartyLedger(props: {
     onMemberTap,
   } = props;
 
+  const guests = useMemo(() => partyGuestMembers(members), [members]);
+
   /** Per-member subtotal + tax from cart lines and `item.tax_cents` (not order-wide ratios). */
   const itemLineBreakdown = useMemo(() => {
     if (!items?.length) return null;
     if (isPerPersonPaymentMode(paymentMode ?? undefined)) {
       const pre: Record<string, number> = {};
-      for (const m of members) {
-        pre[m.id] = memberPretaxCentsPerPerson(items, members, m.id, !!staffManaged);
+      for (const m of guests) {
+        pre[m.id] = memberPretaxCentsPerPerson(items, guests, m.id, !!staffManaged);
       }
       return { pre };
     }
     if (isAssignedPaymentMode(paymentMode ?? undefined)) {
       const pre: Record<string, number> = {};
-      for (const m of members) {
-        pre[m.id] = memberPretaxCentsAssigned(items, members, m.id, !!staffManaged);
+      for (const m of guests) {
+        pre[m.id] = memberPretaxCentsAssigned(items, guests, m.id, !!staffManaged);
       }
       return { pre };
     }
     return null;
-  }, [items, members, paymentMode, staffManaged]);
+  }, [items, guests, paymentMode, staffManaged]);
 
   const paidCount = useMemo(
     () => payments.filter((p) => p.status === 'paid' || p.status === 'covered').length,
@@ -336,7 +339,7 @@ export function PartyLedger(props: {
         />
       </View>
       <View style={{ marginTop: 10 }}>
-        {members.map((m, idx) => {
+        {guests.map((m, idx) => {
           const pay = payments.find((p) => p.member_id === m.id);
           const isSelf = m.id === selfMemberId;
           return (

@@ -37,6 +37,28 @@ const TERMINAL_STATUSES = new Set([
 /** Statuses that a user is still allowed to self-cancel (cash path). */
 const SELF_CANCEL_STATUSES = new Set(["pending", "pending_payment"]);
 
+/** Kitchen has not started — user may still self-cancel (home banner, My Orders, etc.). */
+export function canSelfCancelOrderStatus(status: string | null | undefined): boolean {
+  return SELF_CANCEL_STATUSES.has(String(status ?? "").toLowerCase());
+}
+
+/**
+ * Host/guest party-session cancel — only while the session is still in checkout
+ * and the linked kitchen ticket (if any) is still in the initial pending stage.
+ */
+export function canCancelPartySession(
+  sessionStatus: string,
+  kitchenOrderStatus?: string | null,
+): boolean {
+  const st = String(sessionStatus ?? "").toLowerCase();
+  if (["cancelled", "completed", "submitted"].includes(st)) return false;
+  if (!["open", "locked", "paying"].includes(st)) return false;
+  if (kitchenOrderStatus != null && String(kitchenOrderStatus).length > 0) {
+    return canSelfCancelOrderStatus(kitchenOrderStatus);
+  }
+  return true;
+}
+
 /**
  * Detect the specific PostgREST error we get when `orders.cancelled_at` is
  * missing from the connected Supabase project. The very first deploys of the
@@ -89,7 +111,7 @@ export async function cancelOrder(orderId: string): Promise<CancelResult> {
     //  - the order is still pending AND not backed by a captured Stripe charge
     //  - OR the order is cash-only
     const isCashPath = paymentMethod === "cash";
-    const isPendingUnpaid = SELF_CANCEL_STATUSES.has(status) && !hasStripeIntent;
+    const isPendingUnpaid = canSelfCancelOrderStatus(status) && !hasStripeIntent;
 
     if (!isCashPath && !isPendingUnpaid) {
       return { ok: false, reason: "paid_card" };

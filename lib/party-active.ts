@@ -85,3 +85,24 @@ export function subscribeActiveParties(cb: Listener): () => void {
     listeners.delete(cb);
   };
 }
+
+export const HOME_GROUP_NOTICE_KEY = "rasvia_home_group_notice_v1";
+
+/** Drop home-screen single-session banner cache for a party session. */
+export async function clearHomeActiveGroupOrderCache(
+  userId: string | undefined,
+  sessionId: string,
+): Promise<void> {
+  if (!userId || !sessionId) return;
+  try {
+    const key = `rasvia_active_group_order_${userId}`;
+    const raw = await SecureStore.getItemAsync(key);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { sessionId?: string };
+    if (String(parsed?.sessionId ?? "") === sessionId) {
+      await SecureStore.deleteItemAsync(key);
+    }
+  } catch {
+    // non-fatal
+  }
+}

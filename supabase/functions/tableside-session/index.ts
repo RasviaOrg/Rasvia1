@@ -1,10 +1,7 @@
 // Public resolver for tableside self-order QR links.
-// Input: { restaurant_id, table_label } (+ optional ?sig= HMAC when TABLESIDE_QR_SIGNING_SECRET is set)
-// Contract: request { restaurant_id: number, table_label: string } -> response { sessionId: string }.
-// TODO (v1 hardening, fast-follow): signed QR tokens are OPTIONAL and DISABLED by default.
-//   They are only enforced when the TABLESIDE_QR_SIGNING_SECRET env var is set; until then the
-//   endpoint relies on restaurant validation + IP rate limiting. Set the secret and bake `sig`
-//   into generated QRs to require signatures.
+// Input (new): { table_code: string }
+// Input (legacy): { restaurant_id, table_label } (+ optional sig when TABLESIDE_QR_SIGNING_SECRET is set)
+// Response: { sessionId: string }
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'npm:@supabase/supabase-js@^2.39.0'
 
@@ -15,6 +12,7 @@ const corsHeaders = {
 }
 
 const MAX_TABLE_LABEL_LEN = 32
+const TABLE_CODE_RE = /^[A-Za-z0-9]{6,8}$/
 const RATE_LIMIT_WINDOW_MS = 60_000
 const RATE_LIMIT_MAX = 30
 
@@ -101,6 +99,77 @@ serve(async (req) => {
     return json({ error: 'invalid_json' }, 400)
   }
 
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error('[tableside-session] missing Supabase env')
+    return json({ error: 'server_misconfigured' }, 500)
+  }
+
+  const admin = createClient(supabaseUrl, supabaseServiceKey)
+
+  const tableCode = asString(body.table_code)
+  if (tableCode) {
+    if (!TABLE_CODE_RE.test(tableCode)) {
+      return json({ error: 'invalid_table_code' }, 400)
+    }
+
+    const rateKey = `${clientIp(req)}:code:${tableCode}`
+    if (!checkRateLimit(rateKey)) {
+      return json({ error: 'rate_limited' }, 429)
+    }
+
+    const { data: tableRow, error: tableError } = await admin
+      .from('restaurant_tableside_tables')
+      .select('restaurant_id, code')
+      .eq('code', tableCode)
+      .maybeSingle()
+
+    if (tableError) {
+      console.error('[tableside-session] table lookup failed:', tableError.message)
+      return json({ error: 'lookup_failed' }, 500)
+    }
+    if (!tableRow) {
+      return json({ error: 'table_not_found' }, 404)
+    }
+
+    const restaurantId = Number(tableRow.restaurant_id)
+    const { data: restaurant, error: restaurantError } = await admin
+      .from('restaurants')
+      .select('id')
+      .eq('id', restaurantId)
+      .maybeSingle()
+
+    if (restaurantError) {
+      console.error('[tableside-session] restaurant lookup failed:', restaurantError.message)
+      return json({ error: 'lookup_failed' }, 500)
+    }
+    if (!restaurant) {
+      return json({ error: 'restaurant_not_found' }, 404)
+    }
+
+    const { data: rpcData, error: rpcError } = await admin.rpc('tableside_resolve_by_code', {
+      p_code: tableCode,
+    })
+
+    if (rpcError) {
+      const msg = rpcError.message ?? ''
+      if (msg.includes('table_not_found') || msg.includes('invalid_table_code')) {
+        return json({ error: 'table_not_found' }, 404)
+      }
+      console.error('[tableside-session] resolve_by_code failed:', msg)
+      return json({ error: 'resolve_failed' }, 500)
+    }
+
+    const sessionId = (rpcData as { session_id?: string } | null)?.session_id
+    if (!sessionId) {
+      console.error('[tableside-session] resolve_by_code returned no session_id')
+      return json({ error: 'resolve_failed' }, 500)
+    }
+
+    return json({ sessionId })
+  }
+
   const restaurantIdRaw = body.restaurant_id
   const restaurantId = Number(restaurantIdRaw)
   if (!Number.isFinite(restaurantId) || restaurantId < 1) {
@@ -124,23 +193,14 @@ serve(async (req) => {
     }
   }
 
-  const rateKey = `${clientIp(req)}:${restaurantId}`
+  const rateKey = `${clientIp(req)}:${restaurantId}:${tableLabel}`
   if (!checkRateLimit(rateKey)) {
     return json({ error: 'rate_limited' }, 429)
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('[tableside-session] missing Supabase env')
-    return json({ error: 'server_misconfigured' }, 500)
-  }
-
-  const admin = createClient(supabaseUrl, supabaseServiceKey)
-
   const { data: restaurant, error: restaurantError } = await admin
     .from('restaurants')
-    .select('id, is_enabled')
+    .select('id')
     .eq('id', restaurantId)
     .maybeSingle()
 
@@ -150,9 +210,6 @@ serve(async (req) => {
   }
   if (!restaurant) {
     return json({ error: 'restaurant_not_found' }, 404)
-  }
-  if (restaurant.is_enabled === false) {
-    return json({ error: 'restaurant_inactive' }, 403)
   }
 
   const { data: rpcData, error: rpcError } = await admin.rpc('tableside_resolve_session', {

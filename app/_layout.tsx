@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, ActivityIndicator, Platform, Alert, LogBox, Image, Text } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { authGateFlags } from "@/lib/auth-gate-flags";
-import { parseTablesideLinkFromInput } from "@/lib/parse-party-session-input";
+import { resolveJoinSessionIdFromInput } from "@/lib/join-group-from-input";
 import { useBackgroundRoutePrefetch } from "@/lib/route-prefetch";
 
 // Remote push token registration is unavailable in Expo Go SDK 53+.
@@ -245,24 +245,23 @@ function AuthGate() {
     // self-serve session, then route into the existing join screen. Errors are
     // surfaced as an alert and never allowed to crash the app on a bad link.
     const handleTablesideLink = async (url: string) => {
-      const parsed = parseTablesideLinkFromInput(url);
-      if (!parsed) {
-        Alert.alert('Invalid table link', 'This table QR code could not be read. Please scan it again or ask a staff member.');
-        return;
-      }
       try {
-        const { data, error } = await supabase.functions.invoke('tableside-session', {
-          body: { restaurant_id: parsed.restaurantId, table_label: parsed.tableLabel },
-        });
-        if (error) throw error;
-        const sessionId = (data as { sessionId?: string } | null)?.sessionId;
-        if (!sessionId) throw new Error('No session id returned.');
+        const sessionId = await resolveJoinSessionIdFromInput(supabase, url);
+        if (!sessionId) {
+          Alert.alert(
+            'Invalid table link',
+            'This table QR code could not be read. Please scan it again or ask a staff member.',
+          );
+          return;
+        }
         router.push(`/join/${sessionId}` as any);
-      } catch {
+      } catch (err) {
         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert(
           'Could not open table',
-          "We couldn't start your table order. Please try scanning the QR code again in a moment.",
+          err instanceof Error
+            ? err.message
+            : "We couldn't start your table order. Please try scanning the QR code again in a moment.",
         );
       }
     };
@@ -270,8 +269,8 @@ function AuthGate() {
     const handleUrl = (event: { url: string }) => {
       const { path, queryParams } = Linking.parse(event.url);
 
-      // `rasvia://t?...` and `https://rasvia.com/t?...` both parse to path `t`.
-      if (path === 't' || path === '/t') {
+      // `rasvia://t?...`, `https://rasvia.com/t/{code}`, and `rasvia://t/{code}`.
+      if (path === 't' || path === '/t' || (typeof path === 'string' && path.startsWith('t/'))) {
         void handleTablesideLink(event.url);
         return;
       }

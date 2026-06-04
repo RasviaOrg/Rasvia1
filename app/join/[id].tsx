@@ -31,9 +31,10 @@ import Animated, {
 import {
   ArrowLeft, Plus, Minus, ShoppingCart, Crown, Copy, Share2, Check,
   X, Users, DollarSign, Leaf, Flame, Search, ChevronRight, Info,
-  Lock, Unlock, CreditCard, Trash2, AlertCircle, PartyPopper,
+  Lock, Unlock, CreditCard, Trash2, AlertCircle, PartyPopper, UserMinus,
 } from 'lucide-react-native';
 
+import { canCancelPartySession } from '@/lib/order-cancel';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth-context';
 import { useNotifications } from '../../lib/notifications-context';
@@ -42,15 +43,22 @@ import {
   isPartyUnauthorizedMessage,
   setPaymentMode, setItemSplit, assignItemPayer,
   lockSession, unlockSession, startCheckout, cancelSession, leaveSession,
-  setHostInReview, fetchSnapshot, CheckoutError,
+  setHostInReview, fetchSnapshot, CheckoutError, hostTransferHost,
+  canBecomePartyHost, HOST_REQUIRES_APP_MESSAGE,
   formatCents, memberById, paymentForMember, isFullyPaid, totalCartCents,
   isSelfServeTableside, isSoloTableside, canProceedToCheckout, orderFlowTitle,
+  partyGuestMembers, isTablesideStaffMember,
   type PartyCreds, type PartySnapshot, type PaymentMode, type PartyMember, type PartyItem,
 } from '../../lib/party-session';
 import {
   loadPartyCreds, savePartyCreds, clearPartyCreds,
 } from '../../lib/party-credentials';
-import { addActiveParty, removeActiveParty } from '../../lib/party-active';
+import {
+  addActiveParty,
+  clearHomeActiveGroupOrderCache,
+  HOME_GROUP_NOTICE_KEY,
+  removeActiveParty,
+} from '../../lib/party-active';
 import { subscribeToParty } from '../../lib/party-realtime';
 import { PartyLedger, colorForMember, memberInitials } from '../../components/party/PartyLedger';
 import { DEFAULT_MENU_TAGS, parseRestaurantMenuTags, normalizeMenuItemTags, type MenuTagConfig } from '../../lib/menu-tags';
@@ -119,7 +127,7 @@ function createJoinPartyStyles(colors: AppColors, isDark: boolean) {
     cartContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: 20, backgroundColor: colors.card, borderTopWidth: 1, borderColor: hairline },
     cartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
     cartTitle: { color: colors.text, fontWeight: '700' },
-    cartTotal: { color: '#FF9933', fontWeight: '800', marginLeft: 'auto' },
+    cartTotal: { color: '#FF9933', fontWeight: '800', fontSize: 15 },
     cartRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderColor: hairline },
     cartItemName: { color: colors.text, fontWeight: '700', fontSize: 13 },
     cartItemMeta: { color: colors.textMuted, fontSize: 11 },
@@ -248,31 +256,19 @@ type Restaurant = { id: number; name: string; image_url: string | null; sales_ta
  * just under a second so the wallet sheet keeps the foreground.
  */
 const WALLET_INTERACTION_GRACE_MS = 900;
-const HOME_GROUP_NOTICE_KEY = "rasvia_home_group_notice_v1";
-
-/** Drop home-screen banner cache when it points at this session (guest leave / cancel). */
-async function clearHomeActiveGroupOrderCache(userId: string | undefined, sid: string) {
-  if (!userId || !sid) return;
-  try {
-    const k = `rasvia_active_group_order_${userId}`;
-    const raw = await SecureStore.getItemAsync(k);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as { sessionId?: string };
-    if (String(parsed?.sessionId ?? '') === sid) {
-      await SecureStore.deleteItemAsync(k);
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-async function queueHomeGroupNotice(payload: { type: "left_group"; restaurantName?: string | null; sessionId: string }) {
+async function queueHomeGroupNotice(payload: {
+  type: "left_group" | "removed_from_group";
+  restaurantName?: string | null;
+  restaurantId?: string | number | null;
+  sessionId: string;
+}) {
   try {
     await SecureStore.setItemAsync(
       HOME_GROUP_NOTICE_KEY,
       JSON.stringify({
         type: payload.type,
         restaurantName: payload.restaurantName ?? "the group order",
+        restaurantId: payload.restaurantId != null ? String(payload.restaurantId) : "",
         sessionId: payload.sessionId,
         ts: new Date().toISOString(),
       }),
@@ -315,7 +311,13 @@ export default function JoinPartyScreen() {
   const [search, setSearch] = useState('');
   const [menuTags, setMenuTags] = useState<MenuTagConfig[]>(DEFAULT_MENU_TAGS);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [linkedKitchenOrderStatus, setLinkedKitchenOrderStatus] = useState<string | null>(null);
   const [viewingMemberId, setViewingMemberId] = useState<string | null>(null);
+  const [removedFromGroup, setRemovedFromGroup] = useState(false);
+  const wasInGroupRef = useRef(false);
+  const sessionStatusPrevRef = useRef<string | null>(null);
+  const selfCancelledRef = useRef(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
   /** Optimistic +1 overlay for the menu Add buttons, keyed by menu_item_id.
    *  Cleared on snapshot refresh so the badge reflects the tap instantly
@@ -324,13 +326,24 @@ export default function JoinPartyScreen() {
 
   const session = snapshot?.session ?? null;
   const members = snapshot?.members ?? [];
+  const guestMembers = useMemo(() => partyGuestMembers(members), [members]);
+  const viewingMember = viewingMemberId
+    ? members.find((m) => m.id === viewingMemberId) ?? null
+    : null;
   const items = snapshot?.items ?? [];
   const payments = snapshot?.payments ?? [];
   const me = creds ? members.find((m) => m.id === creds.memberId) ?? null : null;
   const isHost = me?.role === 'host';
+  const canHostCancelParty = useMemo(
+    () =>
+      isHost &&
+      session != null &&
+      canCancelPartySession(session.status, linkedKitchenOrderStatus),
+    [isHost, session, linkedKitchenOrderStatus],
+  );
   const myPayment = creds ? paymentForMember(payments, creds.memberId) : null;
   const selfServe = isSelfServeTableside(session);
-  const soloTableside = isSoloTableside(session, members.length);
+  const soloTableside = isSoloTableside(session, guestMembers.length);
   const flowTitle = orderFlowTitle(session, restaurant?.name);
   const hostInReview = session?.host_in_review === true;
   const nonHostCartLocked = !isHost && hostInReview;
@@ -378,6 +391,66 @@ export default function JoinPartyScreen() {
     </ImageFetchProvider>
   );
 
+  // Linked kitchen ticket — once it leaves pending, hosts can no longer cancel the party.
+  useEffect(() => {
+    if (!session) {
+      setLinkedKitchenOrderStatus(null);
+      return;
+    }
+    let cancelled = false;
+    const refreshKitchenStatus = async () => {
+      try {
+        if (session.submitted_order_id != null) {
+          const { data } = await supabase
+            .from('orders')
+            .select('status')
+            .eq('id', session.submitted_order_id)
+            .maybeSingle();
+          if (!cancelled) {
+            setLinkedKitchenOrderStatus((data as { status?: string } | null)?.status ?? null);
+          }
+          return;
+        }
+        const { data } = await supabase
+          .from('orders')
+          .select('status')
+          .eq('party_session_id', session.id)
+          .not('status', 'in', '(cancelled,completed)')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!cancelled) {
+          setLinkedKitchenOrderStatus((data as { status?: string } | null)?.status ?? null);
+        }
+      } catch {
+        if (!cancelled) setLinkedKitchenOrderStatus(null);
+      }
+    };
+    void refreshKitchenStatus();
+
+    const channel = supabase
+      .channel(`join-kitchen-order-${session.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `party_session_id=eq.${session.id}`,
+        },
+        (payload) => {
+          const next = (payload.new as { status?: string } | null)?.status;
+          if (next) setLinkedKitchenOrderStatus(next);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [session?.id, session?.submitted_order_id, session?.status]);
+
   // Derived view based on session status
   useEffect(() => {
     if (!session) return;
@@ -396,6 +469,54 @@ export default function JoinPartyScreen() {
     // session.status === 'open'
     setView((prev) => (prev === 'review' ? 'review' : 'browse'));
   }, [session?.status]);
+
+  useEffect(() => {
+    if (!session) return;
+    const prev = sessionStatusPrevRef.current;
+    sessionStatusPrevRef.current = session.status;
+    if (session.status !== 'cancelled' || !prev || prev === 'cancelled' || selfCancelledRef.current) {
+      return;
+    }
+    const rname = restaurant?.name ?? 'the restaurant';
+    const reason = session.cancellation_reason?.trim();
+    const message = reason
+      ? `The order at ${rname} was cancelled. Reason: ${reason}`
+      : `The order at ${rname} was cancelled.`;
+    void addEvent({
+      type: 'group_cancelled',
+      title: 'Order cancelled',
+      message,
+      restaurantName: rname,
+      restaurantId: String(restaurant?.id ?? snapshot?.session.restaurant_id ?? ''),
+      entryId: sessionId,
+      partySize: guestMembers.length,
+      timestamp: new Date().toISOString(),
+      metadata: reason ? { cancellationReason: reason } : undefined,
+    });
+    if (Platform.OS !== 'web') {
+      hapticTap();
+      void (async () => {
+        try {
+          const { schedulePushNotification } = await import('../../lib/push-notifications');
+          await schedulePushNotification('Order cancelled', message, {
+            type: 'group_cancelled',
+            sessionId,
+          });
+        } catch {
+          // non-blocking
+        }
+      })();
+    }
+  }, [
+    session?.status,
+    session?.cancellation_reason,
+    restaurant?.name,
+    restaurant?.id,
+    snapshot?.session.restaurant_id,
+    sessionId,
+    guestMembers.length,
+    addEvent,
+  ]);
 
   // Load saved credentials once we have sessionId. `credsLoaded` flips once
   // we know whether the device has any saved creds — we gate the name-entry
@@ -516,6 +637,93 @@ export default function JoinPartyScreen() {
     return () => handle.unsubscribe();
   }, [sessionId]);
 
+  const handleRemovedFromGroup = useCallback(async () => {
+    if (removedFromGroup) return;
+    setRemovedFromGroup(true);
+    setViewingMemberId(null);
+    if (Platform.OS !== 'web') {
+      hapticTap();
+      try {
+        const { schedulePushNotification } = await import('../../lib/push-notifications');
+        await schedulePushNotification(
+          'Removed from group',
+          restaurant?.name
+            ? `You were removed from the order at ${restaurant.name}.`
+            : 'You were removed from this group order.',
+          { type: 'party_removed', sessionId },
+        );
+      } catch {
+        // non-blocking
+      }
+    }
+    const restaurantName = restaurant?.name ?? 'the group order';
+    await addEvent({
+      type: 'group_removed',
+      title: 'Removed from group',
+      message: `You were removed from the order at ${restaurantName}.`,
+      restaurantName,
+      restaurantId: String(restaurant?.id ?? ''),
+      entryId: sessionId,
+      partySize: 0,
+      timestamp: new Date().toISOString(),
+    });
+    await queueHomeGroupNotice({
+      type: 'removed_from_group',
+      restaurantName,
+      restaurantId: restaurant?.id ?? '',
+      sessionId,
+    });
+    await clearPartyCreds(sessionId);
+    await removeActiveParty(sessionId);
+    await clearHomeActiveGroupOrderCache(authSession?.user?.id, sessionId);
+  }, [removedFromGroup, restaurant?.name, restaurant?.id, sessionId, authSession?.user?.id, addEvent]);
+
+  useEffect(() => {
+    if (!creds || !snapshot || loading || removedFromGroup) return;
+    const stillIn = snapshot.members.some((m) => m.id === creds.memberId);
+    if (stillIn) {
+      wasInGroupRef.current = true;
+      return;
+    }
+    if (!wasInGroupRef.current) return;
+    void handleRemovedFromGroup();
+  }, [creds, snapshot, loading, removedFromGroup, handleRemovedFromGroup]);
+
+  const handleAssignHost = useCallback(
+    (target: PartyMember) => {
+      if (!creds || target.role === 'host' || isTablesideStaffMember(target)) return;
+      if (!canBecomePartyHost(target)) {
+        Alert.alert('Needs the Rasvia app', HOST_REQUIRES_APP_MESSAGE);
+        return;
+      }
+      hapticTap();
+      Alert.alert(
+        `Add ${target.display_name} as a host?`,
+        'They can lock the cart and choose how to pay. You stay a host too.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Add as host',
+            onPress: () => {
+              void (async () => {
+                setBusy(true);
+                try {
+                  await hostTransferHost(supabase, creds, target.id);
+                  setViewingMemberId(null);
+                } catch (err) {
+                  Alert.alert('Could not assign host', err instanceof Error ? err.message : 'Try again.');
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            },
+          },
+        ],
+      );
+    },
+    [creds],
+  );
+
   // Handle checkout return (from payment-redirect deep link).
   //
   // Apple Pay / Google Pay can render a "save this card to your device?"
@@ -546,7 +754,7 @@ export default function JoinPartyScreen() {
     setJoining(true);
     try {
       const existing = await loadPartyCreds(sessionId);
-      const result = await joinSession(supabase, sessionId, name);
+      const result = await joinSession(supabase, sessionId, name, 'app');
       const next = await completeJoinCredentials(supabase, sessionId, result, existing);
       setCreds(next);
       await savePartyCreds(next);
@@ -576,7 +784,7 @@ export default function JoinPartyScreen() {
       if (!displayName) return null;
       try {
         const existing = await loadPartyCreds(sessionId);
-        const jr = await joinSession(supabase, sessionId, displayName);
+        const jr = await joinSession(supabase, sessionId, displayName, 'app');
         const next = await completeJoinCredentials(supabase, sessionId, jr, existing);
         await savePartyCreds(next);
         setCreds(next);
@@ -790,9 +998,15 @@ export default function JoinPartyScreen() {
   const handleCancelSession = async () => {
     if (!creds) return;
     hapticTap();
+    selfCancelledRef.current = true;
     setBusy(true);
     try {
-      const result = await cancelSession(supabase, creds);
+      const trimmed = cancelReason.trim();
+      const result = await cancelSession(
+        supabase,
+        creds,
+        trimmed ? { reason: trimmed } : undefined,
+      );
       const rid = restaurant?.id ?? snapshot?.session.restaurant_id;
       const rname = restaurant?.name ?? 'Restaurant';
       void addEvent({
@@ -814,6 +1028,7 @@ export default function JoinPartyScreen() {
     } finally {
       setBusy(false);
       setShowCancelConfirm(false);
+      setCancelReason('');
     }
   };
 
@@ -892,6 +1107,34 @@ export default function JoinPartyScreen() {
     );
   }
 
+  if (removedFromGroup) {
+    return wrapJoin(
+      <>
+        <Stack.Screen options={{ headerShown: false, gestureEnabled: false }} />
+        <View style={joinS.centered}>
+          <Animated.View entering={FadeIn} style={{ alignItems: 'center', gap: 10, maxWidth: 340, paddingHorizontal: 24 }}>
+            <View style={[joinS.cancelledBadge, { borderColor: 'rgba(239,68,68,0.35)', backgroundColor: 'rgba(239,68,68,0.12)' }]}>
+              <UserMinus size={32} color="#EF4444" strokeWidth={2.5} />
+            </View>
+            <Text style={joinS.successTitle}>Removed from group</Text>
+            <Text style={joinS.successSubtitle}>
+              {restaurant?.name
+                ? `You were removed from the table order at ${restaurant.name}.`
+                : 'You were removed from this group order.'}
+              {' '}Contact staff if you think this was a mistake.
+            </Text>
+            <Pressable
+              onPress={() => router.replace('/')}
+              style={[joinS.primaryBtn, { marginTop: 10, alignSelf: 'stretch' }]}
+            >
+              <Text style={joinS.primaryBtnText}>Back to home</Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </>
+    );
+  }
+
   // ── Cancelled session kicks everyone out ────────────────────────────────
   if (session.status === 'cancelled') {
     return wrapJoin(
@@ -902,15 +1145,16 @@ export default function JoinPartyScreen() {
             <View style={joinS.cancelledBadge}><X size={32} color="#EF4444" strokeWidth={3} /></View>
             <Text style={joinS.successTitle}>{selfServe ? 'Order cancelled' : 'Group order ended'}</Text>
             <Text style={joinS.successSubtitle}>
-              {selfServe
-                ? (restaurant?.name
-                  ? `This table order at ${restaurant.name} was cancelled.`
-                  : 'This table order was cancelled.')
-                : (restaurant?.name
-                  ? `The host cancelled the group order at ${restaurant.name}.`
-                  : 'The host cancelled this group order.')}
+              {restaurant?.name
+                ? `This order at ${restaurant.name} was cancelled.`
+                : 'This order was cancelled.'}
               {' '}Any paid shares have been refunded.
             </Text>
+            {session.cancellation_reason?.trim() ? (
+              <Text style={[joinS.successSubtitle, { marginTop: 8, fontFamily: 'Manrope_600SemiBold', color: colors.text }]}>
+                Reason: {session.cancellation_reason.trim()}
+              </Text>
+            ) : null}
             <Pressable
               onPress={async () => {
                 await clearPartyCreds(sessionId);
@@ -941,8 +1185,8 @@ export default function JoinPartyScreen() {
               <Text style={joinS.joinBadgeText}>{selfServe ? 'Table order' : 'Group order'}</Text>
             </View>
             <Text style={joinS.joinTitle}>
-              {selfServe && session.table_label?.trim()
-                ? `Order at ${session.table_label.trim()}`
+              {selfServe
+                ? `Table order at ${restaurant?.name ?? 'this restaurant'}`
                 : `Join at ${restaurant?.name ?? 'this restaurant'}`}
             </Text>
             <Text style={joinS.joinSubtitle}>
@@ -1021,13 +1265,13 @@ export default function JoinPartyScreen() {
               </View>
               <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Lock size={12} color={colors.textMuted} />
-                <Text style={joinS.summaryMeta}>{members.length} {members.length === 1 ? 'member' : 'members'} · {items.length} {items.length === 1 ? 'item' : 'items'}</Text>
+                <Text style={joinS.summaryMeta}>{guestMembers.length} {guestMembers.length === 1 ? 'guest' : 'guests'} · {items.length} {items.length === 1 ? 'item' : 'items'}</Text>
               </View>
             </Animated.View>
 
             <View style={{ marginTop: 16 }}>
               <PartyLedger
-                members={members}
+                members={guestMembers}
                 payments={payments}
                 selfMemberId={creds.memberId}
                 isHost={isHost}
@@ -1079,15 +1323,25 @@ export default function JoinPartyScreen() {
                     <Text style={joinS.secondaryBtnText}>Back to editing</Text>
                   </Pressable>
                 ) : null}
-                <Pressable onPress={() => { hapticTap(); setShowCancelConfirm(true); }} disabled={busy} style={joinS.dangerBtn}>
-                  <X size={16} color="#EF4444" />
-                  <Text style={joinS.dangerBtnText}>{selfServe ? 'Cancel order' : 'Cancel group order'}</Text>
-                </Pressable>
+                {canHostCancelParty ? (
+                  <Pressable onPress={() => { hapticTap(); setShowCancelConfirm(true); }} disabled={busy} style={joinS.dangerBtn}>
+                    <X size={16} color="#EF4444" />
+                    <Text style={joinS.dangerBtnText}>{selfServe ? 'Cancel order' : 'Cancel group order'}</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
           </ScrollView>
 
-          <CancelSheet visible={showCancelConfirm} isTableside={selfServe} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
+          <CancelSheet
+            visible={showCancelConfirm}
+            isTableside={selfServe}
+            reason={cancelReason}
+            onReasonChange={setCancelReason}
+            onCancel={() => { setShowCancelConfirm(false); setCancelReason(''); }}
+            onConfirm={handleCancelSession}
+            busy={busy}
+          />
 
           <MemberItemsSheet
             visible={viewingMemberId !== null}
@@ -1096,6 +1350,18 @@ export default function JoinPartyScreen() {
             items={items.filter((it) => it.added_by_member_id === viewingMemberId)}
             isSelf={viewingMemberId === creds.memberId}
             onClose={() => setViewingMemberId(null)}
+            showAssignHost={Boolean(
+              isHost && viewingMember && viewingMember.role !== 'host',
+            )}
+            assignHostEnabled={Boolean(
+              viewingMember && canBecomePartyHost(viewingMember),
+            )}
+            onAssignHost={
+              viewingMember
+                ? () => handleAssignHost(viewingMember)
+                : undefined
+            }
+            assignHostBusy={busy}
           />
         </View>
       </>
@@ -1142,7 +1408,7 @@ export default function JoinPartyScreen() {
         <View style={joinS.container}>
           <TopBar
             title={restaurant?.name ?? 'Tableside'}
-            subtitle={`${members.length} at the table · waiter is taking the order`}
+            subtitle={`${guestMembers.length} at the table · waiter is taking the order`}
             onBack={() => router.back()}
           />
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
@@ -1159,7 +1425,7 @@ export default function JoinPartyScreen() {
             <View style={{ marginTop: 16 }}>
               <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>At the table</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, alignItems: 'center' }}>
-                {members.map((m, idx) => (
+                {guestMembers.map((m, idx) => (
                   <MemberChip
                     key={m.id}
                     member={m}
@@ -1215,6 +1481,18 @@ export default function JoinPartyScreen() {
             items={items.filter((it) => it.added_by_member_id === viewingMemberId)}
             isSelf={viewingMemberId === creds.memberId}
             onClose={() => setViewingMemberId(null)}
+            showAssignHost={Boolean(
+              isHost && viewingMember && viewingMember.role !== 'host',
+            )}
+            assignHostEnabled={Boolean(
+              viewingMember && canBecomePartyHost(viewingMember),
+            )}
+            onAssignHost={
+              viewingMember
+                ? () => handleAssignHost(viewingMember)
+                : undefined
+            }
+            assignHostBusy={busy}
           />
         </View>
       </>
@@ -1231,17 +1509,17 @@ export default function JoinPartyScreen() {
           subtitle={selfServe
             ? (soloTableside
               ? 'Order from your table'
-              : `${members.length} at the table · ${items.length} item${items.length === 1 ? '' : 's'}`)
-            : `${members.length} member${members.length === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`}
+              : `${guestMembers.length} at the table · ${items.length} item${items.length === 1 ? '' : 's'}`)
+            : `${guestMembers.length} member${guestMembers.length === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`}
           rightIcon={soloTableside ? undefined : 'share'}
-          leftStyle={isHost ? 'cancel-x' : 'arrow'}
-          onBack={isHost ? () => { hapticTap(); setShowCancelConfirm(true); } : () => router.back()}
+          leftStyle={canHostCancelParty ? 'cancel-x' : 'arrow'}
+          onBack={canHostCancelParty ? () => { hapticTap(); setShowCancelConfirm(true); } : () => router.back()}
           onRight={soloTableside ? undefined : handleShare}
         />
 
         {/* Members strip — tap a member to see what they've ordered */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={joinS.membersStrip} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 6, gap: 10, alignItems: 'center' }}>
-          {members.map((m, idx) => (
+          {guestMembers.map((m, idx) => (
             <MemberChip
               key={m.id}
               member={m}
@@ -1312,7 +1590,7 @@ export default function JoinPartyScreen() {
           hostDeciding={hostInReview}
           guestCartLocked={nonHostCartLocked}
           restaurantId={restaurant?.id}
-          canCheckout={canProceedToCheckout(session, members.length)}
+          canCheckout={canProceedToCheckout(session, guestMembers.length)}
           soloTableside={soloTableside}
           reviewBusy={busy}
           onLeave={handleLeave}
@@ -1322,14 +1600,26 @@ export default function JoinPartyScreen() {
           } : undefined}
         />
 
-        <MemberItemsSheet
-          visible={viewingMemberId !== null}
-          member={members.find((m) => m.id === viewingMemberId) ?? null}
-          memberIndex={Math.max(0, members.findIndex((m) => m.id === viewingMemberId))}
-          items={items.filter((it) => it.added_by_member_id === viewingMemberId)}
-          isSelf={viewingMemberId === creds.memberId}
-          onClose={() => setViewingMemberId(null)}
-        />
+          <MemberItemsSheet
+            visible={viewingMemberId !== null}
+            member={members.find((m) => m.id === viewingMemberId) ?? null}
+            memberIndex={Math.max(0, members.findIndex((m) => m.id === viewingMemberId))}
+            items={items.filter((it) => it.added_by_member_id === viewingMemberId)}
+            isSelf={viewingMemberId === creds.memberId}
+            onClose={() => setViewingMemberId(null)}
+            showAssignHost={Boolean(
+              isHost && viewingMember && viewingMember.role !== 'host',
+            )}
+            assignHostEnabled={Boolean(
+              viewingMember && canBecomePartyHost(viewingMember),
+            )}
+            onAssignHost={
+              viewingMember
+                ? () => handleAssignHost(viewingMember)
+                : undefined
+            }
+            assignHostBusy={busy}
+          />
         <MenuItemDetailsModal
           item={selectedMenuItem}
           onClose={() => setSelectedMenuItem(null)}
@@ -1339,7 +1629,15 @@ export default function JoinPartyScreen() {
           onCartLocked={showCartLockAlert}
         />
         {/* Cancel sheet for host X button */}
-        <CancelSheet visible={showCancelConfirm} isTableside={selfServe} onCancel={() => setShowCancelConfirm(false)} onConfirm={handleCancelSession} busy={busy} />
+        <CancelSheet
+          visible={showCancelConfirm}
+          isTableside={selfServe}
+          reason={cancelReason}
+          onReasonChange={setCancelReason}
+          onCancel={() => { setShowCancelConfirm(false); setCancelReason(''); }}
+          onConfirm={handleCancelSession}
+          busy={busy}
+        />
       </View>
     </>
   );
@@ -1663,13 +1961,12 @@ function CartSummary(props: {
         if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setOpen((v) => !v);
       }} style={s.cartHeader}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <ShoppingCart size={18} color="#FF9933" />
             <Text style={s.cartTitle}>{props.items.length} item{props.items.length === 1 ? '' : 's'}</Text>
-            <Text style={s.cartTotal}>{formatCents(total)}</Text>
           </View>
-          <View style={{ marginTop: 6, paddingLeft: 28, paddingRight: 2, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ marginTop: 3, paddingLeft: 28, paddingRight: 2, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             {taxLoading ? (
               <>
                 <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600' }}>+ tax</Text>
@@ -1682,7 +1979,10 @@ function CartSummary(props: {
             )}
           </View>
         </View>
-        <ChevronRight size={18} color={colors.iconMuted} style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 8 }}>
+          <Text style={s.cartTotal}>{formatCents(total)}</Text>
+          <ChevronRight size={18} color={colors.iconMuted} style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }} />
+        </View>
       </Pressable>
       {open ? (
         <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 10 }}>
@@ -1933,7 +2233,7 @@ function ReviewStage({
             <>
               <Text style={[s.sectionLabel, { marginTop: 22 }]}>Choose a payer for each item</Text>
               {snapshot.items.map((it) => (
-                <AssignItemRow key={it.id} item={it} members={snapshot.members} onAssign={(pid) => onAssignPayer(it.id, pid)} />
+                <AssignItemRow key={it.id} item={it} members={partyGuestMembers(snapshot.members)} onAssign={(pid) => onAssignPayer(it.id, pid)} />
               ))}
             </>
           ) : null}
@@ -1945,7 +2245,7 @@ function ReviewStage({
                 By default each person pays for the items they added. Tap names below to share an item between multiple people.
               </Text>
               {snapshot.items.map((it) => (
-                <SplitItemRow key={it.id} item={it} members={snapshot.members} onSetSplit={(ids) => onSetSplit(it.id, ids)} />
+                <SplitItemRow key={it.id} item={it} members={partyGuestMembers(snapshot.members)} onSetSplit={(ids) => onSetSplit(it.id, ids)} />
               ))}
             </>
           ) : null}
@@ -2050,7 +2350,17 @@ function SplitItemRow({ item, members, onSetSplit }: { item: PartyItem; members:
   );
 }
 
-function CancelSheet({ visible, isTableside, onCancel, onConfirm, busy }: { visible: boolean; isTableside?: boolean; onCancel: () => void; onConfirm: () => void; busy: boolean }) {
+function CancelSheet({
+  visible, isTableside, reason, onReasonChange, onCancel, onConfirm, busy,
+}: {
+  visible: boolean;
+  isTableside?: boolean;
+  reason: string;
+  onReasonChange: (v: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  busy: boolean;
+}) {
   const s = useJoinS();
   if (!visible) return null;
   const tap = () => {
@@ -2061,6 +2371,30 @@ function CancelSheet({ visible, isTableside, onCancel, onConfirm, busy }: { visi
       <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutDown.duration(160)} style={s.cancelSheet}>
         <Text style={s.sheetTitle}>{isTableside ? 'Cancel order?' : 'Cancel group order?'}</Text>
         <Text style={s.sheetBody}>Any paid shares will be refunded via Stripe. This can&apos;t be undone.</Text>
+        <Text style={[s.sheetBody, { marginTop: 12, marginBottom: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }]}>
+          Reason for guests (optional)
+        </Text>
+        <TextInput
+          value={reason}
+          onChangeText={onReasonChange}
+          placeholder="Let everyone know why…"
+          placeholderTextColor={s.sheetBody.color}
+          multiline
+          maxLength={280}
+          style={{
+            minHeight: 72,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: s.neverMindBtn.borderColor,
+            backgroundColor: s.neverMindBtn.backgroundColor,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            color: s.sheetTitle.color,
+            fontFamily: 'Manrope_500Medium',
+            fontSize: 14,
+            textAlignVertical: 'top',
+          }}
+        />
         <Pressable onPress={() => { tap(); onCancel(); }} style={s.neverMindBtnLarge}>
           <Text style={s.neverMindBtnLargeText}>Never mind</Text>
         </Pressable>
@@ -2073,7 +2407,16 @@ function CancelSheet({ visible, isTableside, onCancel, onConfirm, busy }: { visi
 }
 
 function MemberItemsSheet({
-  visible, member, memberIndex, items, isSelf, onClose,
+  visible,
+  member,
+  memberIndex,
+  items,
+  isSelf,
+  onClose,
+  showAssignHost,
+  assignHostEnabled,
+  onAssignHost,
+  assignHostBusy,
 }: {
   visible: boolean;
   member: PartyMember | null;
@@ -2081,6 +2424,10 @@ function MemberItemsSheet({
   items: PartyItem[];
   isSelf: boolean;
   onClose: () => void;
+  showAssignHost?: boolean;
+  assignHostEnabled?: boolean;
+  onAssignHost?: () => void;
+  assignHostBusy?: boolean;
 }) {
   const s = useJoinS();
   const { colors } = useAppTheme();
@@ -2120,6 +2467,49 @@ function MemberItemsSheet({
             <X size={18} color={colors.iconMuted} />
           </Pressable>
         </View>
+
+        {showAssignHost && onAssignHost ? (
+          <View style={{ marginBottom: 10 }}>
+            <Pressable
+              onPress={() => {
+                if (!assignHostEnabled) {
+                  Alert.alert('Needs the Rasvia app', HOST_REQUIRES_APP_MESSAGE);
+                  return;
+                }
+                onAssignHost();
+              }}
+              disabled={assignHostBusy}
+              style={[
+                s.primaryBtn,
+                {
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  marginBottom: assignHostEnabled ? 0 : 6,
+                  opacity: assignHostBusy ? 0.6 : assignHostEnabled ? 1 : 0.45,
+                },
+              ]}
+            >
+              {assignHostBusy ? (
+                <ActivityIndicator color="#FFF" size="small" />
+              ) : (
+                <Text style={[s.primaryBtnText, { fontSize: 12 }]}>
+                  Make {member.display_name.split(' ')[0]} host
+                </Text>
+              )}
+            </Pressable>
+            {!assignHostEnabled ? (
+              <Text
+                style={[
+                  s.memberSheetSubtitle,
+                  { marginTop: 0, fontSize: 11, lineHeight: 15, color: colors.textMuted },
+                ]}
+              >
+                {HOST_REQUIRES_APP_MESSAGE}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         {items.length === 0 ? (
           <View style={{ paddingVertical: 28, alignItems: 'center' }}>
@@ -2222,7 +2612,7 @@ function SuccessScreen({ snapshot, restaurant, creds, onDone }: { snapshot: Part
 
           <View style={{ marginTop: 16 }}>
             <PartyLedger
-              members={snapshot.members}
+              members={partyGuestMembers(snapshot.members)}
               payments={snapshot.payments}
               selfMemberId={creds.memberId}
               isHost={me?.role === 'host'}

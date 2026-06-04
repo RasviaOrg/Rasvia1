@@ -38,6 +38,7 @@ export type NotificationEventType =
   | "group_submitted"
   | "group_ended"
   | "group_cancelled"
+  | "group_removed"
   | "review_report_submitted"
   | "review_report_new"
   | "review_report_declined"
@@ -609,7 +610,34 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "INSERT",
+          schema: "public",
+          table: "app_notifications",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            type?: string;
+            title?: string;
+            message?: string;
+            metadata?: Record<string, unknown>;
+          };
+          const type = String(row?.type ?? "");
+          if (type === "group_cancelled" || type === "group_removed") {
+            const title = String(row.title ?? (type === "group_cancelled" ? "Order cancelled" : "Removed from group"));
+            const message = String(row.message ?? "");
+            void schedulePushNotification(title, message, {
+              type,
+              entryId: String((row.metadata as Record<string, unknown>)?.entryId ?? ""),
+            });
+          }
+          void refreshServerEvents();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
           schema: "public",
           table: "app_notifications",
           filter: `user_id=eq.${userId}`,
