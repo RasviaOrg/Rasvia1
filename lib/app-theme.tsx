@@ -11,7 +11,7 @@ import {
   DarkTheme,
   DefaultTheme,
   type Theme as NavigationTheme,
-} from "@react-navigation/native";
+} from "expo-router/react-navigation";
 import {
   LayoutAnimation,
   Platform,

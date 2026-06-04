@@ -4,11 +4,13 @@
   <dict>
     <key>EXUpdatesCheckOnLaunch</key>
     <string>ALWAYS</string>
+    <key>EXUpdatesEnableBsdiffPatchSupport</key>
+    <true/>
     <key>EXUpdatesEnabled</key>
     <false/>
     <key>EXUpdatesLaunchWaitMs</key>
     <integer>0</integer>
     <key>EXUpdatesRuntimeVersion</key>
-    <string>exposdk:55.0.0</string>
+    <string>exposdk:56.0.0</string>
   </dict>
 </plist>

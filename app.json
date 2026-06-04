@@ -75,13 +75,14 @@
         }
       ],
       "expo-secure-store",
+      "expo-status-bar",
       "expo-image",
       "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true
     },
-    "runtimeVersion": "exposdk:55.0.0",
+    "runtimeVersion": "exposdk:56.0.0",
     "extra": {
       "router": {},
       "eas": {

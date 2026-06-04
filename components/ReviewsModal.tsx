@@ -1386,52 +1386,7 @@ export function ReviewsModal({
                 </Pressable>
               </View>
 
-              {/* ── Avg rating summary ── */}
-              <View
-                style={{
-                  paddingHorizontal: 20,
-                  paddingVertical: 18,
-                  borderBottomWidth: 1,
-                  borderBottomColor: colors.cardBorder,
-                }}
-              >
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontFamily: "Manrope_700Bold",
-                    fontSize: 13,
-                    marginBottom: 4,
-                  }}
-                >
-                  {restaurantName}
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <Text
-                    style={{
-                      color: colors.saffron,
-                      fontFamily: "JetBrainsMono_600SemiBold",
-                      fontSize: 34,
-                    }}
-                  >
-                    {headerCount === 0 ? "—" : headerAvg.toFixed(1)}
-                  </Text>
-                  <View>
-                    <StarRow rating={headerCount === 0 ? 0 : Math.round(headerAvg)} size={18} />
-                    <Text
-                      style={{
-                        color: colors.textMuted,
-                        fontFamily: "Manrope_400Regular",
-                        fontSize: 12,
-                        marginTop: 3,
-                      }}
-                    >
-                      {headerCount} {headerCount === 1 ? "review" : "reviews"}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* ── Sort by (single active pill) ── */}
+              {/* ── Avg rating + sort (one row) ── */}
               <View
                 style={{
                   paddingHorizontal: 20,
@@ -1442,44 +1397,100 @@ export function ReviewsModal({
               >
                 <Text
                   style={{
-                    color: colors.textMuted,
-                    fontFamily: "Manrope_600SemiBold",
-                    fontSize: 12,
-                    marginBottom: 10,
+                    color: colors.text,
+                    fontFamily: "Manrope_700Bold",
+                    fontSize: 11,
+                    marginBottom: 6,
                   }}
                 >
-                  Sort by:
+                  {restaurantName}
                 </Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                  {(["newest", "highest", "lowest"] as const).map((mode) => {
-                    const active = sortMode === mode;
-                    const label =
-                      mode === "newest" ? "Newest" : mode === "highest" ? "Highest" : "Lowest";
-                    return (
-                      <Pressable
-                        key={mode}
-                        onPress={() => setSortModeAndHaptic(mode)}
-                        style={{
-                          paddingHorizontal: 14,
-                          paddingVertical: 8,
-                          borderRadius: 20,
-                          backgroundColor: active ? "rgba(255,153,51,0.2)" : colors.card,
-                          borderWidth: 1,
-                          borderColor: active ? "rgba(255,153,51,0.55)" : colors.cardBorder,
-                        }}
-                      >
+                <View>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 }}>
+                      <View style={{ minWidth: 40, alignItems: "flex-start" }}>
                         <Text
                           style={{
-                            color: active ? colors.saffron : colors.textMuted,
-                            fontFamily: "Manrope_600SemiBold",
-                            fontSize: 13,
+                            color: colors.saffron,
+                            fontFamily: "JetBrainsMono_600SemiBold",
+                            fontSize: 26,
+                            lineHeight: 30,
                           }}
                         >
-                          {label}
+                          {headerCount === 0 ? "—" : headerAvg.toFixed(1)}
                         </Text>
-                      </Pressable>
-                    );
-                  })}
+                      </View>
+                      <StarRow rating={headerCount === 0 ? 0 : Math.round(headerAvg)} size={13} />
+                    </View>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        flexShrink: 0,
+                        gap: 6,
+                      }}
+                    >
+                    <Text
+                      style={{
+                        color: colors.textMuted,
+                        fontFamily: "Manrope_700Bold",
+                        fontSize: 9,
+                      }}
+                    >
+                      Sort by:
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 5 }}>
+                      {(["newest", "highest", "lowest"] as const).map((mode) => {
+                        const active = sortMode === mode;
+                        const label =
+                          mode === "newest" ? "Newest" : mode === "highest" ? "Highest" : "Lowest";
+                        return (
+                          <Pressable
+                            key={mode}
+                            onPress={() => setSortModeAndHaptic(mode)}
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 14,
+                              backgroundColor: active ? "rgba(255,153,51,0.2)" : colors.card,
+                              borderWidth: 1,
+                              borderColor: active ? "rgba(255,153,51,0.55)" : colors.cardBorder,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: active ? colors.saffron : colors.textMuted,
+                                fontFamily: "Manrope_600SemiBold",
+                                fontSize: 10,
+                              }}
+                            >
+                              {label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
+                    <View style={{ minWidth: 40 }} />
+                    <Text
+                      style={{
+                        color: colors.textMuted,
+                        fontFamily: "Manrope_400Regular",
+                        fontSize: 10,
+                      }}
+                    >
+                      {headerCount} {headerCount === 1 ? "review" : "reviews"}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
