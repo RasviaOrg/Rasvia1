@@ -43,7 +43,7 @@ import {
   isPartyUnauthorizedMessage,
   setPaymentMode, setItemSplit, assignItemPayer,
   lockSession, unlockSession, startCheckout, cancelSession, leaveSession,
-  setHostInReview, fetchSnapshot, CheckoutError, hostTransferHost,
+  setHostInReview, fetchSnapshot, CheckoutError, hostTransferHost, hostRemoveMember,
   canBecomePartyHost, HOST_REQUIRES_APP_MESSAGE,
   formatCents, memberById, paymentForMember, isFullyPaid, totalCartCents,
   isSelfServeTableside, isSoloTableside, canProceedToCheckout, orderFlowTitle,
@@ -334,6 +334,7 @@ export default function JoinPartyScreen() {
   const payments = snapshot?.payments ?? [];
   const me = creds ? members.find((m) => m.id === creds.memberId) ?? null : null;
   const isHost = me?.role === 'host';
+  const canManageGuests = isHost && session?.status === 'open';
   const canHostCancelParty = useMemo(
     () =>
       isHost &&
@@ -691,27 +692,31 @@ export default function JoinPartyScreen() {
 
   const handleAssignHost = useCallback(
     (target: PartyMember) => {
-      if (!creds || target.role === 'host' || isTablesideStaffMember(target)) return;
-      if (!canBecomePartyHost(target)) {
+      if (!creds || !canManageGuests || target.role === 'host' || isTablesideStaffMember(target)) return;
+      if (!canBecomePartyHost(target, session)) {
         Alert.alert('Needs the Rasvia app', HOST_REQUIRES_APP_MESSAGE);
         return;
       }
       hapticTap();
       Alert.alert(
-        `Add ${target.display_name} as a host?`,
-        'They can lock the cart and choose how to pay. You stay a host too.',
+        `Make ${target.display_name} the host?`,
+        'They can lock the cart and choose how to pay. You will no longer be the host.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Add as host',
+            text: 'Transfer host',
             onPress: () => {
               void (async () => {
                 setBusy(true);
                 try {
                   await hostTransferHost(supabase, creds, target.id);
                   setViewingMemberId(null);
+                  await loadAll();
+                  if (Platform.OS !== 'web') {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }
                 } catch (err) {
-                  Alert.alert('Could not assign host', err instanceof Error ? err.message : 'Try again.');
+                  Alert.alert('Could not transfer host', err instanceof Error ? err.message : 'Try again.');
                 } finally {
                   setBusy(false);
                 }
@@ -721,7 +726,44 @@ export default function JoinPartyScreen() {
         ],
       );
     },
-    [creds],
+    [creds, canManageGuests, session, loadAll],
+  );
+
+  const handleRemoveGuest = useCallback(
+    (target: PartyMember) => {
+      if (!creds || !canManageGuests || isTablesideStaffMember(target)) return;
+      if (target.id === creds.memberId) return;
+      hapticTap();
+      Alert.alert(
+        `Remove ${target.display_name}?`,
+        'Their unpaid items will be cleared while the cart is still open.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                setBusy(true);
+                try {
+                  await hostRemoveMember(supabase, creds, target.id);
+                  setViewingMemberId(null);
+                  await loadAll();
+                  if (Platform.OS !== 'web') {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }
+                } catch (err) {
+                  Alert.alert('Could not remove guest', err instanceof Error ? err.message : 'Try again.');
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            },
+          },
+        ],
+      );
+    },
+    [creds, canManageGuests, loadAll],
   );
 
   // Handle checkout return (from payment-redirect deep link).
@@ -1351,10 +1393,13 @@ export default function JoinPartyScreen() {
             isSelf={viewingMemberId === creds.memberId}
             onClose={() => setViewingMemberId(null)}
             showAssignHost={Boolean(
-              isHost && viewingMember && viewingMember.role !== 'host',
+              canManageGuests &&
+              viewingMember &&
+              viewingMember.role !== 'host' &&
+              !isTablesideStaffMember(viewingMember),
             )}
             assignHostEnabled={Boolean(
-              viewingMember && canBecomePartyHost(viewingMember),
+              viewingMember && canBecomePartyHost(viewingMember, session),
             )}
             onAssignHost={
               viewingMember
@@ -1362,6 +1407,16 @@ export default function JoinPartyScreen() {
                 : undefined
             }
             assignHostBusy={busy}
+            showRemoveGuest={Boolean(
+              canManageGuests &&
+              viewingMember &&
+              viewingMember.id !== creds.memberId &&
+              !isTablesideStaffMember(viewingMember),
+            )}
+            onRemoveGuest={
+              viewingMember ? () => handleRemoveGuest(viewingMember) : undefined
+            }
+            removeGuestBusy={busy}
           />
         </View>
       </>
@@ -1482,10 +1537,13 @@ export default function JoinPartyScreen() {
             isSelf={viewingMemberId === creds.memberId}
             onClose={() => setViewingMemberId(null)}
             showAssignHost={Boolean(
-              isHost && viewingMember && viewingMember.role !== 'host',
+              canManageGuests &&
+              viewingMember &&
+              viewingMember.role !== 'host' &&
+              !isTablesideStaffMember(viewingMember),
             )}
             assignHostEnabled={Boolean(
-              viewingMember && canBecomePartyHost(viewingMember),
+              viewingMember && canBecomePartyHost(viewingMember, session),
             )}
             onAssignHost={
               viewingMember
@@ -1493,6 +1551,16 @@ export default function JoinPartyScreen() {
                 : undefined
             }
             assignHostBusy={busy}
+            showRemoveGuest={Boolean(
+              canManageGuests &&
+              viewingMember &&
+              viewingMember.id !== creds.memberId &&
+              !isTablesideStaffMember(viewingMember),
+            )}
+            onRemoveGuest={
+              viewingMember ? () => handleRemoveGuest(viewingMember) : undefined
+            }
+            removeGuestBusy={busy}
           />
         </View>
       </>
@@ -1608,10 +1676,13 @@ export default function JoinPartyScreen() {
             isSelf={viewingMemberId === creds.memberId}
             onClose={() => setViewingMemberId(null)}
             showAssignHost={Boolean(
-              isHost && viewingMember && viewingMember.role !== 'host',
+              canManageGuests &&
+              viewingMember &&
+              viewingMember.role !== 'host' &&
+              !isTablesideStaffMember(viewingMember),
             )}
             assignHostEnabled={Boolean(
-              viewingMember && canBecomePartyHost(viewingMember),
+              viewingMember && canBecomePartyHost(viewingMember, session),
             )}
             onAssignHost={
               viewingMember
@@ -1619,6 +1690,16 @@ export default function JoinPartyScreen() {
                 : undefined
             }
             assignHostBusy={busy}
+            showRemoveGuest={Boolean(
+              canManageGuests &&
+              viewingMember &&
+              viewingMember.id !== creds.memberId &&
+              !isTablesideStaffMember(viewingMember),
+            )}
+            onRemoveGuest={
+              viewingMember ? () => handleRemoveGuest(viewingMember) : undefined
+            }
+            removeGuestBusy={busy}
           />
         <MenuItemDetailsModal
           item={selectedMenuItem}
@@ -2417,6 +2498,9 @@ function MemberItemsSheet({
   assignHostEnabled,
   onAssignHost,
   assignHostBusy,
+  showRemoveGuest,
+  onRemoveGuest,
+  removeGuestBusy,
 }: {
   visible: boolean;
   member: PartyMember | null;
@@ -2428,6 +2512,9 @@ function MemberItemsSheet({
   assignHostEnabled?: boolean;
   onAssignHost?: () => void;
   assignHostBusy?: boolean;
+  showRemoveGuest?: boolean;
+  onRemoveGuest?: () => void;
+  removeGuestBusy?: boolean;
 }) {
   const s = useJoinS();
   const { colors } = useAppTheme();
@@ -2469,7 +2556,7 @@ function MemberItemsSheet({
         </View>
 
         {showAssignHost && onAssignHost ? (
-          <View style={{ marginBottom: 10 }}>
+          <View style={{ marginBottom: showRemoveGuest ? 8 : 10 }}>
             <Pressable
               onPress={() => {
                 if (!assignHostEnabled) {
@@ -2478,7 +2565,7 @@ function MemberItemsSheet({
                 }
                 onAssignHost();
               }}
-              disabled={assignHostBusy}
+              disabled={assignHostBusy || removeGuestBusy}
               style={[
                 s.primaryBtn,
                 {
@@ -2493,9 +2580,7 @@ function MemberItemsSheet({
               {assignHostBusy ? (
                 <ActivityIndicator color="#FFF" size="small" />
               ) : (
-                <Text style={[s.primaryBtnText, { fontSize: 12 }]}>
-                  Make {member.display_name.split(' ')[0]} host
-                </Text>
+                <Text style={[s.primaryBtnText, { fontSize: 12 }]}>Make host</Text>
               )}
             </Pressable>
             {!assignHostEnabled ? (
@@ -2509,6 +2594,32 @@ function MemberItemsSheet({
               </Text>
             ) : null}
           </View>
+        ) : null}
+
+        {showRemoveGuest && onRemoveGuest ? (
+          <Pressable
+            onPress={onRemoveGuest}
+            disabled={assignHostBusy || removeGuestBusy}
+            style={[
+              s.dangerBtnOutline,
+              {
+                marginBottom: 10,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                opacity: removeGuestBusy ? 0.6 : 1,
+              },
+            ]}
+          >
+            {removeGuestBusy ? (
+              <ActivityIndicator color="#EF4444" size="small" />
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <UserMinus size={14} color="#EF4444" />
+                <Text style={[s.dangerBtnOutlineText, { fontSize: 12 }]}>Remove from group</Text>
+              </View>
+            )}
+          </Pressable>
         ) : null}
 
         {items.length === 0 ? (

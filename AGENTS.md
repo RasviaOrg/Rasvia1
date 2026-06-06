@@ -342,6 +342,16 @@ session per table. Mobile handling:
   **Checkout** → lock → pay. Copy uses "Table order" / table label, not "Group
   order". In-app group orders still require 2+ members before checkout.
 
+## Host transfer + guest removal (mobile) — June 2026
+
+On `app/join/[id].tsx`, hosts tap a member chip to open `MemberItemsSheet` and can
+**Make host** (`party_host_transfer_host` — single host max; outgoing host is
+demoted) or **Remove from group** (`party_host_remove_member`) while
+`session.status === 'open'`. Regular group orders only transfer to guests who joined
+via the app (`canBecomePartyHost`); self-serve tableside may also transfer to web
+joiners. Migration: `20260606120000_party_single_host_max.sql`. Removed guests are
+kicked via realtime + `handleRemovedFromGroup`.
+
 ## Group Order Review Lock + Split Mode UI — June 2026
 
 On mobile `app/join/[id].tsx`, the host's **Review & checkout** tap now sets

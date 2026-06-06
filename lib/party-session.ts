@@ -47,8 +47,13 @@ export function partyGuestMembers(members: PartyMember[]): PartyMember[] {
   return members.filter((m) => !m.left_at && !isTablesideStaffMember(m));
 }
 
-/** Only app guests can be assigned host (not browser join). */
-export function canBecomePartyHost(member: PartyMember): boolean {
+/** App guests can be promoted; self-serve tableside also allows web joiners. */
+export function canBecomePartyHost(
+  member: PartyMember,
+  session?: Pick<PartySession, 'self_serve'> | null,
+): boolean {
+  if (isTablesideStaffMember(member)) return false;
+  if (session?.self_serve) return true;
   return member.client_platform === 'app';
 }
 
@@ -352,7 +357,7 @@ export async function hostRemoveMember(
   if (error) throw new Error(mapRpcError(error));
 }
 
-/** Host transfers the host role to another active member. */
+/** Transfer host to another member (demotes the current host; one host max). */
 export async function hostTransferHost(
   supabase: SupabaseClient,
   creds: PartyCreds,
