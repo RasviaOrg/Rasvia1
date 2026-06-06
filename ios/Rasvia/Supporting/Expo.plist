@@ -4,8 +4,6 @@
   <dict>
     <key>EXUpdatesCheckOnLaunch</key>
     <string>ALWAYS</string>
-    <key>EXUpdatesEnableBsdiffPatchSupport</key>
-    <true/>
     <key>EXUpdatesEnabled</key>
     <false/>
     <key>EXUpdatesLaunchWaitMs</key>
