@@ -75,7 +75,6 @@
         }
       ],
       "expo-secure-store",
-      "expo-status-bar",
       "expo-image",
       "@react-native-community/datetimepicker"
     ],
