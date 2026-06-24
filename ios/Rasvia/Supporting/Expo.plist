@@ -10,5 +10,7 @@
     <integer>0</integer>
     <key>EXUpdatesRuntimeVersion</key>
     <string>exposdk:56.0.0</string>
+    <key>EXUpdatesEnableBsdiffPatchSupport</key>
+    <true/>
   </dict>
 </plist>
