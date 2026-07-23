@@ -1,61 +1,100 @@
-# Welcome to your Expo app 👋
+# Rasvia mobile app
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Rasvia is a cross-platform restaurant and dining app built with Expo and React Native. It lets diners discover restaurants, browse menus, join waitlists and group dining sessions, place orders, manage favorites, and complete payments. Restaurant owners and platform administrators use the same app for operational workflows such as menus, orders, staff, media, and waitlists.
 
-## Get started
+This repository contains the mobile client, native iOS project, Supabase migrations, and Supabase Edge Functions used by the Rasvia platform.
 
-1. Install dependencies
+## Features
 
-   ```bash
-   npm install
-   ```
+- Restaurant discovery, cuisine and location browsing, favorites, and recently viewed restaurants.
+- Menu browsing with modifiers, tags, media, availability, and restaurant hours.
+- Cart, checkout, tax estimation, order status, cancellation, refunds, and order history.
+- Waitlist joining, live status updates, seating, notifications, and push notification registration.
+- Group dining sessions with hosts, members, shared carts, item ownership, join credentials, and payment settlement.
+- Tableside QR self-order flows that resolve a table into an active dining session.
+- Account management, email and phone verification, Google OAuth, password reset, and role-aware navigation.
+- Owner and admin tools for restaurants, menus, orders, reviews, staff, media, and operational settings.
 
-2. Set up Supabase
+## Technology
 
-   Create a `.env` file in the root directory with your Supabase credentials:
+- Expo SDK 56, React Native 0.85, Expo Router, and TypeScript.
+- Supabase Auth, PostgreSQL, Storage, Realtime, and Edge Functions.
+- Stripe flows are handled server-side by Edge Functions; secret payment keys never belong in this app.
+- Native iOS project under `ios/` and Android project under `android/`.
+- NativeWind/Tailwind, Gesture Handler, Reanimated, Maps, SecureStore, and QR rendering.
 
-   ```env
-   EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
-   EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   ```
+## Repository layout
 
-   > **Note:** The `.env` file is already in `.gitignore` to protect your credentials.
+| Path | Purpose |
+| --- | --- |
+| `app/` | Expo Router screens and route groups |
+| `components/` | Shared UI and restaurant/admin components |
+| `lib/` | Supabase client, auth, carts, orders, parties, waitlists, media, and domain helpers |
+| `hooks/` | Reusable stateful hooks |
+| `supabase/migrations/` | Database schema and Row Level Security changes |
+| `supabase/functions/` | Deno Edge Functions for payments, notifications, sessions, and account operations |
+| `ios/`, `android/` | Native platform projects |
+| `scripts/` | Local build and test helpers |
 
-3. Start the app
+## Requirements
 
-   ```bash
-    npx expo start
-   ```
+- Node.js compatible with the Expo SDK 56 toolchain.
+- npm.
+- Xcode and CocoaPods for iOS development.
+- Android Studio and an Android SDK for Android development.
+- A Supabase project for authenticated and data-backed flows.
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Local setup
 
 ```bash
-npm run reset-project
+npm install
+cp .env.example .env
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Edit `.env` locally with the Supabase project URL and public anon key. The `.env` file is ignored and must never be committed. The public anon key is intended for client use, but it must still be supplied through local/deployment configuration rather than hard-coded into source control.
 
-## Learn more
+Start the development server:
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npm run start
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Useful targets:
 
-## Join the community
+```bash
+npm run ios
+npm run android
+npm run web
+npm run start:dev-client
+npm run lint
+npm test
+```
 
-Join our community of developers creating universal apps.
+For native builds, configure the Google Maps key through the local environment as required by `app.config.js`. Do not place a Maps key in tracked files.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Supabase and deployment
+
+The mobile app expects the Supabase project to have the migrations in `supabase/migrations/` applied. Edge Functions are deployed from `supabase/functions/` using the Supabase CLI. Link a project and configure function secrets in the Supabase dashboard or CLI secret store; do not put service-role, Stripe, Twilio, SMTP, or webhook secrets in this repository.
+
+```bash
+supabase login
+supabase link --project-ref <project-ref>
+supabase db push
+supabase functions deploy <function-name>
+```
+
+## Security notes
+
+- Never commit `.env`, service-role keys, Stripe secret keys, webhook secrets, Twilio auth tokens, private keys, or access tokens.
+- Store device party credentials in SecureStore; they are session credentials, not application configuration.
+- Keep privileged database and payment operations in Edge Functions protected by authentication and Row Level Security.
+- If a credential is exposed, revoke or rotate it immediately and inspect the full Git history before publishing.
+
+## Related repositories
+
+- [`RasviaAPI`](https://github.com/RasviaOrg/RasviaAPI) — centralized FastAPI service.
+- [`RasviaWeb`](https://github.com/RasviaOrg/RasviaWeb) — public website and restaurant dashboard.
+
+## Contributing
+
+Create a focused branch, keep migrations reversible where possible, run lint/tests for the affected area, and describe required Supabase configuration changes in the pull request. Never include real credentials in commits, issue descriptions, screenshots, or logs.
